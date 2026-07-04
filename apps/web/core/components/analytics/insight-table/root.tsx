@@ -8,10 +8,10 @@ import type { ColumnDef, Row, Table } from "@tanstack/react-table";
 import { Download } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
-import type { AnalyticsTableDataMap, TAnalyticsTabsBase } from "@plane/types";
+import type { AnalyticsTableDataMap } from "@plane/types";
 import { DataTable } from "./data-table";
 import { TableLoader } from "./loader";
-interface InsightTableProps<T extends Exclude<TAnalyticsTabsBase, "overview">> {
+interface InsightTableProps<T extends keyof AnalyticsTableDataMap> {
   analyticsType: T;
   data?: AnalyticsTableDataMap[T][];
   isLoading?: boolean;
@@ -21,9 +21,7 @@ interface InsightTableProps<T extends Exclude<TAnalyticsTabsBase, "overview">> {
   onExport?: (rows: Row<AnalyticsTableDataMap[T]>[]) => void;
 }
 
-export function InsightTable<T extends Exclude<TAnalyticsTabsBase, "overview">>(
-  props: InsightTableProps<T>
-): React.ReactElement {
+export function InsightTable<T extends keyof AnalyticsTableDataMap>(props: InsightTableProps<T>): React.ReactElement {
   const { data, isLoading, columns, headerText, onExport } = props;
   const { t } = useTranslation();
   if (isLoading) {

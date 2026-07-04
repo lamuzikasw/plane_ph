@@ -11,6 +11,8 @@ import type {
   TAnalyticsTabsBase,
   TAnalyticsGraphsBase,
   TAnalyticsFilterParams,
+  TManagementAnalyticsResponse,
+  TManagementAnalyticsSection,
 } from "@plane/types";
 // services
 import { APIService } from "./api.service";
@@ -82,6 +84,37 @@ export class AnalyticsService extends APIService {
         ...params,
       },
     })
+      .then((res) => res?.data)
+      .catch((err) => {
+        throw err?.response?.data;
+      });
+  }
+
+  async getManagementAnalytics(
+    workspaceSlug: string,
+    section: TManagementAnalyticsSection,
+    params?: Record<string, string | undefined>
+  ): Promise<TManagementAnalyticsResponse> {
+    return this.get(`/api/workspaces/${workspaceSlug}/management-analytics/${section}/`, { params })
+      .then((res) => res?.data)
+      .catch((err) => {
+        throw err?.response?.data;
+      });
+  }
+
+  async getManagementAnalyticsSettings(workspaceSlug: string): Promise<Record<string, any>> {
+    return this.get(`/api/workspaces/${workspaceSlug}/management-analytics-settings/`)
+      .then((res) => res?.data)
+      .catch((err) => {
+        throw err?.response?.data;
+      });
+  }
+
+  async updateManagementAnalyticsSettings(
+    workspaceSlug: string,
+    payload: Record<string, any>
+  ): Promise<Record<string, any>> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/management-analytics-settings/`, payload)
       .then((res) => res?.data)
       .catch((err) => {
         throw err?.response?.data;

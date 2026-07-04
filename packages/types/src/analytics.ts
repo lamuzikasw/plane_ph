@@ -37,7 +37,16 @@ export enum ChartYAxisMetric {
   EPIC_WORK_ITEM_COUNT = "EPIC_WORK_ITEM_COUNT",
 }
 
-export type TAnalyticsTabsBase = "overview" | "work-items";
+export type TAnalyticsTabsBase =
+  | "overview"
+  | "work-items"
+  | "team"
+  | "projects"
+  | "workload"
+  | "delivery"
+  | "risks"
+  | "data-quality"
+  | "settings";
 export type TAnalyticsGraphsBase = "projects" | "work-items" | "custom-work-items";
 export interface AnalyticsTab {
   key: TAnalyticsTabsBase;
@@ -94,3 +103,39 @@ export interface IAnalyticsParams {
   y_axis: ChartYAxisMetric;
   group_by?: ChartXAxisProperty;
 }
+
+export type TManagementAnalyticsSection = Exclude<TAnalyticsTabsBase, "work-items" | "settings">;
+
+export type TManagementAnalyticsKPI = {
+  key: string;
+  value: number | null;
+  previous_value: number | null;
+  delta_percent: number | null;
+  value_type: "number" | "percent" | "duration";
+  formula: string;
+  drilldown: {
+    entity: string;
+    filters: Record<string, string>;
+  };
+};
+
+export type TManagementAnalyticsResponse = {
+  period?: {
+    key: string;
+    start: string;
+    end: string;
+    previous_start: string;
+    previous_end: string;
+    timezone: string;
+  };
+  history?: {
+    status: "available" | "partial";
+    message: string;
+  };
+  kpis?: TManagementAnalyticsKPI[];
+  results?: any[];
+  checks?: any[];
+  summary?: Record<string, any>;
+  score?: number;
+  count?: number;
+};

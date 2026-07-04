@@ -73,6 +73,19 @@ export const renderFormattedPayloadDate = (date: Date | string | undefined | nul
   return formattedDate;
 };
 
+/**
+ * @returns {string | null} formatted date-time in the format of yyyy-MM-dd'T'HH:mm:ss to be used in payload
+ * @description Returns date-time in the formatted format to be used in payload
+ * @param {Date | string} date
+ */
+export const renderFormattedPayloadDateTime = (date: Date | string | undefined | null): string | undefined => {
+  const parsedDate = getDateTime(date);
+  if (!parsedDate) return;
+  if (!isValid(parsedDate)) return;
+
+  return format(parsedDate, "yyyy-MM-dd'T'HH:mm:ss");
+};
+
 // Format Time Helpers
 /**
  * @returns {string} formatted date in the format of hh:mm a or HH:mm
@@ -284,7 +297,7 @@ export const getDate = (date: string | Date | undefined | null): Date | undefine
   try {
     if (!date || date === "") return;
 
-    if (typeof date !== "string" && !(date instanceof String)) return date;
+    if (typeof date !== "string") return date;
 
     const [yearString, monthString, dayString] = date.substring(0, 10).split("-");
     const year = parseInt(yearString);
@@ -293,6 +306,24 @@ export const getDate = (date: string | Date | undefined | null): Date | undefine
     if (!isNumber(year) || !isNumber(month) || !isNumber(day)) return;
 
     return new Date(year, month - 1, day);
+  } catch (_e) {
+    return undefined;
+  }
+};
+
+/**
+ * This method returns a date-time from date-time strings while preserving date-only parsing behavior.
+ * Use this when the time part matters; use getDate for date-only comparisons/grouping.
+ */
+export const getDateTime = (date: string | Date | undefined | null): Date | undefined => {
+  try {
+    if (!date || date === "") return;
+    if (typeof date !== "string") return date;
+
+    const parsedDate = parseISO(String(date));
+    if (isValid(parsedDate)) return parsedDate;
+
+    return getDate(date);
   } catch (_e) {
     return undefined;
   }
@@ -390,23 +421,22 @@ export const getReadTimeFromWordsCount = (wordsCount: number): number => {
  * @returns
  */
 export const generateDateArray = (startDate: string | Date, endDate: string | Date) => {
-  // Convert the start and end dates to Date objects if they aren't already
-  const start = new Date(startDate);
-  // start.setDate(start.getDate() + 1);
   const end = new Date(endDate);
   end.setDate(end.getDate() + 2);
+  const endTime = end.getTime();
 
   // Create an empty array to store the dates
   const dateArray = [];
 
-  // Use a while loop to generate dates between the range
-  while (start <= end) {
+  for (let timestamp = new Date(startDate).getTime(); timestamp <= endTime; ) {
+    const currentDate = new Date(timestamp);
     // Push the current date (converted to ISO string for consistency)
     dateArray.push({
-      date: new Date(start).toISOString().split("T")[0],
+      date: currentDate.toISOString().split("T")[0],
     });
     // Increment the date by 1 day (86400000 milliseconds)
-    start.setDate(start.getDate() + 1);
+    currentDate.setDate(currentDate.getDate() + 1);
+    timestamp = currentDate.getTime();
   }
 
   return dateArray;
@@ -533,6 +563,33 @@ export const formatDateRange = (
     const startFormatted = format(parsedStartDate, "MMM dd, yyyy");
     const endFormatted = format(parsedEndDate, "MMM dd, yyyy");
     return `${startFormatted} - ${endFormatted}`;
+  }
+
+  return "";
+};
+
+/**
+ * Formats date-time ranges with compact same-day handling.
+ */
+export const formatDateTimeRange = (
+  parsedStartDate: Date | null | undefined,
+  parsedEndDate: Date | null | undefined
+): string => {
+  if (!parsedStartDate && !parsedEndDate) return "";
+  if (parsedStartDate && !parsedEndDate) return format(parsedStartDate, "MMM dd, yyyy HH:mm");
+  if (!parsedStartDate && parsedEndDate) return format(parsedEndDate, "MMM dd, yyyy HH:mm");
+
+  if (parsedStartDate && parsedEndDate) {
+    const isSameDay =
+      parsedStartDate.getFullYear() === parsedEndDate.getFullYear() &&
+      parsedStartDate.getMonth() === parsedEndDate.getMonth() &&
+      parsedStartDate.getDate() === parsedEndDate.getDate();
+
+    if (isSameDay) {
+      return `${format(parsedStartDate, "MMM dd, yyyy HH:mm")} - ${format(parsedEndDate, "HH:mm")}`;
+    }
+
+    return `${format(parsedStartDate, "MMM dd, yyyy HH:mm")} - ${format(parsedEndDate, "MMM dd, yyyy HH:mm")}`;
   }
 
   return "";

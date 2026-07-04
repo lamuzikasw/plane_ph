@@ -10,7 +10,7 @@ import { ETabIndices } from "@plane/constants";
 import { ParentPropertyIcon } from "@plane/propel/icons";
 import type { ISearchIssueResponse, TIssue } from "@plane/types";
 import { CustomMenu } from "@plane/ui";
-import { renderFormattedPayloadDate, getDate, getTabIndex } from "@plane/utils";
+import { renderFormattedPayloadDateTime, getDate, getTabIndex } from "@plane/utils";
 // components
 import { CycleDropdown } from "@/components/dropdowns/cycle";
 import { DateDropdown } from "@/components/dropdowns/date";
@@ -106,11 +106,12 @@ export const InboxIssueProperties = observer(function InboxIssueProperties(props
         <div className="h-7">
           <DateDropdown
             value={data?.start_date || null}
-            onChange={(date) => handleData("start_date", date ? renderFormattedPayloadDate(date) : "")}
+            onChange={(date) => handleData("start_date", date ? renderFormattedPayloadDateTime(date) : "")}
             buttonVariant="border-with-text"
             minDate={minDate ?? undefined}
             placeholder="Start date"
             tabIndex={getIndex("start_date")}
+            includeTime
           />
         </div>
       )}
@@ -119,11 +120,12 @@ export const InboxIssueProperties = observer(function InboxIssueProperties(props
       <div className="h-7">
         <DateDropdown
           value={data?.target_date || null}
-          onChange={(date) => handleData("target_date", date ? renderFormattedPayloadDate(date) : "")}
+          onChange={(date) => handleData("target_date", date ? renderFormattedPayloadDateTime(date) : "")}
           buttonVariant="border-with-text"
           minDate={minDate ?? undefined}
           placeholder="Due date"
           tabIndex={getIndex("target_date")}
+          includeTime
         />
       </div>
 

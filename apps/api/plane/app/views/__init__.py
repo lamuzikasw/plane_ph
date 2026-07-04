@@ -178,6 +178,12 @@ from .page.version import PageVersionEndpoint
 from .search.base import GlobalSearchEndpoint, SearchEndpoint
 from .search.issue import IssueSearchEndpoint
 
+from .analytic.management import (
+    ManagementAnalyticsEndpoint,
+    ManagementAnalyticsSettingsEndpoint,
+    ManagementAnalyticsExportEndpoint,
+)
+
 
 from .external.base import (
     GPTIntegrationEndpoint,

@@ -15,7 +15,7 @@ import { ParentPropertyIcon } from "@plane/propel/icons";
 import type { ISearchIssueResponse, TIssue } from "@plane/types";
 // ui
 import { CustomMenu } from "@plane/ui";
-import { getDate, renderFormattedPayloadDate, getTabIndex } from "@plane/utils";
+import { getDate, renderFormattedPayloadDateTime, getTabIndex } from "@plane/utils";
 // components
 import { CycleDropdown } from "@/components/dropdowns/cycle";
 import { DateDropdown } from "@/components/dropdowns/date";
@@ -170,13 +170,14 @@ export const IssueDefaultProperties = observer(function IssueDefaultProperties(p
             <DateDropdown
               value={value}
               onChange={(date) => {
-                onChange(date ? renderFormattedPayloadDate(date) : null);
+                onChange(date ? renderFormattedPayloadDateTime(date) : null);
                 handleFormChange();
               }}
               buttonVariant="border-with-text"
               maxDate={maxDate ?? undefined}
               placeholder={t("start_date")}
               tabIndex={getIndex("start_date")}
+              includeTime
             />
           </div>
         )}
@@ -189,13 +190,14 @@ export const IssueDefaultProperties = observer(function IssueDefaultProperties(p
             <DateDropdown
               value={value}
               onChange={(date) => {
-                onChange(date ? renderFormattedPayloadDate(date) : null);
+                onChange(date ? renderFormattedPayloadDateTime(date) : null);
                 handleFormChange();
               }}
               buttonVariant="border-with-text"
               minDate={minDate ?? undefined}
               placeholder={t("due_date")}
               tabIndex={getIndex("target_date")}
+              includeTime
             />
           </div>
         )}

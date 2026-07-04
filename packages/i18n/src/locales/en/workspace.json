@@ -66,47 +66,47 @@
     }
   },
   "workspace_analytics": {
-    "label": "Analytics",
-    "page_label": "{workspace} - Analytics",
-    "open_tasks": "Total open tasks",
-    "error": "There was some error in fetching the data.",
-    "work_items_closed_in": "Work items closed in",
-    "selected_projects": "Selected projects",
-    "total_members": "Total members",
-    "total_cycles": "Total cycles",
-    "total_modules": "Total modules",
+    "label": "Аналитика",
+    "page_label": "{workspace} - Аналитика",
+    "open_tasks": "Всего открытых задач",
+    "error": "Ошибка при получении данных.",
+    "work_items_closed_in": "Задачи закрыты в",
+    "selected_projects": "Выбранные проекты",
+    "total_members": "Всего участников",
+    "total_cycles": "Всего циклов",
+    "total_modules": "Всего модулей",
     "pending_work_items": {
-      "title": "Pending work items",
-      "empty_state": "Analysis of pending work items by co-workers appears here."
+      "title": "Ожидающие задачи",
+      "empty_state": "Здесь отображается анализ ожидающих задач по сотрудникам."
     },
     "work_items_closed_in_a_year": {
-      "title": "Work items closed in a year",
-      "empty_state": "Close work items to view analysis of the same in the form of a graph."
+      "title": "Задачи, закрытые за год",
+      "empty_state": "Закрывайте задачи, чтобы увидеть аналитику в виде графика."
     },
     "most_work_items_created": {
-      "title": "Most work items created",
-      "empty_state": "Co-workers and the number of work items created by them appears here."
+      "title": "Больше всего созданных задач",
+      "empty_state": "Здесь отображаются сотрудники и количество созданных ими задач."
     },
     "most_work_items_closed": {
-      "title": "Most work items closed",
-      "empty_state": "Co-workers and the number of work items closed by them appears here."
+      "title": "Больше всего закрытых задач",
+      "empty_state": "Здесь отображаются сотрудники и количество закрытых ими задач."
     },
     "tabs": {
-      "scope_and_demand": "Scope and Demand",
-      "custom": "Custom Analytics"
+      "scope_and_demand": "Объём и спрос",
+      "custom": "Пользовательская аналитика"
     },
-    "total": "Total {entity}",
-    "started_work_items": "Started {entity}",
-    "backlog_work_items": "Backlog {entity}",
-    "un_started_work_items": "Unstarted {entity}",
-    "completed_work_items": "Completed {entity}",
-    "project_insights": "Project Insights",
-    "summary_of_projects": "Summary of Projects",
-    "all_projects": "All Projects",
-    "trend_on_charts": "Trend on charts",
-    "active_projects": "Active Projects",
-    "customized_insights": "Customized Insights",
-    "created_vs_resolved": "Created vs Resolved",
+    "total": "Всего {entity}",
+    "started_work_items": "{entity} в работе",
+    "backlog_work_items": "{entity} в бэклоге",
+    "un_started_work_items": "{entity} не начаты",
+    "completed_work_items": "{entity} завершены",
+    "project_insights": "Аналитика проекта",
+    "summary_of_projects": "Сводка по проектам",
+    "all_projects": "Все проекты",
+    "trend_on_charts": "Тренд на графиках",
+    "active_projects": "Активные проекты",
+    "customized_insights": "Индивидуальная аналитика",
+    "created_vs_resolved": "Создано / решено",
     "empty_state": {
       "project_insights": {
         "title": "No data yet",

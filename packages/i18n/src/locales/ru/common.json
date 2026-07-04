@@ -867,5 +867,183 @@
       "description": "Экспорт рабочих элементов в JSON-файл.",
       "short_description": "Экспорт в json"
     }
+  },
+  "management_analytics": {
+    "tabs": {
+      "overview": "Обзор",
+      "team": "Команда",
+      "projects": "Проекты",
+      "workload": "Загрузка",
+      "delivery": "Сроки",
+      "risks": "Риски",
+      "data_quality": "Качество данных",
+      "settings": "Настройки",
+      "work_items": "Задачи"
+    },
+    "periods": {
+      "current_week": "Текущая неделя",
+      "previous_week": "Предыдущая неделя",
+      "last_14_days": "Последние 14 дней",
+      "last_30_days": "Последние 30 дней",
+      "current_month": "Текущий месяц",
+      "previous_month": "Предыдущий месяц",
+      "current_quarter": "Текущий квартал"
+    },
+    "filters": {
+      "project_ids": "Идентификаторы проектов",
+      "member_ids": "Идентификаторы участников",
+      "all_projects": "Все проекты",
+      "more_than_three_projects": "3+ проекта",
+      "reset": "Сбросить"
+    },
+    "states": {
+      "error": "Не удалось загрузить аналитику.",
+      "partial_history": "Часть метрик сроков неполная: история доступна не для всех задач.",
+      "no_attention": "В этом периоде нет критичных пунктов внимания."
+    },
+    "blocks": {
+      "needs_attention": "Требует внимания",
+      "who_is_doing_what": "Кто чем занимается",
+      "project_health": "Здоровье проектов",
+      "workload": "Загрузка",
+      "risks": "Риски"
+    },
+    "kpis": {
+      "active_members": "Активные сотрудники",
+      "active_projects": "Активные проекты",
+      "work_items_in_progress": "Задачи в работе",
+      "work_items_in_review": "Задачи на проверке",
+      "blocked_work_items": "Заблокированные задачи",
+      "overdue_work_items": "Просроченные задачи",
+      "unassigned_work_items": "Без исполнителя",
+      "unestimated_work_items": "Без оценки",
+      "unscheduled_work_items": "Без срока",
+      "completed_work_items": "Завершено задач",
+      "average_cycle_time_hours": "Среднее время цикла",
+      "on_time_delivery_percent": "В срок",
+      "average_team_workload_percent": "Средняя загрузка",
+      "high_risk_projects": "Проекты высокого риска"
+    },
+    "formulas": {
+      "active_members": "Активные участники рабочего пространства без служебных пользователей.",
+      "active_projects": "Неархивные проекты рабочего пространства.",
+      "work_items_in_progress": "Открытые задачи в группах состояний «в работе».",
+      "work_items_in_review": "Задачи в настроенных группах состояний для проверки.",
+      "blocked_work_items": "Открытые задачи с активными блокерами.",
+      "overdue_work_items": "Открытые задачи со сроком раньше текущего времени.",
+      "unassigned_work_items": "Открытые задачи без исполнителей.",
+      "unestimated_work_items": "Открытые задачи без оценки.",
+      "unscheduled_work_items": "Открытые задачи без срока.",
+      "completed_work_items": "Задачи, завершённые за выбранный период.",
+      "average_cycle_time_hours": "От первого перехода в работу до первого перехода в завершение.",
+      "on_time_delivery_percent": "Завершённые в срок задачи относительно всех завершённых задач со сроком.",
+      "average_team_workload_percent": "Плановая оценка / доступная ёмкость команды.",
+      "high_risk_projects": "Проекты с оценкой риска выше высокого порога."
+    },
+    "tables": {
+      "member": "Сотрудник",
+      "main_work": "Основная задача",
+      "projects": "Проекты",
+      "active": "Активные",
+      "blocked": "Блокеры",
+      "overdue": "Просрочка",
+      "workload": "Загрузка",
+      "updated": "Обновлено",
+      "project": "Проект",
+      "owner": "Владелец",
+      "progress": "Прогресс",
+      "risk": "Риск",
+      "reason": "Причина",
+      "completed": "Завершено",
+      "check": "Проверка",
+      "violations": "Нарушения"
+    },
+    "attention": {
+      "member_overloaded": "{label} перегружен.",
+      "too_many_parallel_projects": "{label} участвует в слишком многих проектах.",
+      "project_high_risk": "{label} находится в высоком риске.",
+      "stale_work_item": "{label} давно не обновлялась."
+    },
+    "severity": {
+      "high": "Высокая",
+      "medium": "Средняя"
+    },
+    "risk": {
+      "low": "Низкий",
+      "medium": "Средний",
+      "high": "Высокий"
+    },
+    "risk_reasons": {
+      "overdue_ratio": "Слишком много просроченных задач",
+      "blocked_work": "Есть заблокированная работа",
+      "missing_estimate_ratio": "Не хватает оценок",
+      "stale_project": "Нет свежей активности",
+      "bus_factor": "Зависимость от одного человека"
+    },
+    "workload_levels": {
+      "unknown": "Неизвестно",
+      "available": "Есть ёмкость",
+      "healthy": "Норма",
+      "high": "Высокая",
+      "overloaded": "Перегруз"
+    },
+    "progress_methods": {
+      "estimate": "по оценке",
+      "count": "по количеству"
+    },
+    "summary": {
+      "average_workload_percent": "Средняя загрузка",
+      "overloaded_members": "Перегруженные сотрудники",
+      "members_with_capacity": "Сотрудники со свободной ёмкостью",
+      "cycle_time_hours": "Время цикла, часы",
+      "lead_time_hours": "Время выполнения, часы",
+      "throughput": "Пропускная способность",
+      "on_time_delivery_percent": "Выполнение в срок",
+      "estimate_accuracy_percent": "Точность оценки",
+      "flow_efficiency_percent": "Эффективность потока",
+      "reopened_work_items": "Переоткрытые задачи",
+      "high": "Высокий риск",
+      "medium": "Средний риск",
+      "low": "Низкий риск"
+    },
+    "data_quality": {
+      "score": "Оценка качества данных"
+    },
+    "charts": {
+      "workload_by_member": "Загрузка по сотрудникам",
+      "workload_distribution": "Распределение загрузки",
+      "team_activity": "Активность команды",
+      "project_progress": "Прогресс проектов",
+      "risk_distribution": "Распределение рисков",
+      "risk_score": "Оценка риска",
+      "issue_pressure": "Давление по задачам",
+      "delivery_metrics": "Метрики сроков",
+      "throughput": "Пропускная способность по проектам",
+      "data_quality_violations": "Нарушения качества данных",
+      "quality_caption": "Полнота обязательных полей и корректность дат.",
+      "empty": "Нет данных для графика."
+    },
+    "quality": {
+      "missing_assignee": "Нет исполнителя",
+      "missing_module": "Нет модуля",
+      "missing_type": "Нет типа",
+      "missing_estimate": "Нет оценки",
+      "missing_start_date": "Нет даты начала",
+      "missing_target_date": "Нет дедлайна",
+      "missing_priority": "Нет приоритета",
+      "started_without_assignee": "В работе без исполнителя",
+      "blocked_without_reason": "Блокер без причины",
+      "stale_work_items": "Давно не обновлялись",
+      "large_work_items": "Слишком крупные задачи",
+      "invalid_dates": "Некорректные даты"
+    },
+    "settings": {
+      "default_capacity": "Ёмкость по умолчанию в неделю",
+      "low_threshold": "Порог низкой загрузки",
+      "high_threshold": "Порог высокой загрузки",
+      "overload_threshold": "Порог перегруза",
+      "stale_days": "Дней без активности",
+      "max_wip_age": "Максимальный возраст задач в работе"
+    }
   }
 }

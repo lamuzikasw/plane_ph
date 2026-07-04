@@ -9,7 +9,7 @@ import type { Placement } from "@popperjs/core";
 import { observer } from "mobx-react";
 import { createPortal } from "react-dom";
 import { usePopper } from "react-popper";
-import { ArrowRight, CalendarDays } from "lucide-react";
+import { ArrowRight, CalendarDays, Clock } from "lucide-react";
 import { Combobox } from "@headlessui/react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
@@ -18,7 +18,7 @@ import type { DateRange, Matcher } from "@plane/propel/calendar";
 import { Calendar } from "@plane/propel/calendar";
 import { CloseIcon, DueDatePropertyIcon } from "@plane/propel/icons";
 import { ComboDropDown } from "@plane/ui";
-import { cn, renderFormattedDate } from "@plane/utils";
+import { cn, renderFormattedDate, renderFormattedTime } from "@plane/utils";
 // helpers
 // hooks
 import { useUserProfile } from "@/hooks/store/user";
@@ -68,6 +68,16 @@ type Props = {
   customTooltipHeading?: string;
   defaultOpen?: boolean;
   renderInPortal?: boolean;
+  includeTime?: boolean;
+};
+
+const mergeDateAndTime = (date: Date, timeSource?: Date): Date => {
+  const updatedDate = new Date(date);
+  updatedDate.setHours(timeSource?.getHours() ?? 0);
+  updatedDate.setMinutes(timeSource?.getMinutes() ?? 0);
+  updatedDate.setSeconds(0);
+  updatedDate.setMilliseconds(0);
+  return updatedDate;
 };
 
 export const DateRangeDropdown = observer(function DateRangeDropdown(props: Props) {
@@ -104,6 +114,7 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
     customTooltipHeading,
     defaultOpen = false,
     renderInPortal = false,
+    includeTime = false,
   } = props;
   // states
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -152,6 +163,32 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
 
   const hasDisplayedDates = dateRange.from || dateRange.to;
 
+  const handleRangeSelect = (range: DateRange | undefined) => {
+    const updatedRange = {
+      from: range?.from ? mergeDateAndTime(range.from, dateRange.from) : undefined,
+      to: range?.to ? mergeDateAndTime(range.to, dateRange.to) : undefined,
+    };
+
+    setDateRange(updatedRange);
+    onSelect?.(updatedRange);
+  };
+
+  const handleTimeChange = (key: "from" | "to", time: string) => {
+    const currentDate = dateRange[key];
+    if (!currentDate) return;
+
+    const [hours, minutes] = time.split(":").map(Number);
+    const updatedDate = new Date(currentDate);
+    updatedDate.setHours(hours);
+    updatedDate.setMinutes(minutes);
+    updatedDate.setSeconds(0);
+    updatedDate.setMilliseconds(0);
+
+    const updatedRange = { ...dateRange, [key]: updatedDate };
+    setDateRange(updatedRange);
+    onSelect?.(updatedRange);
+  };
+
   useEffect(() => {
     setDateRange(value);
   }, [value]);
@@ -179,9 +216,11 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
           <>
             {customTooltipContent ?? (
               <>
-                {dateRange.from ? renderFormattedDate(dateRange.from) : ""}
+                {dateRange.from
+                  ? renderFormattedDate(dateRange.from, includeTime ? "MMM dd, yyyy HH:mm" : undefined)
+                  : ""}
                 {dateRange.from && dateRange.to ? " - " : ""}
-                {dateRange.to ? renderFormattedDate(dateRange.to) : ""}
+                {dateRange.to ? renderFormattedDate(dateRange.to, includeTime ? "MMM dd, yyyy HH:mm" : undefined) : ""}
               </>
             )}
           </>
@@ -199,6 +238,7 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
                 startDate={dateRange.from}
                 endDate={dateRange.to}
                 className="flex-grow truncate text-11"
+                includeTime={includeTime}
               />
             ) : (
               renderPlaceholder && (
@@ -232,7 +272,11 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
               )}
             >
               {!hideIcon.from && <CalendarDays className="h-3 w-3 flex-shrink-0" />}
-              {dateRange.from ? renderFormattedDate(dateRange.from) : renderPlaceholder ? placeholder.from : ""}
+              {dateRange.from
+                ? renderFormattedDate(dateRange.from, includeTime ? "MMM dd, yyyy HH:mm" : undefined)
+                : renderPlaceholder
+                  ? placeholder.from
+                  : ""}
             </span>
             <ArrowRight className="h-3 w-3 flex-shrink-0" />
             <span
@@ -242,7 +286,11 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
               )}
             >
               {!hideIcon.to && <DueDatePropertyIcon className="h-3 w-3 flex-shrink-0" />}
-              {dateRange.to ? renderFormattedDate(dateRange.to) : renderPlaceholder ? placeholder.to : ""}
+              {dateRange.to
+                ? renderFormattedDate(dateRange.to, includeTime ? "MMM dd, yyyy HH:mm" : undefined)
+                : renderPlaceholder
+                  ? placeholder.to
+                  : ""}
             </span>
             {isClearable && !disabled && hasDisplayedDates && (
               <CloseIcon
@@ -272,9 +320,7 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
           className="rounded-md border border-subtle p-3 text-12"
           captionLayout="dropdown"
           selected={dateRange}
-          onSelect={(val: DateRange | undefined) => {
-            onSelect?.(val);
-          }}
+          onSelect={handleRangeSelect}
           mode="range"
           disabled={disabledDays}
           showOutsideDays
@@ -282,6 +328,30 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
           weekStartsOn={startOfWeek}
           initialFocus
         />
+        {includeTime && (
+          <div className="grid grid-cols-2 gap-2 border-t border-subtle px-3 py-2">
+            <label className="flex items-center gap-2 text-body-xs-regular text-secondary">
+              <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+              <input
+                type="time"
+                value={dateRange.from ? renderFormattedTime(dateRange.from) : ""}
+                onChange={(e) => handleTimeChange("from", e.target.value)}
+                disabled={!dateRange.from}
+                className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-body-xs-regular text-secondary">
+              <ArrowRight className="h-3.5 w-3.5 flex-shrink-0" />
+              <input
+                type="time"
+                value={dateRange.to ? renderFormattedTime(dateRange.to) : ""}
+                onChange={(e) => handleTimeChange("to", e.target.value)}
+                disabled={!dateRange.to}
+                className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
+              />
+            </label>
+          </div>
+        )}
       </div>
     </Combobox.Options>
   );
@@ -291,6 +361,7 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
   return (
     <ComboDropDown
       as="div"
+      role="presentation"
       ref={dropdownRef}
       tabIndex={tabIndex}
       className={cn("h-full", className)}

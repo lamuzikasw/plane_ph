@@ -10,7 +10,7 @@ import { StartDatePropertyIcon } from "@plane/propel/icons";
 // types
 import type { TIssue } from "@plane/types";
 // components
-import { getDate, renderFormattedPayloadDate } from "@plane/utils";
+import { getDate, renderFormattedPayloadDateTime } from "@plane/utils";
 import { DateDropdown } from "@/components/dropdowns/date";
 // helpers
 
@@ -30,7 +30,7 @@ export const SpreadsheetStartDateColumn = observer(function SpreadsheetStartDate
         value={issue.start_date}
         maxDate={getDate(issue.target_date)}
         onChange={(data) => {
-          const startDate = data ? renderFormattedPayloadDate(data) : null;
+          const startDate = data ? renderFormattedPayloadDateTime(data) : null;
           onChange(
             issue,
             { start_date: startDate },
@@ -48,6 +48,7 @@ export const SpreadsheetStartDateColumn = observer(function SpreadsheetStartDate
         buttonContainerClassName="w-full"
         optionsClassName="z-[9]"
         onClose={onClose}
+        includeTime
       />
     </div>
   );

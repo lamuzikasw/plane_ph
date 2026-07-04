@@ -53,8 +53,8 @@ class DraftIssue(WorkspaceBaseModel):
         verbose_name="Issue Priority",
         default="none",
     )
-    start_date = models.DateField(null=True, blank=True)
-    target_date = models.DateField(null=True, blank=True)
+    start_date = models.DateTimeField(null=True, blank=True)
+    target_date = models.DateTimeField(null=True, blank=True)
     assignees = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         blank=True,

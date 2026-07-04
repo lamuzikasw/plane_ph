@@ -8,14 +8,14 @@ import React, { useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { createPortal } from "react-dom";
 import { usePopper } from "react-popper";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Clock } from "lucide-react";
 import { Combobox } from "@headlessui/react";
 // ui
 import type { Matcher } from "@plane/propel/calendar";
 import { Calendar } from "@plane/propel/calendar";
 import { CloseIcon } from "@plane/propel/icons";
 import { ComboDropDown } from "@plane/ui";
-import { cn, renderFormattedDate, getDate } from "@plane/utils";
+import { cn, renderFormattedDate, getDate, getDateTime, renderFormattedTime } from "@plane/utils";
 // helpers
 // hooks
 import { useUserProfile } from "@/hooks/store/user";
@@ -42,6 +42,16 @@ type Props = TDropdownProps & {
   formatToken?: string;
   renderByDefault?: boolean;
   labelClassName?: string;
+  includeTime?: boolean;
+};
+
+const mergeDateAndTime = (date: Date, timeSource?: Date): Date => {
+  const updatedDate = new Date(date);
+  updatedDate.setHours(timeSource?.getHours() ?? 0);
+  updatedDate.setMinutes(timeSource?.getMinutes() ?? 0);
+  updatedDate.setSeconds(0);
+  updatedDate.setMilliseconds(0);
+  return updatedDate;
 };
 
 export const DateDropdown = observer(function DateDropdown(props: Props) {
@@ -70,6 +80,7 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
     formatToken,
     renderByDefault = true,
     labelClassName = "",
+    includeTime = false,
   } = props;
   // states
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -108,12 +119,38 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
     setIsOpen,
   });
 
-  const dropdownOnChange = (val: Date | null) => {
+  const selectedDate = includeTime ? getDateTime(value) : getDate(value);
+
+  const getLabel = (date: Date | string | null | undefined) => {
+    if (!date) return undefined;
+
+    if (includeTime) {
+      const parsedDate = getDateTime(date);
+      return parsedDate ? renderFormattedDate(parsedDate, formatToken ?? "MMM dd, yyyy HH:mm") : undefined;
+    }
+
+    return renderFormattedDate(date, formatToken);
+  };
+
+  const dropdownOnChange = (val: Date | null, shouldClose: boolean = closeOnSelect && !includeTime) => {
     onChange(val);
-    if (closeOnSelect) {
+    if (shouldClose) {
       handleClose();
       referenceElement?.blur();
     }
+  };
+
+  const handleTimeChange = (time: string) => {
+    if (!selectedDate) return;
+
+    const [hours, minutes] = time.split(":").map(Number);
+    const updatedDate = new Date(selectedDate);
+    updatedDate.setHours(hours);
+    updatedDate.setMinutes(minutes);
+    updatedDate.setSeconds(0);
+    updatedDate.setMilliseconds(0);
+
+    dropdownOnChange(updatedDate, false);
   };
 
   const disabledDays: Matcher[] = [];
@@ -139,7 +176,7 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
         className={buttonClassName}
         isActive={isOpen}
         tooltipHeading={placeholder}
-        tooltipContent={value ? renderFormattedDate(value, formatToken) : "None"}
+        tooltipContent={value ? getLabel(value) : "None"}
         showTooltip={showTooltip}
         variant={buttonVariant}
         renderToolTipByDefault={renderByDefault}
@@ -147,7 +184,7 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
         {!hideIcon && icon}
         {BUTTON_VARIANTS_WITH_TEXT.includes(buttonVariant) && (
           <span className={cn("flex-grow truncate text-left text-body-xs-medium", labelClassName)}>
-            {value ? renderFormattedDate(value, formatToken) : placeholder}
+            {value ? getLabel(value) : placeholder}
           </span>
         )}
         {isClearable && !disabled && isDateSelected && (
@@ -167,6 +204,7 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
   return (
     <ComboDropDown
       as="div"
+      role="presentation"
       ref={dropdownRef}
       tabIndex={tabIndex}
       className={cn("h-full", className)}
@@ -194,10 +232,10 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
               <Calendar
                 className="rounded-md border border-subtle p-3"
                 captionLayout="dropdown"
-                selected={getDate(value)}
-                defaultMonth={getDate(value)}
+                selected={selectedDate}
+                defaultMonth={selectedDate}
                 onSelect={(date: Date | undefined) => {
-                  dropdownOnChange(date ?? null);
+                  dropdownOnChange(date ? (includeTime ? mergeDateAndTime(date, selectedDate) : date) : null);
                 }}
                 showOutsideDays
                 initialFocus
@@ -206,6 +244,18 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
                 fixedWeeks
                 weekStartsOn={startOfWeek}
               />
+              {includeTime && (
+                <div className="flex items-center gap-2 border-t border-subtle px-3 py-2">
+                  <Clock className="h-3.5 w-3.5 flex-shrink-0 text-secondary" />
+                  <input
+                    type="time"
+                    value={selectedDate ? renderFormattedTime(selectedDate) : ""}
+                    onChange={(e) => handleTimeChange(e.target.value)}
+                    disabled={!selectedDate}
+                    className="focus:border-custom-primary-100 h-7 rounded border-[0.5px] border-strong bg-transparent px-2 text-body-xs-regular outline-none disabled:cursor-not-allowed disabled:text-placeholder"
+                  />
+                </div>
+              )}
             </div>
           </Combobox.Options>,
           document.body

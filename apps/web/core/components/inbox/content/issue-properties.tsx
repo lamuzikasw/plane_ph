@@ -16,7 +16,7 @@ import {
 import { Tooltip } from "@plane/propel/tooltip";
 import type { TInboxDuplicateIssueDetails, TIssue } from "@plane/types";
 import { ControlLink } from "@plane/ui";
-import { getDate, renderFormattedPayloadDate, generateWorkItemLink } from "@plane/utils";
+import { getDate, renderFormattedPayloadDateTime, generateWorkItemLink } from "@plane/utils";
 // components
 import { DateDropdown } from "@/components/dropdowns/date";
 import { IntakeStateDropdown } from "@/components/dropdowns/intake-state/dropdown";
@@ -149,7 +149,7 @@ export const InboxIssueContentProperties = observer(function InboxIssueContentPr
                 onChange={(val) =>
                   issue?.id &&
                   issueOperations.update(workspaceSlug, projectId, issue?.id, {
-                    target_date: val ? renderFormattedPayloadDate(val) : null,
+                    target_date: val ? renderFormattedPayloadDateTime(val) : null,
                   })
                 }
                 minDate={minDate ?? undefined}
@@ -160,6 +160,7 @@ export const InboxIssueContentProperties = observer(function InboxIssueContentPr
                 buttonClassName={`text-13 ${issue?.target_date ? "" : "text-placeholder"}`}
                 hideIcon
                 clearIconClassName="h-3 w-3 hidden group-hover:inline"
+                includeTime
               />
             </div>
             {/* Labels */}

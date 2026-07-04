@@ -21,7 +21,7 @@ import {
   EstimatePropertyIcon,
   ParentPropertyIcon,
 } from "@plane/propel/icons";
-import { cn, getDate, renderFormattedPayloadDate, shouldHighlightIssueDueDate } from "@plane/utils";
+import { cn, getDate, renderFormattedPayloadDateTime, shouldHighlightIssueDueDate } from "@plane/utils";
 // components
 import { DateDropdown } from "@/components/dropdowns/date";
 import { EstimateDropdown } from "@/components/dropdowns/estimate";
@@ -148,7 +148,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                 value={issue.start_date}
                 onChange={(val) =>
                   issueOperations.update(workspaceSlug, projectId, issueId, {
-                    start_date: val ? renderFormattedPayloadDate(val) : null,
+                    start_date: val ? renderFormattedPayloadDateTime(val) : null,
                   })
                 }
                 maxDate={maxDate ?? undefined}
@@ -159,6 +159,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                 buttonClassName={`text-body-xs-regular ${issue?.start_date ? "" : "text-placeholder"}`}
                 hideIcon
                 clearIconClassName="h-3 w-3 hidden group-hover:inline"
+                includeTime
               />
             </SidebarPropertyListItem>
 
@@ -169,7 +170,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                   value={issue.target_date}
                   onChange={(val) =>
                     issueOperations.update(workspaceSlug, projectId, issueId, {
-                      target_date: val ? renderFormattedPayloadDate(val) : null,
+                      target_date: val ? renderFormattedPayloadDateTime(val) : null,
                     })
                   }
                   minDate={minDate ?? undefined}
@@ -183,6 +184,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                   })}
                   hideIcon
                   clearIconClassName="h-3 w-3 hidden group-hover:inline text-primary"
+                  includeTime
                 />
                 {issue.target_date && <DateAlert date={issue.target_date} workItem={issue} projectId={projectId} />}
               </div>

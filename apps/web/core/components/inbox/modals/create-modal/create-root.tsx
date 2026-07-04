@@ -15,7 +15,7 @@ import { Button } from "@plane/propel/button";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { TIssue } from "@plane/types";
 import { ToggleSwitch } from "@plane/ui";
-import { renderFormattedPayloadDate, getTabIndex } from "@plane/utils";
+import { renderFormattedPayloadDateTime, getTabIndex } from "@plane/utils";
 // hooks
 import { useProject } from "@/hooks/store/use-project";
 import { useProjectInbox } from "@/hooks/store/use-project-inbox";
@@ -52,7 +52,7 @@ export const defaultIssueData: Partial<TIssue> = {
   state_id: "",
   label_ids: [],
   assignee_ids: [],
-  start_date: renderFormattedPayloadDate(new Date()),
+  start_date: renderFormattedPayloadDateTime(new Date()),
   target_date: "",
 };
 
@@ -159,36 +159,36 @@ export const InboxIssueCreateRoot = observer(function InboxIssueCreateRoot(props
     };
     setFormSubmitting(true);
 
-    await createInboxIssue(workspaceSlug, projectId, payload)
-      .then(async (res) => {
-        if (uploadedAssetIds.length > 0) {
-          await fileService.updateBulkProjectAssetsUploadStatus(workspaceSlug, projectId, res?.issue.id ?? "", {
-            asset_ids: uploadedAssetIds,
-          });
-          setUploadedAssetIds([]);
-        }
-        if (!createMore) {
-          router.push(`/${workspaceSlug}/projects/${projectId}/intake/?currentTab=open&inboxIssueId=${res?.issue?.id}`);
-          handleModalClose();
-        } else {
-          descriptionEditorRef?.current?.clearEditor();
-          setFormData(defaultIssueData);
-        }
-        setToast({
-          type: TOAST_TYPE.SUCCESS,
-          title: `Success!`,
-          message: "Work item created successfully.",
+    try {
+      const res = await createInboxIssue(workspaceSlug, projectId, payload);
+      if (uploadedAssetIds.length > 0) {
+        await fileService.updateBulkProjectAssetsUploadStatus(workspaceSlug, projectId, res?.issue.id ?? "", {
+          asset_ids: uploadedAssetIds,
         });
-      })
-      .catch((error) => {
-        console.error(error);
-        setToast({
-          type: TOAST_TYPE.ERROR,
-          title: `Error!`,
-          message: "Some error occurred. Please try again.",
-        });
+        setUploadedAssetIds([]);
+      }
+      if (!createMore) {
+        router.push(`/${workspaceSlug}/projects/${projectId}/intake/?currentTab=open&inboxIssueId=${res?.issue?.id}`);
+        handleModalClose();
+      } else {
+        descriptionEditorRef?.current?.clearEditor();
+        setFormData(defaultIssueData);
+      }
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: `Success!`,
+        message: "Work item created successfully.",
       });
-    setFormSubmitting(false);
+    } catch (error) {
+      console.error(error);
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: `Error!`,
+        message: "Some error occurred. Please try again.",
+      });
+    } finally {
+      setFormSubmitting(false);
+    }
   };
 
   const isTitleLengthMoreThan255Character = formData?.name ? formData.name.length > 255 : false;
@@ -233,15 +233,15 @@ export const InboxIssueCreateRoot = observer(function InboxIssueCreateRoot(props
             </div>
           </div>
           <div className="flex items-center justify-between gap-2 rounded-b-lg border-t-[0.5px] border-subtle bg-surface-1 px-5 py-4">
-            <div
-              className="inline-flex cursor-pointer items-center gap-1.5"
+            <button
+              type="button"
+              className="inline-flex cursor-pointer items-center gap-1.5 bg-transparent p-0 text-left"
               onClick={() => setCreateMore((prevData) => !prevData)}
-              role="button"
               tabIndex={getIndex("create_more")}
             >
               <ToggleSwitch value={createMore} onChange={() => {}} size="sm" />
               <span className="text-11">{t("create_more")}</span>
-            </div>
+            </button>
             <div className="flex items-center gap-3">
               <Button
                 variant="secondary"

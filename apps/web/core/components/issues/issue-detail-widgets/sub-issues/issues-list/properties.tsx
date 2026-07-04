@@ -11,7 +11,7 @@ import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";
 import { StartDatePropertyIcon, DueDatePropertyIcon } from "@plane/propel/icons";
 import type { IIssueDisplayProperties, TIssue } from "@plane/types";
-import { getDate, renderFormattedPayloadDate, shouldHighlightIssueDueDate } from "@plane/utils";
+import { getDate, getDateTime, renderFormattedPayloadDateTime, shouldHighlightIssueDueDate } from "@plane/utils";
 // components
 import { DateDropdown } from "@/components/dropdowns/date";
 import { DateRangeDropdown } from "@/components/dropdowns/date-range";
@@ -39,20 +39,20 @@ type Props = {
   issue: TIssue;
 };
 
+const handleEventPropagation = (e: SyntheticEvent<HTMLElement>) => {
+  e.stopPropagation();
+  e.preventDefault();
+};
+
 export const SubIssuesListItemProperties = observer(function SubIssuesListItemProperties(props: Props) {
   const { workspaceSlug, parentIssueId, issueId, canEdit, updateSubIssue, displayProperties, issue } = props;
   const { t } = useTranslation();
   const { getStateById } = useProjectState();
 
-  const handleEventPropagation = (e: SyntheticEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    e.preventDefault();
-  };
-
   const handleStartDate = (date: Date | null) => {
     if (issue.project_id) {
       updateSubIssue(workspaceSlug, issue.project_id, parentIssueId, issueId, {
-        start_date: date ? renderFormattedPayloadDate(date) : null,
+        start_date: date ? renderFormattedPayloadDateTime(date) : null,
       });
     }
   };
@@ -60,7 +60,7 @@ export const SubIssuesListItemProperties = observer(function SubIssuesListItemPr
   const handleTargetDate = (date: Date | null) => {
     if (issue.project_id) {
       updateSubIssue(workspaceSlug, issue.project_id, parentIssueId, issueId, {
-        target_date: date ? renderFormattedPayloadDate(date) : null,
+        target_date: date ? renderFormattedPayloadDateTime(date) : null,
       });
     }
   };
@@ -133,11 +133,17 @@ export const SubIssuesListItemProperties = observer(function SubIssuesListItemPr
         displayPropertyKey={["start_date", "due_date"]}
         shouldRenderProperty={() => isDateRangeEnabled}
       >
-        <div className="h-5" onFocus={handleEventPropagation} onClick={handleEventPropagation}>
+        <div
+          className="h-5"
+          role="presentation"
+          onFocus={handleEventPropagation}
+          onClick={handleEventPropagation}
+          onKeyDown={handleEventPropagation}
+        >
           <DateRangeDropdown
             value={{
-              from: getDate(issue.start_date) || undefined,
-              to: getDate(issue.target_date) || undefined,
+              from: getDateTime(issue.start_date) || undefined,
+              to: getDateTime(issue.target_date) || undefined,
             }}
             placement="top-end"
             onSelect={(range) => {
@@ -156,6 +162,7 @@ export const SubIssuesListItemProperties = observer(function SubIssuesListItemPr
             customTooltipHeading="Date Range"
             renderPlaceholder={false}
             renderInPortal
+            includeTime
           />
         </div>
       </WithDisplayPropertiesHOC>
@@ -177,6 +184,7 @@ export const SubIssuesListItemProperties = observer(function SubIssuesListItemPr
             optionsClassName="z-30"
             disabled={!canEdit}
             showTooltip
+            includeTime
           />
         </div>
       </WithDisplayPropertiesHOC>
@@ -200,6 +208,7 @@ export const SubIssuesListItemProperties = observer(function SubIssuesListItemPr
             optionsClassName="z-30"
             disabled={!canEdit}
             showTooltip
+            includeTime
           />
         </div>
       </WithDisplayPropertiesHOC>

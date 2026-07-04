@@ -31,31 +31,34 @@ def string_date_filter(issue_filter, duration, subsequent, term, date_filter, of
     if term == "months":
         if subsequent == "after":
             if offset == "fromnow":
-                issue_filter[f"{date_filter}__gte"] = now + timedelta(days=duration * 30)
+                issue_filter[f"{date_filter}__date__gte"] = now + timedelta(days=duration * 30)
             else:
-                issue_filter[f"{date_filter}__gte"] = now - timedelta(days=duration * 30)
+                issue_filter[f"{date_filter}__date__gte"] = now - timedelta(days=duration * 30)
         else:
             if offset == "fromnow":
-                issue_filter[f"{date_filter}__lte"] = now + timedelta(days=duration * 30)
+                issue_filter[f"{date_filter}__date__lte"] = now + timedelta(days=duration * 30)
             else:
-                issue_filter[f"{date_filter}__lte"] = now - timedelta(days=duration * 30)
+                issue_filter[f"{date_filter}__date__lte"] = now - timedelta(days=duration * 30)
     if term == "weeks":
         if subsequent == "after":
             if offset == "fromnow":
-                issue_filter[f"{date_filter}__gte"] = now + timedelta(weeks=duration)
+                issue_filter[f"{date_filter}__date__gte"] = now + timedelta(weeks=duration)
             else:
-                issue_filter[f"{date_filter}__gte"] = now - timedelta(weeks=duration)
+                issue_filter[f"{date_filter}__date__gte"] = now - timedelta(weeks=duration)
         else:
             if offset == "fromnow":
-                issue_filter[f"{date_filter}__lte"] = now + timedelta(weeks=duration)
+                issue_filter[f"{date_filter}__date__lte"] = now + timedelta(weeks=duration)
             else:
-                issue_filter[f"{date_filter}__lte"] = now - timedelta(weeks=duration)
+                issue_filter[f"{date_filter}__date__lte"] = now - timedelta(weeks=duration)
 
 
 def date_filter(issue_filter, date_term, queries):
     """
     Handle all date filters
     """
+    def lookup_for_date_query(query_value, lookup):
+        return f"{date_term}__{lookup}" if "T" in query_value else f"{date_term}__date__{lookup}"
+
     for query in queries:
         date_query = query.split(";")
         if date_query:
@@ -74,11 +77,14 @@ def date_filter(issue_filter, date_term, queries):
                         )
                 else:
                     if "after" in date_query:
-                        issue_filter[f"{date_term}__gte"] = date_query[0]
+                        issue_filter[lookup_for_date_query(date_query[0], "gte")] = date_query[0]
                     else:
-                        issue_filter[f"{date_term}__lte"] = date_query[0]
+                        issue_filter[lookup_for_date_query(date_query[0], "lte")] = date_query[0]
             else:
-                issue_filter[f"{date_term}__contains"] = date_query[0]
+                if "T" in date_query[0]:
+                    issue_filter[date_term] = date_query[0]
+                else:
+                    issue_filter[f"{date_term}__date"] = date_query[0]
 
 
 def filter_state(params, issue_filter, method, prefix=""):
