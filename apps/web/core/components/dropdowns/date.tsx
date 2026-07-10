@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { createPortal } from "react-dom";
 import { usePopper } from "react-popper";
@@ -52,6 +52,36 @@ const mergeDateAndTime = (date: Date, timeSource?: Date): Date => {
   updatedDate.setSeconds(0);
   updatedDate.setMilliseconds(0);
   return updatedDate;
+};
+
+const getTimeValue = (date?: Date): string => (date ? renderFormattedTime(date) : "");
+
+const isValidTimeValue = (time: string): boolean => {
+  const [hours, minutes] = time.split(":").map(Number);
+
+  return (
+    /^\d{2}:\d{2}$/.test(time) &&
+    Number.isInteger(hours) &&
+    Number.isInteger(minutes) &&
+    hours >= 0 &&
+    hours <= 23 &&
+    minutes >= 0 &&
+    minutes <= 59
+  );
+};
+
+const applyTimeToDate = (date: Date, time: string): Date => {
+  const [hours, minutes] = time.split(":").map(Number);
+  const updatedDate = new Date(date);
+  updatedDate.setHours(hours);
+  updatedDate.setMinutes(minutes);
+  updatedDate.setSeconds(0);
+  updatedDate.setMilliseconds(0);
+  return updatedDate;
+};
+
+const stopInputEventPropagation = (e: React.SyntheticEvent<HTMLInputElement>) => {
+  e.stopPropagation();
 };
 
 export const DateDropdown = observer(function DateDropdown(props: Props) {
@@ -120,6 +150,8 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
   });
 
   const selectedDate = includeTime ? getDateTime(value) : getDate(value);
+  const selectedTimestamp = selectedDate?.getTime();
+  const [timeInput, setTimeInput] = useState(getTimeValue(selectedDate));
 
   const getLabel = (date: Date | string | null | undefined) => {
     if (!date) return undefined;
@@ -141,17 +173,17 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
   };
 
   const handleTimeChange = (time: string) => {
+    setTimeInput(time);
+
     if (!selectedDate) return;
+    if (!isValidTimeValue(time)) return;
 
-    const [hours, minutes] = time.split(":").map(Number);
-    const updatedDate = new Date(selectedDate);
-    updatedDate.setHours(hours);
-    updatedDate.setMinutes(minutes);
-    updatedDate.setSeconds(0);
-    updatedDate.setMilliseconds(0);
-
-    dropdownOnChange(updatedDate, false);
+    dropdownOnChange(applyTimeToDate(selectedDate, time), false);
   };
+
+  useEffect(() => {
+    setTimeInput(getTimeValue(selectedDate));
+  }, [selectedTimestamp]);
 
   const disabledDays: Matcher[] = [];
   if (minDate) disabledDays.push({ before: minDate });
@@ -204,7 +236,6 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
   return (
     <ComboDropDown
       as="div"
-      role="presentation"
       ref={dropdownRef}
       tabIndex={tabIndex}
       className={cn("h-full", className)}
@@ -235,7 +266,15 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
                 selected={selectedDate}
                 defaultMonth={selectedDate}
                 onSelect={(date: Date | undefined) => {
-                  dropdownOnChange(date ? (includeTime ? mergeDateAndTime(date, selectedDate) : date) : null);
+                  dropdownOnChange(
+                    date
+                      ? includeTime
+                        ? isValidTimeValue(timeInput)
+                          ? applyTimeToDate(date, timeInput)
+                          : mergeDateAndTime(date, selectedDate)
+                        : date
+                      : null
+                  );
                 }}
                 showOutsideDays
                 initialFocus
@@ -249,8 +288,11 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
                   <Clock className="h-3.5 w-3.5 flex-shrink-0 text-secondary" />
                   <input
                     type="time"
-                    value={selectedDate ? renderFormattedTime(selectedDate) : ""}
+                    value={timeInput}
                     onChange={(e) => handleTimeChange(e.target.value)}
+                    onClick={stopInputEventPropagation}
+                    onFocus={stopInputEventPropagation}
+                    onKeyDown={stopInputEventPropagation}
                     disabled={!selectedDate}
                     className="focus:border-custom-primary-100 h-7 rounded border-[0.5px] border-strong bg-transparent px-2 text-body-xs-regular outline-none disabled:cursor-not-allowed disabled:text-placeholder"
                   />

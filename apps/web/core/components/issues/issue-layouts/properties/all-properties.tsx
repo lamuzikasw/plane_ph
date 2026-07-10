@@ -166,6 +166,15 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
       });
   };
 
+  const handleDateRange = async (range: { from?: Date; to?: Date } | undefined) => {
+    if (!updateIssue) return;
+
+    await updateIssue(issue.project_id, issue.id, {
+      start_date: range?.from ? renderFormattedPayloadDateTime(range.from) : null,
+      target_date: range?.to ? renderFormattedPayloadDateTime(range.to) : null,
+    });
+  };
+
   const handleEstimate = async (value: string | undefined) => {
     if (updateIssue) await updateIssue(issue.project_id, issue.id, { estimate_point: value });
   };
@@ -257,10 +266,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
               from: getDateTime(issue.start_date) || undefined,
               to: getDateTime(issue.target_date) || undefined,
             }}
-            onSelect={(range) => {
-              handleStartDate(range?.from ?? null);
-              handleTargetDate(range?.to ?? null);
-            }}
+            onSelect={handleDateRange}
             hideIcon={{
               from: false,
             }}
@@ -276,6 +282,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
             showTooltip
             renderPlaceholder={false}
             customTooltipHeading="Date Range"
+            renderInPortal
             includeTime
           />
         </div>

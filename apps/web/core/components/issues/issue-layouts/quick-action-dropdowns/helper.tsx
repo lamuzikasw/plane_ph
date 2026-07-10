@@ -5,7 +5,7 @@
  */
 
 import { useMemo } from "react";
-import { XCircle, ArchiveRestoreIcon } from "lucide-react";
+import { XCircle, ArchiveRestoreIcon, MoveRight } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import { LinkIcon, CopyIcon, NewTabIcon, EditIcon, ArchiveIcon, TrashIcon } from "@plane/propel/icons";
@@ -68,6 +68,7 @@ export interface MenuItemFactoryProps {
   setDeleteIssueModal: (open: boolean) => void;
   setArchiveIssueModal?: (open: boolean) => void;
   setDuplicateWorkItemModal?: (open: boolean) => void;
+  setMoveToProjectModal?: (open: boolean) => void;
   handleRemoveFromView?: () => void;
   handleRestore?: () => Promise<void>;
   // External handlers
@@ -155,6 +156,7 @@ export const useMenuItemFactory = (props: MenuItemFactoryProps) => {
     setDeleteIssueModal,
     setArchiveIssueModal,
     setDuplicateWorkItemModal,
+    setMoveToProjectModal,
     handleRemoveFromView,
   } = props;
 
@@ -203,6 +205,14 @@ export const useMenuItemFactory = (props: MenuItemFactoryProps) => {
     title: t("common.actions.copy_link"),
     icon: LinkIcon,
     action: actionHandlers.handleCopyIssueLink,
+  });
+
+  const createMoveToProjectMenuItem = (): TContextMenuItem => ({
+    key: "move-to-project",
+    title: t("move_to_project"),
+    icon: MoveRight,
+    action: () => handleOptionalAction(setMoveToProjectModal, "Move to project", true),
+    shouldRender: isEditingAllowed,
   });
 
   const createRemoveFromCycleMenuItem = (): TContextMenuItem => ({
@@ -257,6 +267,7 @@ export const useMenuItemFactory = (props: MenuItemFactoryProps) => {
     createCopyMenuItem,
     createOpenInNewTabMenuItem,
     createCopyLinkMenuItem,
+    createMoveToProjectMenuItem,
     createRemoveFromCycleMenuItem,
     createRemoveFromModuleMenuItem,
     createArchiveMenuItem,
@@ -273,6 +284,7 @@ export const useProjectIssueMenuItems = (props: MenuItemFactoryProps): TContextM
     () => [
       factory.createEditMenuItem(),
       factory.createCopyMenuItem(),
+      factory.createMoveToProjectMenuItem(),
       factory.createOpenInNewTabMenuItem(),
       factory.createCopyLinkMenuItem(),
       factory.createArchiveMenuItem(),
@@ -288,6 +300,7 @@ export const useWorkItemDetailMenuItems = (props: MenuItemFactoryProps): TContex
   return useMemo(
     () => [
       factory.createCopyMenuItem(props.workspaceSlug),
+      factory.createMoveToProjectMenuItem(),
       factory.createOpenInNewTabMenuItem(),
       factory.createArchiveMenuItem(),
       factory.createRestoreMenuItem(),
@@ -304,6 +317,7 @@ export const useAllIssueMenuItems = (props: MenuItemFactoryProps): TContextMenuI
     () => [
       factory.createEditMenuItem(),
       factory.createCopyMenuItem(),
+      factory.createMoveToProjectMenuItem(),
       factory.createOpenInNewTabMenuItem(),
       factory.createCopyLinkMenuItem(),
       factory.createArchiveMenuItem(),
@@ -328,6 +342,7 @@ export const useCycleIssueMenuItems = (props: MenuItemFactoryProps): TContextMen
     () => [
       factory.createEditMenuItem(customEditAction),
       factory.createCopyMenuItem(),
+      factory.createMoveToProjectMenuItem(),
       factory.createOpenInNewTabMenuItem(),
       factory.createCopyLinkMenuItem(),
       factory.createRemoveFromCycleMenuItem(),
@@ -353,6 +368,7 @@ export const useModuleIssueMenuItems = (props: MenuItemFactoryProps): TContextMe
     () => [
       factory.createEditMenuItem(customEditAction),
       factory.createCopyMenuItem(),
+      factory.createMoveToProjectMenuItem(),
       factory.createOpenInNewTabMenuItem(),
       factory.createCopyLinkMenuItem(),
       factory.createRemoveFromModuleMenuItem(),

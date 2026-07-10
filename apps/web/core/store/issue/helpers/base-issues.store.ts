@@ -89,6 +89,12 @@ export interface IBaseIssuesStore {
 
   addIssueToList: (issueId: string) => void;
   removeIssueFromList: (issueId: string) => void;
+  moveIssueToProject: (
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    data: { project_id: string; state_id?: string }
+  ) => Promise<TIssue>;
   addIssuesToModule: (
     workspaceSlug: string,
     projectId: string,
@@ -583,6 +589,30 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
       // If errored out update store again to revert the change
       this.rootIssueStore.issues.updateIssue(issueId, issueBeforeUpdate ?? {});
       this.updateIssueList(issueBeforeUpdate, { ...issueBeforeUpdate, ...data } as TIssue);
+      throw error;
+    }
+  }
+
+  async moveIssueToProject(
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    data: { project_id: string; state_id?: string }
+  ) {
+    const issueBeforeMove = clone(this.rootIssueStore.issues.getIssueById(issueId));
+
+    try {
+      const movedIssue = await this.issueService.moveIssueToProject(workspaceSlug, projectId, issueId, data);
+
+      this.rootIssueStore.issues.addIssue([movedIssue]);
+      if (issueBeforeMove?.project_id === projectId) this.removeIssueFromList(issueId);
+
+      this.fetchParentStats(workspaceSlug, projectId);
+      this.rootIssueStore.rootStore.projectRoot.project.fetchProjectDetails(workspaceSlug, data.project_id);
+
+      return movedIssue;
+    } catch (error) {
+      if (issueBeforeMove) this.rootIssueStore.issues.addIssue([issueBeforeMove]);
       throw error;
     }
   }

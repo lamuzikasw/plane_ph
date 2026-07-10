@@ -80,6 +80,26 @@ const mergeDateAndTime = (date: Date, timeSource?: Date): Date => {
   return updatedDate;
 };
 
+const getTimeValue = (date?: Date): string => (date ? renderFormattedTime(date) : "");
+
+const isValidTimeValue = (time: string): boolean => {
+  const [hours, minutes] = time.split(":").map(Number);
+
+  return (
+    /^\d{2}:\d{2}$/.test(time) &&
+    Number.isInteger(hours) &&
+    Number.isInteger(minutes) &&
+    hours >= 0 &&
+    hours <= 23 &&
+    minutes >= 0 &&
+    minutes <= 59
+  );
+};
+
+const stopInputEventPropagation = (e: React.SyntheticEvent<HTMLInputElement>) => {
+  e.stopPropagation();
+};
+
 export const DateRangeDropdown = observer(function DateRangeDropdown(props: Props) {
   const { t } = useTranslation();
   const {
@@ -119,6 +139,12 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
   // states
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [dateRange, setDateRange] = useState<DateRange>(value);
+  const [timeInput, setTimeInput] = useState({
+    from: getTimeValue(value.from),
+    to: getTimeValue(value.to),
+  });
+  const fromTimestamp = value.from?.getTime();
+  const toTimestamp = value.to?.getTime();
   // hooks
   const { data } = useUserProfile();
   const startOfWeek = data?.start_of_the_week;
@@ -158,6 +184,7 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
   const clearDates = () => {
     const clearedRange = { from: undefined, to: undefined };
     setDateRange(clearedRange);
+    setTimeInput({ from: "", to: "" });
     onSelect?.(clearedRange);
   };
 
@@ -170,12 +197,19 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
     };
 
     setDateRange(updatedRange);
+    setTimeInput({
+      from: getTimeValue(updatedRange.from),
+      to: getTimeValue(updatedRange.to),
+    });
     onSelect?.(updatedRange);
   };
 
   const handleTimeChange = (key: "from" | "to", time: string) => {
+    setTimeInput((prev) => ({ ...prev, [key]: time }));
+
     const currentDate = dateRange[key];
     if (!currentDate) return;
+    if (!isValidTimeValue(time)) return;
 
     const [hours, minutes] = time.split(":").map(Number);
     const updatedDate = new Date(currentDate);
@@ -190,8 +224,15 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
   };
 
   useEffect(() => {
-    setDateRange(value);
-  }, [value]);
+    setDateRange({
+      from: value.from,
+      to: value.to,
+    });
+    setTimeInput({
+      from: getTimeValue(value.from),
+      to: getTimeValue(value.to),
+    });
+  }, [fromTimestamp, toTimestamp]);
 
   const comboButton = (
     <button
@@ -334,8 +375,11 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
               <Clock className="h-3.5 w-3.5 flex-shrink-0" />
               <input
                 type="time"
-                value={dateRange.from ? renderFormattedTime(dateRange.from) : ""}
+                value={timeInput.from}
                 onChange={(e) => handleTimeChange("from", e.target.value)}
+                onClick={stopInputEventPropagation}
+                onFocus={stopInputEventPropagation}
+                onKeyDown={stopInputEventPropagation}
                 disabled={!dateRange.from}
                 className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
               />
@@ -344,8 +388,11 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
               <ArrowRight className="h-3.5 w-3.5 flex-shrink-0" />
               <input
                 type="time"
-                value={dateRange.to ? renderFormattedTime(dateRange.to) : ""}
+                value={timeInput.to}
                 onChange={(e) => handleTimeChange("to", e.target.value)}
+                onClick={stopInputEventPropagation}
+                onFocus={stopInputEventPropagation}
+                onKeyDown={stopInputEventPropagation}
                 disabled={!dateRange.to}
                 className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
               />
@@ -361,7 +408,6 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
   return (
     <ComboDropDown
       as="div"
-      role="presentation"
       ref={dropdownRef}
       tabIndex={tabIndex}
       className={cn("h-full", className)}

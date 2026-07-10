@@ -29,6 +29,7 @@ import { CreateUpdateIssueModal } from "../../issue-modal/modal";
 import type { IQuickActionProps } from "../list/list-view-types";
 import type { MenuItemFactoryProps } from "./helper";
 import { useCycleIssueMenuItems } from "./helper";
+import { MoveIssueToProjectModal } from "./move-to-project-modal";
 
 export const CycleIssueQuickActions = observer(function CycleIssueQuickActions(props: IQuickActionProps) {
   const {
@@ -49,9 +50,10 @@ export const CycleIssueQuickActions = observer(function CycleIssueQuickActions(p
   const [deleteIssueModal, setDeleteIssueModal] = useState(false);
   const [archiveIssueModal, setArchiveIssueModal] = useState(false);
   const [duplicateWorkItemModal, setDuplicateWorkItemModal] = useState(false);
+  const [moveToProjectModal, setMoveToProjectModal] = useState(false);
   // router
   const { workspaceSlug, cycleId } = useParams();
-  const { issuesFilter } = useIssues(EIssuesStoreType.CYCLE);
+  const { issues, issuesFilter } = useIssues(EIssuesStoreType.CYCLE);
   const { allowPermissions } = useUserPermissions();
   const { getStateById } = useProjectState();
   const { getProjectIdentifierById } = useProject();
@@ -91,6 +93,7 @@ export const CycleIssueQuickActions = observer(function CycleIssueQuickActions(p
     setDeleteIssueModal,
     setArchiveIssueModal,
     setDuplicateWorkItemModal,
+    setMoveToProjectModal,
     handleRemoveFromView,
     cycleId: cycleId?.toString(),
     handleDelete,
@@ -145,6 +148,15 @@ export const CycleIssueQuickActions = observer(function CycleIssueQuickActions(p
           onClose={() => setDuplicateWorkItemModal(false)}
           workspaceSlug={workspaceSlug.toString()}
           projectId={issue.project_id}
+        />
+      )}
+      {issue.project_id && workspaceSlug && (
+        <MoveIssueToProjectModal
+          issue={issue}
+          isOpen={moveToProjectModal}
+          onClose={() => setMoveToProjectModal(false)}
+          workspaceSlug={workspaceSlug.toString()}
+          onSubmit={(data) => issues.moveIssueToProject(workspaceSlug.toString(), issue.project_id!, issue.id, data)}
         />
       )}
 

@@ -65,6 +65,15 @@ export const SubIssuesListItemProperties = observer(function SubIssuesListItemPr
     }
   };
 
+  const handleDateRange = (range: { from?: Date; to?: Date } | undefined) => {
+    if (!issue.project_id) return;
+
+    updateSubIssue(workspaceSlug, issue.project_id, parentIssueId, issueId, {
+      start_date: range?.from ? renderFormattedPayloadDateTime(range.from) : null,
+      target_date: range?.to ? renderFormattedPayloadDateTime(range.to) : null,
+    });
+  };
+
   //derived values
   const stateDetails = useMemo(() => getStateById(issue.state_id), [getStateById, issue.state_id]);
   const shouldHighlight = useMemo(
@@ -146,10 +155,7 @@ export const SubIssuesListItemProperties = observer(function SubIssuesListItemPr
               to: getDateTime(issue.target_date) || undefined,
             }}
             placement="top-end"
-            onSelect={(range) => {
-              handleStartDate(range?.from ?? null);
-              handleTargetDate(range?.to ?? null);
-            }}
+            onSelect={handleDateRange}
             hideIcon={{
               from: false,
             }}

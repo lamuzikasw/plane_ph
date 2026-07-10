@@ -15,6 +15,7 @@ import { EIssuesStoreType } from "@plane/types";
 import { ContextMenu, CustomMenu } from "@plane/ui";
 import { cn } from "@plane/utils";
 // hooks
+import { useIssues } from "@/hooks/store/use-issues";
 import { useProject } from "@/hooks/store/use-project";
 import { useProjectState } from "@/hooks/store/use-project-state";
 // plane-web components
@@ -26,6 +27,7 @@ import { CreateUpdateIssueModal } from "../../issue-modal/modal";
 import type { IQuickActionProps } from "../list/list-view-types";
 import type { MenuItemFactoryProps } from "./helper";
 import { useAllIssueMenuItems } from "./helper";
+import { MoveIssueToProjectModal } from "./move-to-project-modal";
 
 export const AllIssueQuickActions = observer(function AllIssueQuickActions(props: IQuickActionProps) {
   const {
@@ -45,8 +47,10 @@ export const AllIssueQuickActions = observer(function AllIssueQuickActions(props
   const [deleteIssueModal, setDeleteIssueModal] = useState(false);
   const [archiveIssueModal, setArchiveIssueModal] = useState(false);
   const [duplicateWorkItemModal, setDuplicateWorkItemModal] = useState(false);
+  const [moveToProjectModal, setMoveToProjectModal] = useState(false);
   // router
   const { workspaceSlug } = useParams();
+  const { issues } = useIssues(EIssuesStoreType.GLOBAL);
   const { getStateById } = useProjectState();
   const { getProjectIdentifierById } = useProject();
   // derived values
@@ -81,6 +85,7 @@ export const AllIssueQuickActions = observer(function AllIssueQuickActions(props
     setDeleteIssueModal,
     setArchiveIssueModal,
     setDuplicateWorkItemModal,
+    setMoveToProjectModal,
     handleDelete,
     handleUpdate,
     handleArchive,
@@ -132,6 +137,15 @@ export const AllIssueQuickActions = observer(function AllIssueQuickActions(props
           onClose={() => setDuplicateWorkItemModal(false)}
           workspaceSlug={workspaceSlug.toString()}
           projectId={issue.project_id}
+        />
+      )}
+      {issue.project_id && workspaceSlug && (
+        <MoveIssueToProjectModal
+          issue={issue}
+          isOpen={moveToProjectModal}
+          onClose={() => setMoveToProjectModal(false)}
+          workspaceSlug={workspaceSlug.toString()}
+          onSubmit={(data) => issues.moveIssueToProject(workspaceSlug.toString(), issue.project_id!, issue.id, data)}
         />
       )}
 

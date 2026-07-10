@@ -10,7 +10,7 @@ import re
 # Django imports
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponseRedirect
-from django.db import IntegrityError
+from django.db import IntegrityError, connection, transaction
 from django.db.models import (
     Case,
     CharField,
@@ -72,10 +72,15 @@ from plane.db.models import (
     IssueComment,
     IssueLink,
     IssueRelation,
+    IssueSequence,
+    IssueAssignee,
+    IssueLabel,
     Label,
+    ModuleIssue,
     Project,
     ProjectMember,
     CycleIssue,
+    State,
     Workspace,
 )
 from plane.settings.storage import S3Storage
@@ -155,6 +160,7 @@ from plane.utils.openapi import (
     WORKSPACE_NOT_FOUND_RESPONSE,
 )
 from plane.bgtasks.work_item_link_task import crawl_work_item_link_title
+from plane.utils.uuid import convert_uuid_to_integer
 
 
 def user_has_issue_permission(user_id, project_id, issue=None, allowed_roles=None, allow_creator=True):
@@ -794,6 +800,134 @@ class IssueDetailAPIEndpoint(BaseAPIView):
             )
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def post(self, request, slug, project_id, pk):
+        """Move work item to another project."""
+        target_project_id = request.data.get("project_id")
+        target_state_id = request.data.get("state_id")
+
+        if not target_project_id:
+            return Response({"error": "Project ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if str(target_project_id) == str(project_id):
+            return Response({"error": "Target project must be different"}, status=status.HTTP_400_BAD_REQUEST)
+
+        issue = Issue.objects.get(workspace__slug=slug, project_id=project_id, pk=pk)
+        target_project = Project.objects.filter(workspace__slug=slug, pk=target_project_id).first()
+
+        if not target_project:
+            return Response({"error": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not ProjectMember.objects.filter(
+            workspace__slug=slug,
+            member=request.user,
+            role__gte=15,
+            project_id=target_project_id,
+            is_active=True,
+        ).exists():
+            return Response(
+                {"error": "You do not have permission to move the work item to this project"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        target_state = None
+        if target_state_id:
+            target_state = State.objects.filter(project_id=target_project_id, pk=target_state_id).first()
+            if not target_state:
+                return Response(
+                    {"error": "State is not valid please pass a valid state_id"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            target_state = (
+                State.objects.filter(project_id=target_project_id, is_triage=False, default=True).first()
+                or State.objects.filter(project_id=target_project_id, is_triage=False).order_by("sequence").first()
+            )
+
+        if not target_state:
+            return Response(
+                {"error": "Target project does not have a valid state"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        current_instance = json.dumps(IssueSerializer(issue).data, cls=DjangoJSONEncoder)
+        requested_data = json.dumps(
+            {"project_id": str(target_project_id), "state_id": str(target_state.id)},
+            cls=DjangoJSONEncoder,
+        )
+
+        with transaction.atomic():
+            lock_key = convert_uuid_to_integer(target_project.id)
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_key])
+
+            last_sequence = IssueSequence.objects.filter(project=target_project).aggregate(largest=Max("sequence"))[
+                "largest"
+            ]
+            next_sequence = last_sequence + 1 if last_sequence else 1
+
+            target_member_ids = ProjectMember.objects.filter(
+                workspace__slug=slug,
+                project_id=target_project_id,
+                is_active=True,
+                role__gte=15,
+            ).values_list("member_id", flat=True)
+
+            CycleIssue.objects.filter(issue=issue).delete()
+            ModuleIssue.objects.filter(issue=issue).delete()
+            IssueLabel.objects.filter(issue=issue).delete()
+            IssueAssignee.objects.filter(issue=issue).exclude(assignee_id__in=target_member_ids).delete()
+            IssueAssignee.objects.filter(issue=issue).update(
+                project_id=target_project_id,
+                workspace_id=target_project.workspace_id,
+                updated_by_id=request.user.id,
+            )
+
+            issue.project = target_project
+            issue.workspace = target_project.workspace
+            issue.state = target_state
+            issue.sequence_id = next_sequence
+            issue.parent = None
+            issue.estimate_point = None
+            issue.updated_by = request.user
+            issue.save(
+                update_fields=[
+                    "project",
+                    "workspace",
+                    "state",
+                    "sequence_id",
+                    "parent",
+                    "estimate_point",
+                    "updated_by",
+                    "updated_at",
+                ]
+            )
+            IssueSequence.objects.create(issue=issue, sequence=next_sequence, project=target_project)
+
+        issue_activity.delay(
+            type="issue.activity.updated",
+            requested_data=requested_data,
+            actor_id=str(request.user.id),
+            issue_id=str(pk),
+            project_id=str(target_project_id),
+            current_instance=current_instance,
+            epoch=int(timezone.now().timestamp()),
+        )
+        model_activity.delay(
+            model_name="issue",
+            model_id=str(pk),
+            requested_data={"project_id": str(target_project_id), "state_id": str(target_state.id)},
+            current_instance=current_instance,
+            actor_id=request.user.id,
+            slug=slug,
+            origin=base_host(request=request, is_app=True),
+        )
+
+        moved_issue = Issue.objects.get(workspace__slug=slug, project_id=target_project_id, pk=pk)
+        return Response(
+            IssueSerializer(moved_issue, fields=self.fields, expand=self.expand).data,
+            status=status.HTTP_200_OK,
+        )
 
     @work_item_docs(
         operation_id="delete_work_item",

@@ -28,6 +28,7 @@ import { CreateUpdateIssueModal } from "../../issue-modal/modal";
 import type { IQuickActionProps } from "../list/list-view-types";
 import type { MenuItemFactoryProps } from "./helper";
 import { useProjectIssueMenuItems } from "./helper";
+import { MoveIssueToProjectModal } from "./move-to-project-modal";
 
 export const ProjectIssueQuickActions = observer(function ProjectIssueQuickActions(props: IQuickActionProps) {
   const {
@@ -49,9 +50,10 @@ export const ProjectIssueQuickActions = observer(function ProjectIssueQuickActio
   const [deleteIssueModal, setDeleteIssueModal] = useState(false);
   const [archiveIssueModal, setArchiveIssueModal] = useState(false);
   const [duplicateWorkItemModal, setDuplicateWorkItemModal] = useState(false);
+  const [moveToProjectModal, setMoveToProjectModal] = useState(false);
   // store hooks
   const { allowPermissions } = useUserPermissions();
-  const { issuesFilter } = useIssues(EIssuesStoreType.PROJECT);
+  const { issues, issuesFilter } = useIssues(EIssuesStoreType.PROJECT);
   const { getStateById } = useProjectState();
   const { getProjectIdentifierById } = useProject();
   // derived values
@@ -94,6 +96,7 @@ export const ProjectIssueQuickActions = observer(function ProjectIssueQuickActio
     setDeleteIssueModal,
     setArchiveIssueModal,
     setDuplicateWorkItemModal,
+    setMoveToProjectModal,
     handleDelete,
     handleUpdate,
     handleArchive,
@@ -146,6 +149,15 @@ export const ProjectIssueQuickActions = observer(function ProjectIssueQuickActio
           onClose={() => setDuplicateWorkItemModal(false)}
           workspaceSlug={workspaceSlug.toString()}
           projectId={issue.project_id}
+        />
+      )}
+      {issue.project_id && workspaceSlug && (
+        <MoveIssueToProjectModal
+          issue={issue}
+          isOpen={moveToProjectModal}
+          onClose={() => setMoveToProjectModal(false)}
+          workspaceSlug={workspaceSlug.toString()}
+          onSubmit={(data) => issues.moveIssueToProject(workspaceSlug.toString(), issue.project_id!, issue.id, data)}
         />
       )}
 
