@@ -100,7 +100,8 @@ export class WorkspaceIssuesFilter extends IssueFilterHelperStore implements IWo
     const userFilters = this.getIssueFilters(viewId);
     if (!userFilters) return undefined;
 
-    const filteredParams = handleIssueQueryParamsByLayout(EIssueLayoutTypes.SPREADSHEET, "my_issues");
+    const activeLayout = userFilters?.displayFilters?.layout ?? EIssueLayoutTypes.SPREADSHEET;
+    const filteredParams = handleIssueQueryParamsByLayout(activeLayout, "my_issues");
     if (!filteredParams) return undefined;
 
     const filteredRouteParams: Partial<Record<TIssueParams, string | boolean>> = this.computedFilteredParams(
@@ -158,26 +159,26 @@ export class WorkspaceIssuesFilter extends IssueFilterHelperStore implements IWo
       sub_group_by: [],
     };
 
-    const _filters = this.handleIssuesLocalFilters.get(EIssuesStoreType.GLOBAL, workspaceSlug, undefined, viewId);
-    displayFilters = this.computedDisplayFilters(_filters?.display_filters, {
+    const localFilters = this.handleIssuesLocalFilters.get(EIssuesStoreType.GLOBAL, workspaceSlug, undefined, viewId);
+    displayFilters = this.computedDisplayFilters(localFilters?.display_filters, {
       layout: EIssueLayoutTypes.SPREADSHEET,
       order_by: "-created_at",
     });
-    displayProperties = this.computedDisplayProperties(_filters?.display_properties);
+    displayProperties = this.computedDisplayProperties(localFilters?.display_properties);
     kanbanFilters = {
-      group_by: _filters?.kanban_filters?.group_by || [],
-      sub_group_by: _filters?.kanban_filters?.sub_group_by || [],
+      group_by: localFilters?.kanban_filters?.group_by || [],
+      sub_group_by: localFilters?.kanban_filters?.sub_group_by || [],
     };
 
     // Get the view details if the view is not a static view
     if (STATIC_VIEW_TYPES.includes(viewId) === false) {
-      const _filters = await this.issueFilterService.getViewDetails(workspaceSlug, viewId);
-      richFilters = _filters?.rich_filters;
-      displayFilters = this.computedDisplayFilters(_filters?.display_filters, {
+      const viewFilters = await this.issueFilterService.getViewDetails(workspaceSlug, viewId);
+      richFilters = viewFilters?.rich_filters;
+      displayFilters = this.computedDisplayFilters(viewFilters?.display_filters, {
         layout: EIssueLayoutTypes.SPREADSHEET,
         order_by: "-created_at",
       });
-      displayProperties = this.computedDisplayProperties(_filters?.display_properties);
+      displayProperties = this.computedDisplayProperties(viewFilters?.display_properties);
     }
 
     // override existing order by if ordered by manual sort_order

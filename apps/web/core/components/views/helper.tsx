@@ -5,6 +5,7 @@
  */
 
 import { EIssueLayoutTypes } from "@plane/types";
+import { BaseGanttRoot } from "@/components/issues/issue-layouts/gantt";
 import { WorkspaceSpreadsheetRoot } from "@/components/issues/issue-layouts/spreadsheet/roots/workspace-root";
 import { WorkspaceAdditionalLayouts } from "@/plane-web/components/views/helper";
 
@@ -51,6 +52,8 @@ export function WorkspaceActiveLayout(props: TWorkspaceLayoutProps) {
           issuesLoading={issuesLoading}
         />
       );
+    case EIssueLayoutTypes.GANTT:
+      return <BaseGanttRoot />;
     default:
       return <WorkspaceAdditionalLayouts {...props} />;
   }

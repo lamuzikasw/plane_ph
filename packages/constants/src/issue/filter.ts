@@ -191,6 +191,17 @@ export const ISSUE_DISPLAY_FILTERS_BY_PAGE: TIssueFiltersToDisplayByPageType = {
           values: ["sub_issue"],
         },
       },
+      gantt_chart: {
+        display_properties: ["key", "issue_type"],
+        display_filters: {
+          order_by: ["sort_order", "-created_at", "-updated_at", "start_date", "-priority", "target_date"],
+          type: ["active", "backlog"],
+        },
+        extra_options: {
+          access: true,
+          values: ["sub_issue"],
+        },
+      },
       list: {
         display_properties: ISSUE_DISPLAY_PROPERTIES_KEYS,
         display_filters: {
@@ -350,10 +361,10 @@ export const defaultActivityFilters: TActivityFilters[] = [
 ];
 
 export const filterActivityOnSelectedFilters = (
-  activity: TIssueActivityComment[],
+  activities: TIssueActivityComment[],
   filters: TActivityFilters[]
 ): TIssueActivityComment[] =>
-  activity.filter((activity) => {
+  activities.filter((activity) => {
     if (activity.activity_type === EActivityFilterType.DEFAULT) return true;
     return filters.includes(activity.activity_type as TActivityFilters);
   });

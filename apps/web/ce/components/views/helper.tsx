@@ -5,6 +5,8 @@
  */
 
 import type { EIssueLayoutTypes, IProjectView } from "@plane/types";
+import { EIssueLayoutTypes as IssueLayoutTypes } from "@plane/types";
+import { LayoutSelection } from "@/components/issues/issue-layouts/filters";
 import type { TWorkspaceLayoutProps } from "@/components/views/helper";
 
 export type TLayoutSelectionProps = {
@@ -14,7 +16,13 @@ export type TLayoutSelectionProps = {
 };
 
 export function GlobalViewLayoutSelection(_props: TLayoutSelectionProps) {
-  return <></>;
+  return (
+    <LayoutSelection
+      layouts={[IssueLayoutTypes.SPREADSHEET, IssueLayoutTypes.GANTT]}
+      onChange={_props.onChange}
+      selectedLayout={_props.selectedLayout}
+    />
+  );
 }
 
 export function WorkspaceAdditionalLayouts(_props: TWorkspaceLayoutProps) {
