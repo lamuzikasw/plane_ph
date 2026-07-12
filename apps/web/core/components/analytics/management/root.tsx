@@ -6,7 +6,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowUpRight, Search, X } from "lucide-react";
+import { ArrowUpRight, Search, SlidersHorizontal, X } from "lucide-react";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button, Loader } from "@plane/ui";
@@ -198,11 +198,53 @@ function ManagementAnalyticsFilters() {
 }
 
 function OverviewPanel({ data, params }: { data: any; params: Record<string, string | undefined> }) {
+  const { workspaceSlug } = useParams();
   const [selectedMetric, setSelectedMetric] = useState<string | undefined>();
+  const [isMetricSettingsOpen, setIsMetricSettingsOpen] = useState(false);
+  const workspaceSlugString = workspaceSlug?.toString();
+  const { data: settings, mutate: mutateSettings } = useSWR(
+    workspaceSlugString ? ["management-analytics-settings", workspaceSlugString] : null,
+    () => analyticsService.getManagementAnalyticsSettings(workspaceSlugString ?? "")
+  );
+  const hiddenKpis = useMemo(
+    () => (Array.isArray(settings?.overview_hidden_kpis) ? settings.overview_hidden_kpis : []),
+    [settings?.overview_hidden_kpis]
+  );
+  const kpis = useMemo(() => data.kpis ?? [], [data.kpis]);
+  const visibleKpis = useMemo(
+    () => kpis.filter((kpi: TManagementAnalyticsKPI) => !hiddenKpis.includes(kpi.key)),
+    [kpis, hiddenKpis]
+  );
+
+  const saveHiddenKpis = async (nextHiddenKpis: string[]) => {
+    if (!workspaceSlugString) return;
+    const nextSettings = { ...settings, overview_hidden_kpis: nextHiddenKpis };
+    await mutateSettings(nextSettings, false);
+    await analyticsService.updateManagementAnalyticsSettings(workspaceSlugString, {
+      overview_hidden_kpis: nextHiddenKpis,
+    });
+    mutateSettings();
+  };
+
+  const toggleKpi = (key: string) => {
+    const nextHiddenKpis = hiddenKpis.includes(key)
+      ? hiddenKpis.filter((hiddenKey: string) => hiddenKey !== key)
+      : [...hiddenKpis, key];
+    saveHiddenKpis(nextHiddenKpis);
+  };
 
   return (
     <>
-      <KpiGrid kpis={data.kpis ?? []} onOpenDrilldown={setSelectedMetric} />
+      <OverviewMetricControls
+        kpis={kpis}
+        hiddenKpis={hiddenKpis}
+        visibleCount={visibleKpis.length}
+        isOpen={isMetricSettingsOpen}
+        onToggleOpen={() => setIsMetricSettingsOpen((current) => !current)}
+        onToggleKpi={toggleKpi}
+        onShowAll={() => saveHiddenKpis([])}
+      />
+      <KpiGrid kpis={visibleKpis} onOpenDrilldown={setSelectedMetric} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <WorkloadDistributionChart rows={data.team_snapshot ?? []} />
         <RiskDistributionChart rows={data.project_health ?? []} />
@@ -220,6 +262,95 @@ function OverviewPanel({ data, params }: { data: any; params: Record<string, str
       />
       <IssuePeekOverview />
     </>
+  );
+}
+
+function OverviewMetricControls({
+  kpis,
+  hiddenKpis,
+  visibleCount,
+  isOpen,
+  onToggleOpen,
+  onToggleKpi,
+  onShowAll,
+}: {
+  kpis: TManagementAnalyticsKPI[];
+  hiddenKpis: string[];
+  visibleCount: number;
+  isOpen: boolean;
+  onToggleOpen: () => void;
+  onToggleKpi: (key: string) => void;
+  onShowAll: () => void;
+}) {
+  const { t } = useTranslation();
+  const hiddenCount = hiddenKpis.length;
+
+  return (
+    <div className="rounded border border-subtle bg-surface-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2">
+        <div>
+          <div className="text-13 font-medium text-primary">Показатели обзора</div>
+          <div className="text-11 text-tertiary">
+            Видно {visibleCount} из {kpis.length}
+            {hiddenCount > 0 ? ` · скрыто ${hiddenCount}` : ""}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={onShowAll}
+              className="text-custom-primary-100 hover:text-custom-primary-200 text-12 font-medium"
+            >
+              Показать все
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onToggleOpen}
+            className={cn(
+              "flex h-8 items-center gap-2 rounded border border-subtle px-3 text-12 font-medium transition-colors",
+              isOpen ? "bg-surface-2 text-primary" : "bg-surface-1 text-secondary hover:bg-surface-2 hover:text-primary"
+            )}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Показатели
+          </button>
+        </div>
+      </div>
+      {isOpen && (
+        <div className="border-t border-subtle px-3 py-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {kpis.map((kpi) => {
+              const isVisible = !hiddenKpis.includes(kpi.key);
+              const inputId = `management-analytics-kpi-${kpi.key}`;
+              return (
+                <div
+                  key={kpi.key}
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded border border-subtle bg-surface-1 px-3 py-2 transition-colors hover:bg-surface-2"
+                >
+                  <label htmlFor={inputId} className="min-w-0 cursor-pointer">
+                    <span className="block truncate text-13 font-medium text-primary">
+                      {t(`management_analytics.kpis.${kpi.key}`)}
+                    </span>
+                    <span className="block truncate text-11 text-tertiary">
+                      {formatValue(kpi.value, kpi.value_type)}
+                    </span>
+                  </label>
+                  <input
+                    id={inputId}
+                    type="checkbox"
+                    checked={isVisible}
+                    onChange={() => onToggleKpi(kpi.key)}
+                    className="text-custom-primary-100 h-4 w-4 rounded border-subtle"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

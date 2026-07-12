@@ -41,6 +41,7 @@ def get_default_management_analytics_config():
         "working_days": [0, 1, 2, 3, 4],
         "review_state_groups": ["started"],
         "testing_state_groups": ["started"],
+        "overview_hidden_kpis": [],
         "required_issue_fields": [
             "assignee",
             "estimate",
