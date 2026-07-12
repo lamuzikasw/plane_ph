@@ -602,7 +602,25 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
     const issueBeforeMove = clone(this.rootIssueStore.issues.getIssueById(issueId));
 
     try {
-      const movedIssue = await this.issueService.moveIssueToProject(workspaceSlug, projectId, issueId, data);
+      const movedIssueResponse = (await this.issueService.moveIssueToProject(workspaceSlug, projectId, issueId, data)) as Partial<TIssue> & {
+        project?: string | null;
+        state?: string | null;
+        assignees?: string[];
+        labels?: string[];
+      };
+      const movedIssue = {
+        ...movedIssueResponse,
+        project_id: movedIssueResponse.project_id ?? movedIssueResponse.project ?? data.project_id,
+        state_id: movedIssueResponse.state_id ?? movedIssueResponse.state ?? data.state_id ?? null,
+        assignee_ids: movedIssueResponse.assignee_ids ?? movedIssueResponse.assignees ?? [],
+        label_ids: movedIssueResponse.label_ids ?? movedIssueResponse.labels ?? [],
+        module_ids: movedIssueResponse.module_ids ?? [],
+        cycle_id: movedIssueResponse.cycle_id ?? null,
+        parent_id: movedIssueResponse.parent_id ?? null,
+        sub_issues_count: movedIssueResponse.sub_issues_count ?? 0,
+        attachment_count: movedIssueResponse.attachment_count ?? 0,
+        link_count: movedIssueResponse.link_count ?? 0,
+      } as TIssue;
 
       this.rootIssueStore.issues.addIssue([movedIssue]);
       if (issueBeforeMove?.project_id === projectId) this.removeIssueFromList(issueId);

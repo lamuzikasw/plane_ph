@@ -95,11 +95,11 @@ export const MoveIssueToProjectModal = observer(function MoveIssueToProjectModal
         });
         onClose();
       })
-      .catch(() => {
+      .catch((error) => {
         setToast({
           type: TOAST_TYPE.ERROR,
           title: t("error"),
-          message: t("failed_to_move_issue_to_project"),
+          message: error?.error ?? error?.detail ?? t("failed_to_move_issue_to_project"),
         });
       })
       .finally(() => setIsMoving(false));
