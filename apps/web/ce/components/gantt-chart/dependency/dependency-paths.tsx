@@ -37,6 +37,9 @@ type TDependencyPathGeometry = {
   menuY: number;
 };
 
+const DELETE_ACTION_WIDTH = 112;
+const DELETE_ACTION_HEIGHT = 28;
+
 const getIssueRelations = (
   block: IGanttBlock,
   getRelationsByIssueId: (issueId: string) => { [key in TIssueRelationTypes]?: string[] } | undefined
@@ -131,8 +134,8 @@ const getPathGeometry = (path: TDependencyPath): TDependencyPathGeometry => {
 
   return {
     d: `M ${sourceX} ${sourceY} C ${sourceX + direction * curve} ${sourceY}, ${targetX - direction * curve} ${targetY}, ${targetX} ${targetY}`,
-    menuX: (sourceX + targetX) / 2 - 58,
-    menuY: (sourceY + targetY) / 2 - 18,
+    menuX: (sourceX + targetX) / 2 - DELETE_ACTION_WIDTH / 2,
+    menuY: (sourceY + targetY) / 2 - DELETE_ACTION_HEIGHT / 2,
   };
 };
 
@@ -184,7 +187,18 @@ export const TimelineDependencyPaths = observer(function TimelineDependencyPaths
           refY="4"
           viewBox="0 0 8 8"
         >
-          <path d="M 0 0 L 8 4 L 0 8 z" className="fill-accent-primary" />
+          <path d="M 1 1 L 7 4 L 1 7 z" className="fill-accent-primary/55" />
+        </marker>
+        <marker
+          id="gantt-dependency-arrow-selected"
+          markerHeight="8"
+          markerWidth="8"
+          orient="auto"
+          refX="7"
+          refY="4"
+          viewBox="0 0 8 8"
+        >
+          <path d="M 1 1 L 7 4 L 1 7 z" className="fill-accent-primary/80" />
         </marker>
       </defs>
       {dependencyPaths.map((path) => {
@@ -195,11 +209,11 @@ export const TimelineDependencyPaths = observer(function TimelineDependencyPaths
           <g key={path.id}>
             <path
               d={geometry.d}
-              className={isSelected ? "stroke-accent-primary" : "stroke-accent-primary/65"}
+              className={isSelected ? "stroke-accent-primary/80" : "stroke-accent-primary/50"}
               fill="none"
-              markerEnd="url(#gantt-dependency-arrow)"
+              markerEnd={isSelected ? "url(#gantt-dependency-arrow-selected)" : "url(#gantt-dependency-arrow)"}
               strokeLinecap="round"
-              strokeWidth={isSelected ? "2" : "1.5"}
+              strokeWidth={isSelected ? "1.75" : "1.25"}
             />
             <path
               d={geometry.d}
@@ -215,23 +229,21 @@ export const TimelineDependencyPaths = observer(function TimelineDependencyPaths
             {isSelected && (
               <foreignObject
                 className="pointer-events-auto overflow-visible"
-                height="42"
-                width="132"
+                height={DELETE_ACTION_HEIGHT + 4}
+                width={DELETE_ACTION_WIDTH + 4}
                 x={geometry.menuX}
                 y={geometry.menuY}
               >
-                <div className="border-custom-border-200 bg-surface-0 shadow-lg rounded-md border p-1">
-                  <button
-                    type="button"
-                    className="text-red-500 hover:bg-red-500/10 w-full rounded px-2 py-1.5 text-left text-12 font-medium"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleRemoveRelation(path);
-                    }}
-                  >
-                    Удалить связь
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className="shadow-sm flex h-7 items-center justify-center rounded border border-strong bg-surface-1 px-2 text-11 font-medium whitespace-nowrap text-secondary transition-colors outline-none hover:bg-surface-2 hover:text-danger-primary focus:bg-surface-2 focus:text-danger-primary"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleRemoveRelation(path);
+                  }}
+                >
+                  Удалить связь
+                </button>
               </foreignObject>
             )}
           </g>
