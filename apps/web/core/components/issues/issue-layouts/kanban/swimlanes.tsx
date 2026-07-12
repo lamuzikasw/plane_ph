@@ -106,6 +106,12 @@ const SubGroupSwimlaneHeader = observer(function SubGroupSwimlaneHeader({
 
 interface ISubGroupSwimlane extends ISubGroupSwimlaneHeader {
   addIssuesToView?: (issueIds: string[]) => Promise<TIssue>;
+  archiveColumn?: (payload: {
+    stateId?: string;
+    stateGroup?: "completed" | "cancelled";
+    title: string;
+    issueCount: number;
+  }) => Promise<number | undefined>;
   canEditProperties: (projectId: string | undefined) => boolean;
   collapsedGroups: TIssueKanbanFilters;
   disableIssueCreation?: boolean;

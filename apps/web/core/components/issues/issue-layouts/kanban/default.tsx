@@ -17,6 +17,7 @@ import type {
   TIssueKanbanFilters,
   TIssueGroupByOptions,
   TIssueOrderByOptions,
+  TStateGroups,
 } from "@plane/types";
 // constants
 import { ContentWrapper } from "@plane/ui";
@@ -35,6 +36,13 @@ import { getGroupByColumns, isWorkspaceLevel, getApproximateCardHeight } from ".
 // components
 import { HeaderGroupByCard } from "./headers/group-by-card";
 import { KanbanGroup } from "./kanban-group";
+
+type TArchiveKanbanColumnPayload = {
+  stateId?: string;
+  stateGroup?: Extract<TStateGroups, "completed" | "cancelled">;
+  title: string;
+  issueCount: number;
+};
 
 export interface IKanBan {
   issuesMap: IIssueMap;
@@ -64,6 +72,7 @@ export interface IKanBan {
   canEditProperties: (projectId: string | undefined) => boolean;
   scrollableContainerRef?: MutableRefObject<HTMLDivElement | null>;
   handleOnDrop: (source: GroupDropLocation, destination: GroupDropLocation) => Promise<void>;
+  archiveColumn?: (payload: TArchiveKanbanColumnPayload) => Promise<number | undefined>;
   showEmptyGroup?: boolean;
   subGroupIndex?: number;
   isEpic?: boolean;
@@ -90,6 +99,7 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
     canEditProperties,
     scrollableContainerRef,
     handleOnDrop,
+    archiveColumn,
     showEmptyGroup = true,
     orderBy,
     isDropDisabled,
@@ -156,7 +166,26 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
             ? ((groupedIssueIds as TSubGroupedIssues)?.[subList.id]?.[sub_group_id] ?? [])
             : ((groupedIssueIds as TGroupedIssues)?.[subList.id] ?? []);
           const issueLength = issueIds?.length;
+          const totalIssueCount = getGroupIssueCount(subList.id, undefined, false) ?? 0;
           const groupHeight = issueLength * approximateCardHeight;
+          const columnStateGroup =
+            group_by === "state_detail.group"
+              ? (subList.id as TStateGroups)
+              : issueIds.map((issueId) => issuesMap[issueId]?.state__group).find(Boolean);
+          const isArchivableStateGroup = columnStateGroup === "completed" || columnStateGroup === "cancelled";
+          const archiveColumnPayload =
+            archiveColumn && group_by && ["state", "state_detail.group"].includes(group_by) && isArchivableStateGroup
+              ? {
+                  issueCount: totalIssueCount,
+                  onArchive: () =>
+                    archiveColumn({
+                      stateId: group_by === "state" ? (subList.payload.state_id ?? subList.id) : undefined,
+                      stateGroup: group_by === "state_detail.group" ? columnStateGroup : undefined,
+                      title: subList.name,
+                      issueCount: totalIssueCount,
+                    }),
+                }
+              : undefined;
 
           return (
             <div
@@ -173,7 +202,7 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
                     column_id={subList.id}
                     icon={subList.icon}
                     title={subList.name}
-                    count={getGroupIssueCount(subList.id, undefined, false) ?? 0}
+                    count={totalIssueCount}
                     issuePayload={subList.payload}
                     disableIssueCreation={
                       disableIssueCreation ||
@@ -181,6 +210,7 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
                       getIsWorkflowWorkItemCreationDisabled(subList.id, sub_group_id)
                     }
                     addIssuesToView={addIssuesToView}
+                    archiveColumn={archiveColumnPayload}
                     collapsedGroups={collapsedGroups}
                     handleCollapsedGroups={handleCollapsedGroups}
                     isEpic={isEpic}

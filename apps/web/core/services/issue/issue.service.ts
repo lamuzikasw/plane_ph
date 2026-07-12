@@ -378,10 +378,13 @@ export class IssueService extends APIService {
     workspaceSlug: string,
     projectId: string,
     data: {
-      issue_ids: string[];
+      issue_ids?: string[];
+      state_id?: string;
+      state_group?: string;
     }
   ): Promise<{
     archived_at: string;
+    archived_count?: number;
   }> {
     return this.post(`/api/workspaces/${workspaceSlug}/projects/${projectId}/bulk-archive-issues/`, data)
       .then(async (response) => response?.data)

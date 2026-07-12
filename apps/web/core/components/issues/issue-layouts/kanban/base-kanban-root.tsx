@@ -5,15 +5,14 @@
  */
 
 import type { FC } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
 import { dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 import { EIssueFilterType, EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
-import type { EIssuesStoreType } from "@plane/types";
-import { EIssueServiceType, EIssueLayoutTypes } from "@plane/types";
+import { EIssueServiceType, EIssueLayoutTypes, EIssuesStoreType } from "@plane/types";
 //hooks
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { useIssues } from "@/hooks/store/use-issues";
@@ -22,6 +21,7 @@ import { useUserPermissions } from "@/hooks/store/user";
 import { useGroupIssuesDragNDrop } from "@/hooks/use-group-dragndrop";
 import { useIssueStoreType } from "@/hooks/use-issue-layout-store";
 import { useIssuesActions } from "@/hooks/use-issues-actions";
+import { IssueService } from "@/services/issue";
 // store
 // ui
 // types
@@ -65,6 +65,7 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
   const { workspaceSlug, projectId } = useParams();
   // store hooks
   const storeType = useIssueStoreType() as KanbanStoreType;
+  const issueService = useMemo(() => new IssueService(), []);
   const { allowPermissions } = useUserPermissions();
   const { issueMap, issuesFilter, issues } = useIssues(storeType);
   const {
@@ -105,7 +106,7 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
         fetchNextIssues(groupId, subgroupId);
       }
     },
-    [fetchNextIssues]
+    [fetchNextIssues, issues]
   );
 
   const groupedIssueIds = issues?.groupedIssueIds;
@@ -130,9 +131,11 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
   const handleOnDrop = useGroupIssuesDragNDrop(storeType, orderBy, group_by, sub_group_by);
 
   const canEditProperties = useCallback(
-    (projectId: string | undefined) => {
+    (targetProjectId: string | undefined) => {
       const isEditingAllowedBasedOnProject =
-        canEditPropertiesBasedOnProject && projectId ? canEditPropertiesBasedOnProject(projectId) : isEditingAllowed;
+        canEditPropertiesBasedOnProject && targetProjectId
+          ? canEditPropertiesBasedOnProject(targetProjectId)
+          : isEditingAllowed;
 
       return enableInlineEditing && isEditingAllowedBasedOnProject;
     },
@@ -231,6 +234,30 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
     [workspaceSlug, issuesFilter, projectId, updateFilters]
   );
 
+  const handleArchiveColumn = useCallback(
+    async ({
+      stateId,
+      stateGroup,
+      issueCount,
+    }: {
+      stateId?: string;
+      stateGroup?: "completed" | "cancelled";
+      issueCount: number;
+    }) => {
+      if (!workspaceSlug || !projectId || storeType !== EIssuesStoreType.PROJECT) return;
+
+      const response = await issueService.bulkArchiveIssues(workspaceSlug.toString(), projectId.toString(), {
+        state_id: stateId,
+        state_group: stateGroup,
+      });
+
+      await fetchIssues("mutation", { canGroup: true, perPageCount: sub_group_by ? 10 : 30 }, viewId);
+
+      return response.archived_count ?? issueCount;
+    },
+    [fetchIssues, issueService, projectId, storeType, sub_group_by, viewId, workspaceSlug]
+  );
+
   const collapsedGroups = issuesFilter?.issueFilters?.kanbanFilters || { group_by: [], sub_group_by: [] };
 
   return (
@@ -286,6 +313,9 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
                 addIssuesToView={addIssuesToView}
                 scrollableContainerRef={scrollableContainerRef}
                 handleOnDrop={handleOnDrop}
+                archiveColumn={
+                  storeType === EIssuesStoreType.PROJECT && !isCompletedCycle ? handleArchiveColumn : undefined
+                }
                 loadMoreIssues={fetchMoreIssues}
                 isEpic={isEpic}
               />

@@ -8,12 +8,13 @@ import React from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 // lucide icons
-import { Minimize2, Maximize2, Circle } from "lucide-react";
+import { Archive, Minimize2, Maximize2, Circle } from "lucide-react";
+import { Button } from "@plane/propel/button";
 import { PlusIcon } from "@plane/propel/icons";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { TIssue, ISearchIssueResponse, TIssueKanbanFilters, TIssueGroupByOptions } from "@plane/types";
 // ui
-import { CustomMenu } from "@plane/ui";
+import { CustomMenu, EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 // components
 import { ExistingIssuesListModal } from "@/components/core/modals/existing-issues-list-modal";
 import { CreateUpdateIssueModal } from "@/components/issues/issue-modal/modal";
@@ -36,6 +37,10 @@ interface IHeaderGroupByCard {
   issuePayload: Partial<TIssue>;
   disableIssueCreation?: boolean;
   addIssuesToView?: (issueIds: string[]) => Promise<TIssue>;
+  archiveColumn?: {
+    issueCount: number;
+    onArchive: () => Promise<number | undefined>;
+  };
   isEpic?: boolean;
 }
 
@@ -52,12 +57,15 @@ export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHea
     issuePayload,
     disableIssueCreation,
     addIssuesToView,
+    archiveColumn,
     isEpic = false,
   } = props;
   const verticalAlignPosition = sub_group_by ? false : collapsedGroups?.group_by.includes(column_id);
   // states
   const [isOpen, setIsOpen] = React.useState(false);
   const [openExistingIssueListModal, setOpenExistingIssueListModal] = React.useState(false);
+  const [isArchiveColumnModalOpen, setIsArchiveColumnModalOpen] = React.useState(false);
+  const [isArchivingColumn, setIsArchivingColumn] = React.useState(false);
   // hooks
   const storeType = useIssueStoreType();
   // router
@@ -65,6 +73,7 @@ export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHea
 
   const renderExistingIssueModal = moduleId || cycleId;
   const ExistingIssuesListModalPayload = moduleId ? { module: moduleId.toString() } : { cycle: true };
+  const canArchiveColumn = !verticalAlignPosition && archiveColumn && archiveColumn.issueCount > 0;
 
   const handleAddIssuesToView = async (data: ISearchIssueResponse[]) => {
     if (!workspaceSlug || !projectId) return;
@@ -85,6 +94,29 @@ export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHea
         title: "Error!",
         message: "Selected work items could not be added to the cycle. Please try again.",
       });
+    }
+  };
+
+  const handleArchiveColumn = async () => {
+    if (!archiveColumn) return;
+
+    setIsArchivingColumn(true);
+    try {
+      const archivedCount = await archiveColumn.onArchive();
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: "Готово",
+        message: `Архивировано ${archivedCount ?? archiveColumn.issueCount} задач из колонки "${title}".`,
+      });
+      setIsArchiveColumnModalOpen(false);
+    } catch (_error) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Ошибка",
+        message: `Не удалось архивировать задачи из колонки "${title}". Попробуй еще раз.`,
+      });
+    } finally {
+      setIsArchivingColumn(false);
     }
   };
 
@@ -110,6 +142,30 @@ export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHea
           searchParams={ExistingIssuesListModalPayload}
           handleOnSubmit={handleAddIssuesToView}
         />
+      )}
+      {canArchiveColumn && (
+        <ModalCore
+          isOpen={isArchiveColumnModalOpen}
+          handleClose={() => !isArchivingColumn && setIsArchiveColumnModalOpen(false)}
+          position={EModalPosition.CENTER}
+          width={EModalWidth.LG}
+        >
+          <div className="px-5 py-4">
+            <h3 className="text-18 font-medium 2xl:text-20">Архивировать колонку {title}?</h3>
+            <p className="mt-3 text-13 text-secondary">
+              {archiveColumn.issueCount} задач будут перенесены в архив проекта. Их можно будет восстановить из раздела
+              архивов.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="secondary" size="lg" onClick={() => setIsArchiveColumnModalOpen(false)}>
+                Отмена
+              </Button>
+              <Button variant="primary" size="lg" onClick={handleArchiveColumn} loading={isArchivingColumn}>
+                {isArchivingColumn ? "Архивирую" : "Архивировать"}
+              </Button>
+            </div>
+          </div>
+        </ModalCore>
       )}
       <div
         className={`relative flex flex-shrink-0 gap-1 py-1.5 ${
@@ -140,6 +196,18 @@ export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHea
         </div>
 
         <WorkFlowGroupTree groupBy={group_by} groupId={column_id} />
+
+        {canArchiveColumn && (
+          <button
+            type="button"
+            className="border-custom-border-200 hover:border-custom-border-300 ml-auto inline-flex h-6 flex-shrink-0 items-center gap-1 rounded-sm border bg-surface-1 px-2 text-11 font-medium text-secondary transition-all hover:bg-surface-2 hover:text-primary"
+            title={`Архивировать ${archiveColumn.issueCount} задач из колонки ${title}`}
+            onClick={() => setIsArchiveColumnModalOpen(true)}
+          >
+            <Archive className="size-3" strokeWidth={2} />
+            Архив
+          </button>
+        )}
 
         {sub_group_by === null && (
           <button

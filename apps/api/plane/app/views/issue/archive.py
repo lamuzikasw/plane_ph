@@ -308,13 +308,22 @@ class BulkArchiveIssuesEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def post(self, request, slug, project_id):
         issue_ids = request.data.get("issue_ids", [])
+        state_id = request.data.get("state_id", None)
+        state_group = request.data.get("state_group", None)
 
-        if not len(issue_ids):
-            return Response({"error": "Issue IDs are required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not len(issue_ids) and not state_id and not state_group:
+            return Response({"error": "Archive target is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        issues = Issue.objects.filter(workspace__slug=slug, project_id=project_id, pk__in=issue_ids).select_related(
+        issues = Issue.objects.filter(workspace__slug=slug, project_id=project_id, archived_at__isnull=True).select_related(
             "state"
         )
+        if len(issue_ids):
+            issues = issues.filter(pk__in=issue_ids)
+        if state_id:
+            issues = issues.filter(state_id=state_id)
+        if state_group:
+            issues = issues.filter(state__group=state_group)
+
         bulk_archive_issues = []
         for issue in issues:
             if issue.state.group not in ["completed", "cancelled"]:
@@ -340,4 +349,7 @@ class BulkArchiveIssuesEndpoint(BaseAPIView):
             bulk_archive_issues.append(issue)
         Issue.objects.bulk_update(bulk_archive_issues, ["archived_at"])
 
-        return Response({"archived_at": str(timezone.now().date())}, status=status.HTTP_200_OK)
+        return Response(
+            {"archived_at": str(timezone.now().date()), "archived_count": len(bulk_archive_issues)},
+            status=status.HTTP_200_OK,
+        )
