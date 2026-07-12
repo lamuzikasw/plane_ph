@@ -237,7 +237,7 @@ export class IssueService extends APIService {
     issueId: string,
     data: { project_id: string; state_id?: string }
   ): Promise<TIssue> {
-    return this.post(`/api/workspaces/${workspaceSlug}/projects/${projectId}/${this.serviceType}/${issueId}/`, data)
+    return this.post(`/api/workspaces/${workspaceSlug}/projects/${projectId}/${EIssueServiceType.WORK_ITEMS}/${issueId}/`, data)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;
