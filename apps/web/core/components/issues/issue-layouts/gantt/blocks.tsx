@@ -9,9 +9,10 @@ import { useParams } from "next/navigation";
 // plane imports
 import { Popover } from "@plane/propel/popover";
 import { Tooltip } from "@plane/propel/tooltip";
+import type { TIssueRelationTypes } from "@plane/types";
 import { EIssuesStoreType } from "@plane/types";
 import { ControlLink } from "@plane/ui";
-import { findTotalDaysInRange, generateWorkItemLink, getDate } from "@plane/utils";
+import { cn, findTotalDaysInRange, generateWorkItemLink, getDate } from "@plane/utils";
 // components
 import { SIDEBAR_WIDTH } from "@/components/gantt-chart/constants";
 // hooks
@@ -33,6 +34,19 @@ import type { GanttStoreType } from "./base-gantt-root";
 type Props = {
   issueId: string;
   isEpic?: boolean;
+};
+
+const visibleRelationTypes = new Set<TIssueRelationTypes>(["blocking", "blocked_by"]);
+
+const getDependencyCount = (issueDetails: any) => {
+  const relationCount = Array.isArray(issueDetails?.issue_relation)
+    ? issueDetails.issue_relation.filter((relation: any) => visibleRelationTypes.has(relation.relation_type)).length
+    : 0;
+  const relatedCount = Array.isArray(issueDetails?.issue_related)
+    ? issueDetails.issue_related.filter((relation: any) => visibleRelationTypes.has(relation.relation_type)).length
+    : 0;
+
+  return relationCount + relatedCount;
 };
 
 export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
@@ -65,6 +79,10 @@ export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
   targetDate?.setHours(0, 0, 0, 0);
   const isOverdue = !!targetDate && targetDate.getTime() < today.getTime();
   const isMilestone = duration <= 1;
+  const dependencyCount = getDependencyCount(issueDetails);
+  const dependencyLabel = dependencyCount
+    ? `${dependencyCount} blocking relation${dependencyCount > 1 ? "s" : ""}`
+    : undefined;
 
   return (
     <Popover delay={100} openOnHover>
@@ -74,28 +92,46 @@ export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
           <button
             id={`issue-${issueId}`}
             type="button"
-            className={`space-between relative flex h-full w-full cursor-pointer items-center ${
-              isMilestone ? "rounded-none" : "rounded-sm"
-            } ${isOverdue ? "ring-red-500/80 ring-offset-surface-1 ring-2 ring-offset-1" : ""}`}
+            className={cn(
+              "space-between group relative flex h-full w-full cursor-pointer items-center text-left transition-[filter,transform]",
+              {
+                "rounded-md shadow-[0_1px_2px_rgba(15,23,42,0.10)] hover:brightness-[0.98]": !isMilestone,
+                "rounded-none": isMilestone,
+                "drop-shadow-[0_0_0_2px_rgba(239,68,68,0.28)]": isOverdue,
+              }
+            )}
             style={isMilestone ? undefined : blockStyle}
             onClick={handleIssuePeekOverview}
           >
             {isMilestone ? (
               <div
-                className="shadow-sm absolute top-1/2 left-4 size-5 -translate-y-1/2 rotate-45 rounded-[3px] border border-white/60"
+                className={cn(
+                  "absolute top-1/2 left-2.5 size-3 -translate-y-1/2 rotate-45 rounded-[2px] border border-white/70 shadow-[0_1px_2px_rgba(15,23,42,0.22)]",
+                  {
+                    "ring-red-500/30 ring-2": isOverdue,
+                  }
+                )}
                 style={blockStyle}
               />
             ) : (
-              <div className="absolute top-0 left-0 h-full w-full bg-surface-1/50" />
+              <div className="pointer-events-none absolute inset-0 rounded-md bg-gradient-to-r from-white/20 via-white/8 to-transparent" />
             )}
             <div
-              className={`sticky w-auto flex-1 truncate overflow-hidden py-1 text-13 text-primary ${
-                isMilestone ? "px-8" : "px-2.5"
-              }`}
+              className={cn(
+                "sticky min-w-0 flex-1 truncate overflow-hidden py-1 text-13 font-medium text-primary",
+                isMilestone ? "pr-2 pl-7" : "px-2.5"
+              )}
               style={{ left: `${SIDEBAR_WIDTH}px` }}
             >
               {issueDetails?.name}
             </div>
+            {dependencyCount > 0 && (
+              <Tooltip tooltipContent={dependencyLabel} isMobile={isMobile}>
+                <span className="border-accent-primary/25 shadow-sm sticky right-1 mr-1 rounded border bg-surface-1/90 px-1.5 py-0.5 text-[10px] leading-3 font-semibold text-accent-primary">
+                  Links {dependencyCount}
+                </span>
+              </Tooltip>
+            )}
             {isEpic && (
               <IssueStats
                 issueId={issueId}

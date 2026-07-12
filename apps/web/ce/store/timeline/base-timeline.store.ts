@@ -38,6 +38,8 @@ type BlockData = {
 
 export interface IBaseTimelineStore {
   // observables
+  blocksMap: Record<string, IGanttBlock>;
+  blockIds: string[] | undefined;
   currentView: TGanttViews;
   currentViewData: ChartDataType | undefined;
   activeBlockId: string | null;

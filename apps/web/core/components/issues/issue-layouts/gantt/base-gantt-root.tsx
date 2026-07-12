@@ -11,7 +11,7 @@ import { useParams } from "next/navigation";
 import { ALL_ISSUES, EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
-import type { IBlockUpdateData, TIssue } from "@plane/types";
+import type { IBlockUpdateData, TIssue, TIssueRelationTypes } from "@plane/types";
 import { EIssueLayoutTypes, EIssuesStoreType, GANTT_TIMELINE_TYPE } from "@plane/types";
 import { getDate, renderFormattedPayloadDate } from "@plane/utils";
 // components
@@ -46,7 +46,9 @@ export type GanttStoreType =
   | EIssuesStoreType.PROJECT_VIEW
   | EIssuesStoreType.EPIC;
 
-type TGanttQuickFilter = "all" | "unscheduled" | "overdue";
+type TGanttQuickFilter = "all" | "unscheduled" | "overdue" | "dependencies";
+
+const visibleRelationTypes = new Set<TIssueRelationTypes>(["blocking", "blocked_by"]);
 
 const isIssueUnscheduled = (issue: TIssue | undefined) => !!issue && !issue.start_date && !issue.target_date;
 
@@ -59,6 +61,17 @@ const isIssueOverdue = (issue: TIssue | undefined) => {
   targetDate.setHours(0, 0, 0, 0);
 
   return targetDate.getTime() < today.getTime();
+};
+
+const getIssueDependencyCount = (issue: TIssue | undefined) => {
+  const relationCount = Array.isArray(issue?.issue_relation)
+    ? issue.issue_relation.filter((relation) => visibleRelationTypes.has(relation.relation_type)).length
+    : 0;
+  const relatedCount = Array.isArray(issue?.issue_related)
+    ? issue.issue_related.filter((relation) => visibleRelationTypes.has(relation.relation_type)).length
+    : 0;
+
+  return relationCount + relatedCount;
 };
 
 export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRoot) {
@@ -116,6 +129,7 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
 
       if (quickFilter === "unscheduled") return isIssueUnscheduled(issue);
       if (quickFilter === "overdue") return isIssueOverdue(issue);
+      if (quickFilter === "dependencies") return getIssueDependencyCount(issue) > 0;
       return true;
     });
   }, [allIssueIds, getIssueById, getPartialProjectById, quickFilter, storeType]);
@@ -124,12 +138,14 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
       all: allIssueIds.length,
       unscheduled: 0,
       overdue: 0,
+      dependencies: 0,
     };
 
     allIssueIds.forEach((issueId) => {
       const issue = getIssueById(issueId);
       if (isIssueUnscheduled(issue)) stats.unscheduled += 1;
       if (isIssueOverdue(issue)) stats.overdue += 1;
+      if (getIssueDependencyCount(issue) > 0) stats.dependencies += 1;
     });
 
     return stats;
@@ -312,13 +328,15 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
 
   const headerActions = (
     <>
-      {(["all", "unscheduled", "overdue"] as TGanttQuickFilter[]).map((filter) => {
+      {(["all", "unscheduled", "overdue", "dependencies"] as TGanttQuickFilter[]).map((filter) => {
         const label =
           filter === "all"
             ? `All ${ganttStats.all}`
             : filter === "unscheduled"
               ? `No dates ${ganttStats.unscheduled}`
-              : `Overdue ${ganttStats.overdue}`;
+              : filter === "overdue"
+                ? `Overdue ${ganttStats.overdue}`
+                : `Dependencies ${ganttStats.dependencies}`;
 
         return (
           <button
@@ -335,9 +353,6 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
           </button>
         );
       })}
-      <span className="rounded-md bg-layer-transparent px-2 py-1 text-11 font-medium text-tertiary">
-        Dependencies on
-      </span>
       <button
         type="button"
         className="rounded-md bg-layer-transparent px-2 py-1 text-11 font-medium text-secondary hover:bg-layer-transparent-hover"
