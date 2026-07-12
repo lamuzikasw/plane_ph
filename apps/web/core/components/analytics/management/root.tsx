@@ -4,9 +4,9 @@
  * See the LICENSE file for details.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowUpRight, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUpRight, CircleHelp, Search, SlidersHorizontal, X } from "lucide-react";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button, Loader } from "@plane/ui";
@@ -92,6 +92,301 @@ type AnalyticsBlockDefinition = {
   key: string;
   label: string;
   description?: string;
+};
+
+type MetricHelpDefinition = {
+  what: string;
+  source: string;
+  value: string;
+};
+
+const METRIC_HELP: Record<string, MetricHelpDefinition> = {
+  active_members: {
+    what: "Сколько сотрудников реально участвуют в работе за выбранный период.",
+    source:
+      "Берем участников рабочего пространства с открытыми или обновленными задачами, исключая служебных пользователей.",
+    value: "Помогает быстро понять, кто сейчас включен в работу и не просела ли активность команды.",
+  },
+  active_projects: {
+    what: "Сколько неархивных проектов имеют живую работу или открытые задачи.",
+    source: "Считаем проекты рабочего пространства с активными задачами и без архивного статуса.",
+    value: "Показывает масштаб текущего фокуса: сколько направлений команда ведет одновременно.",
+  },
+  work_items_in_progress: {
+    what: "Открытые задачи, которые находятся в рабочих статусах, например In Progress.",
+    source: "Берем задачи выбранных проектов и группируем их по состояниям, которые относятся к работе.",
+    value: "Помогает увидеть текущий WIP и понять, не раздувается ли количество начатых задач.",
+  },
+  work_items_in_review: {
+    what: "Задачи, которые дошли до проверки или аналогичных review-статусов.",
+    source: "Берем открытые задачи в группах состояний для проверки.",
+    value: "Полезно для поиска узких мест между разработкой и приемкой.",
+  },
+  blocked_work_items: {
+    what: "Открытые задачи, которые заблокированы другой задачей или явным блокером.",
+    source: "Учитываем связи blocked by и старые записи блокировок задач.",
+    value: "Помогает быстро найти работу, которая стоит и требует решения зависимости.",
+  },
+  overdue_work_items: {
+    what: "Открытые задачи, у которых дедлайн уже прошел.",
+    source: "Сравниваем срок задачи с текущей датой и исключаем завершенные или архивные задачи.",
+    value: "Помогает управлять просрочками и понимать, что нужно спасать первым.",
+  },
+  unassigned_work_items: {
+    what: "Открытые задачи без назначенного исполнителя.",
+    source: "Проверяем задачи без assignee в выбранных проектах и периоде.",
+    value: "Помогает не терять задачи, за которые формально никто не отвечает.",
+  },
+  unestimated_work_items: {
+    what: "Открытые задачи без оценки.",
+    source: "Ищем задачи без estimate или с пустым значением оценки.",
+    value: "Помогает улучшать планирование и прогноз сроков.",
+  },
+  unscheduled_work_items: {
+    what: "Открытые задачи без срока.",
+    source: "Проверяем задачи без start date или due date в выбранном срезе.",
+    value: "Помогает сделать работу видимой на Timeline и в планировании.",
+  },
+  completed_work_items: {
+    what: "Задачи, завершенные за выбранный период.",
+    source: "Берем задачи, которые перешли в завершенные состояния в рамках выбранного периода.",
+    value: "Показывает фактическую скорость выпуска результата.",
+  },
+  average_cycle_time_hours: {
+    what: "Среднее время от начала работы над задачей до завершения.",
+    source: "Считаем разницу между первым переходом в работу и первым переходом в завершение.",
+    value: "Помогает понять, насколько быстро команда доводит начатые задачи до конца.",
+  },
+  average_team_workload_percent: {
+    what: "Средняя плановая загрузка команды в процентах.",
+    source: "Сравниваем сумму оценок активных задач сотрудников с их доступной недельной емкостью.",
+    value: "Помогает увидеть общий баланс: команда недозагружена, в норме или перегружена.",
+  },
+  high_risk_projects: {
+    what: "Проекты с высоким интегральным риском.",
+    source: "Считаем риск по просрочкам, блокерам, прогрессу и качеству планирования проекта.",
+    value: "Помогает руководителю быстро увидеть проекты, которые требуют внимания.",
+  },
+  workload_by_member: {
+    what: "Плановая загрузка каждого сотрудника.",
+    source: "Берем активные задачи сотрудника, их оценки и сравниваем с доступной емкостью из настроек аналитики.",
+    value: "Помогает распределять задачи ровнее и видеть, кому можно дать работу, а кого лучше не перегружать.",
+  },
+  workload_distribution: {
+    what: "Распределение сотрудников по уровням загрузки: есть емкость, норма, высокая загрузка, перегруз.",
+    source: "Группируем сотрудников по проценту загрузки относительно порогов из настроек аналитики.",
+    value: "Помогает быстро оценить здоровье команды без просмотра каждого сотрудника отдельно.",
+  },
+  team_activity: {
+    what: "Сколько у каждого сотрудника активных, заблокированных и просроченных задач.",
+    source: "Берем текущие открытые задачи сотрудников и раскладываем их по рабочим признакам.",
+    value: "Помогает понять не только объем, но и качество текущей нагрузки.",
+  },
+  project_progress: {
+    what: "Прогресс проектов по завершенным задачам.",
+    source: "Сравниваем количество завершенных задач проекта с общим количеством открытых и завершенных задач.",
+    value: "Помогает найти проекты, которые движутся медленнее остальных.",
+  },
+  project_health: {
+    what: "Сводное здоровье проектов: прогресс, блокеры, просрочки и риск.",
+    source: "Собираем агрегаты по задачам каждого проекта и дополняем их расчетом риска.",
+    value: "Помогает смотреть на проект как на управляемую единицу, а не как на список задач.",
+  },
+  who_is_doing_what: {
+    what: "Таблица по сотрудникам: основная задача, проекты, активные задачи, блокеры, просрочка и загрузка.",
+    source: "Собираем текущие задачи каждого участника и выбираем главную задачу по приоритету риска и актуальности.",
+    value: "Помогает быстро понять, кто чем занят и где человеку может понадобиться помощь.",
+  },
+  workload_table: {
+    what: "Детальная таблица загрузки сотрудников.",
+    source: "Берем активные задачи, оценки и доступную емкость каждого сотрудника.",
+    value: "Помогает принимать решения о перераспределении задач.",
+  },
+  main_work_item: {
+    what: "Самая важная текущая задача сотрудника.",
+    source: "Выбираем задачу по риску: сначала блокеры и просрочка, затем высокий приоритет и ближайший дедлайн.",
+    value: "Помогает быстро понять главный фокус человека без просмотра всех его задач.",
+  },
+  active_work_items: {
+    what: "Количество открытых задач сотрудника или проекта.",
+    source: "Считаем задачи, которые еще не завершены и не архивированы.",
+    value: "Помогает оценить текущий объем работы.",
+  },
+  blocked_column: {
+    what: "Количество задач, которые не могут двигаться дальше из-за блокировки.",
+    source: "Учитываем связи blocked by и явные блокеры задач.",
+    value: "Помогает увидеть, где процесс остановился.",
+  },
+  overdue_column: {
+    what: "Количество открытых задач с прошедшим дедлайном.",
+    source: "Сравниваем due date задачи с сегодняшней датой.",
+    value: "Помогает быстро найти просроченную работу.",
+  },
+  risk_distribution: {
+    what: "Сколько проектов находится в низком, среднем и высоком риске.",
+    source: "Группируем проекты по расчетному уровню риска.",
+    value: "Помогает увидеть общий риск портфеля проектов.",
+  },
+  risk_score: {
+    what: "Числовая оценка риска по каждому проекту.",
+    source: "Суммируем факторы риска: просрочки, блокеры, слабый прогресс и проблемы данных.",
+    value: "Помогает сравнивать проекты между собой и выбирать, куда идти разбираться первым.",
+  },
+  project_risk_table: {
+    what: "Таблица проектов с причинами риска.",
+    source: "Берем прогресс, блокеры, просрочки и расчетные причины риска по каждому проекту.",
+    value: "Помогает не только увидеть риск, но и понять, почему он возник.",
+  },
+  progress_column: {
+    what: "Процент выполненной работы по проекту.",
+    source: "Считаем долю завершенных задач относительно всех задач проекта.",
+    value: "Помогает понять, насколько проект продвинулся.",
+  },
+  risk_column: {
+    what: "Уровень и балл риска проекта.",
+    source: "Суммируем факторы риска проекта и переводим их в low, medium или high.",
+    value: "Помогает быстро сортировать проекты по срочности внимания.",
+  },
+  issue_pressure: {
+    what: "Нагрузка задачами: в работе, заблокировано, просрочено и без исполнителя.",
+    source: "Берем ключевые KPI по открытым задачам из текущего среза аналитики.",
+    value: "Помогает быстро понять, где давление на процесс: работа, блокеры, сроки или ответственность.",
+  },
+  delivery_metrics: {
+    what: "Основные показатели поставки: завершено, в срок, cycle time и lead time.",
+    source: "Считаем по задачам, завершенным или проходившим через работу в выбранный период.",
+    value: "Помогает оценить скорость и предсказуемость команды.",
+  },
+  throughput: {
+    what: "Сколько задач команда завершила за выбранный период.",
+    source: "Берем задачи, перешедшие в завершенное состояние, и группируем их по проектам.",
+    value: "Помогает видеть реальный выпуск результата, а не только количество задач в работе.",
+  },
+  on_time_delivery_percent: {
+    what: "Доля завершенных задач, закрытых не позже дедлайна.",
+    source: "Сравниваем дату завершения задачи с ее target date.",
+    value: "Помогает понять, насколько команда соблюдает обещанные сроки.",
+  },
+  cycle_time_hours: {
+    what: "Среднее время выполнения задачи после старта работы.",
+    source: "Считаем время от первого рабочего статуса до завершения.",
+    value: "Помогает находить замедления внутри процесса разработки.",
+  },
+  lead_time_hours: {
+    what: "Среднее время от создания задачи до завершения.",
+    source: "Считаем время между созданием задачи и ее закрытием.",
+    value: "Помогает понять, сколько в среднем задача живет в системе целиком.",
+  },
+  reopened_work_items: {
+    what: "Задачи, которые возвращались из завершения обратно в работу.",
+    source: "Смотрим историю изменений состояний задачи за выбранный период.",
+    value: "Помогает ловить проблемы качества требований, реализации или приемки.",
+  },
+  average_workload_percent: {
+    what: "Средняя загрузка сотрудников в выбранном срезе.",
+    source: "Суммируем плановую загрузку участников и делим на количество активных сотрудников.",
+    value: "Помогает понять общий запас емкости команды.",
+  },
+  overloaded_members: {
+    what: "Сотрудники, чья плановая загрузка выше порога перегруза.",
+    source: "Сравниваем загрузку каждого участника с overload threshold из настроек аналитики.",
+    value: "Помогает заранее увидеть риск выгорания и срыва сроков.",
+  },
+  members_with_capacity: {
+    what: "Сотрудники, у которых еще есть свободная емкость.",
+    source: "Ищем участников с загрузкой ниже верхнего здорового порога.",
+    value: "Помогает быстро найти, кому можно передать следующую задачу.",
+  },
+  high: {
+    what: "Проекты с высоким уровнем риска.",
+    source: "Фильтруем проекты, у которых расчетный risk level равен high.",
+    value: "Помогает собрать список проектов, требующих немедленного внимания.",
+  },
+  medium: {
+    what: "Проекты со средним уровнем риска.",
+    source: "Фильтруем проекты, у которых расчетный risk level равен medium.",
+    value: "Помогает видеть проекты, где проблемы еще можно спокойно предотвратить.",
+  },
+  low: {
+    what: "Проекты с низким уровнем риска.",
+    source: "Фильтруем проекты, у которых расчетный risk level равен low.",
+    value: "Помогает отделить здоровые проекты от тех, куда нужен фокус.",
+  },
+  quality_score: {
+    what: "Общий процент заполненности важных полей задач.",
+    source: "Смотрим проверки качества данных: исполнитель, сроки, оценка, приоритет и другие обязательные признаки.",
+    value: "Помогает понять, можно ли доверять аналитике и планированию по задачам.",
+  },
+  data_quality_violations: {
+    what: "Количество проблем в данных по каждому типу проверки.",
+    source: "Считаем открытые задачи с отсутствующими или противоречивыми полями.",
+    value: "Помогает быстро выбрать, какие данные нужно привести в порядок первыми.",
+  },
+  quality_table: {
+    what: "Список всех проверок качества данных и количество найденных нарушений.",
+    source: "Используем те же проверки, что и в графике качества данных.",
+    value: "Помогает перейти от общего качества к конкретному списку проблемных задач.",
+  },
+  missing_assignee: {
+    what: "Открытые задачи без исполнителя.",
+    source: "Проверяем задачи, у которых нет назначенных assignees.",
+    value: "Помогает убрать серые зоны ответственности.",
+  },
+  missing_module: {
+    what: "Открытые задачи без модуля.",
+    source: "Проверяем, привязана ли задача к module.",
+    value: "Помогает структурировать работу по продуктовым или техническим направлениям.",
+  },
+  missing_type: {
+    what: "Открытые задачи без типа.",
+    source: "Проверяем поле work item type у задач.",
+    value: "Помогает отличать баги, фичи, задачи и другие типы работы.",
+  },
+  missing_estimate: {
+    what: "Открытые задачи без оценки.",
+    source: "Проверяем estimate у задач.",
+    value: "Помогает делать планирование и загрузку точнее.",
+  },
+  missing_start_date: {
+    what: "Открытые задачи без даты старта.",
+    source: "Проверяем поле start date.",
+    value: "Помогает корректно показывать задачи на Timeline и понимать, когда работа должна начаться.",
+  },
+  missing_target_date: {
+    what: "Открытые задачи без дедлайна.",
+    source: "Проверяем поле target date.",
+    value: "Помогает управлять сроками и не держать задачи без обещанной даты.",
+  },
+  missing_priority: {
+    what: "Открытые задачи без приоритета.",
+    source: "Проверяем поле priority у задач.",
+    value: "Помогает понять, что делать первым, когда задач много.",
+  },
+  started_without_assignee: {
+    what: "Задачи уже в работе, но без исполнителя.",
+    source: "Ищем задачи в рабочих статусах без assignee.",
+    value: "Помогает ловить особенно опасные задачи: работа идет, но ответственный не указан.",
+  },
+  blocked_without_reason: {
+    what: "Заблокированные задачи без понятной причины блокировки.",
+    source: "Смотрим задачи с блокирующими связями или блокерами, где не хватает объяснения.",
+    value: "Помогает сделать блокировки управляемыми, а не просто красным значком.",
+  },
+  stale_work_items: {
+    what: "Задачи, которые давно не обновлялись.",
+    source: "Сравниваем дату последнего обновления с порогом stale work days в настройках.",
+    value: "Помогает находить забытые задачи, которые зависли без движения.",
+  },
+  large_work_items: {
+    what: "Слишком крупные задачи.",
+    source: "Смотрим задачи с оценкой выше выбранного порога крупной работы.",
+    value: "Помогает дробить большие задачи на более управляемые куски.",
+  },
+  invalid_dates: {
+    what: "Задачи с некорректными датами.",
+    source: "Проверяем случаи, где дата старта позже дедлайна или сроки конфликтуют.",
+    value: "Помогает убрать ошибки, из-за которых Timeline и сроки начинают врать.",
+  },
 };
 
 type Props = {
@@ -685,10 +980,82 @@ function AnalyticsBlockControls({
   );
 }
 
-function ChartCard({ title, children }: { title: string; children: ReactNode }) {
+function MetricTitle({ title, helpKey, className }: { title: string; helpKey?: string; className?: string }) {
+  return (
+    <div className={cn("flex min-w-0 items-center gap-1.5", className)}>
+      <span className="min-w-0 truncate">{title}</span>
+      {helpKey && <MetricHelpButton metricKey={helpKey} title={title} />}
+    </div>
+  );
+}
+
+function MetricHelpButton({ metricKey, title }: { metricKey: string; title: string }) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [position, setPosition] = useState({ left: 0, top: 0 });
+  const help = METRIC_HELP[metricKey];
+
+  if (!help) return null;
+
+  return (
+    <span className="relative inline-flex shrink-0">
+      <button
+        type="button"
+        aria-label={`Что значит метрика "${title}"`}
+        aria-expanded={isOpen}
+        ref={buttonRef}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const rect = buttonRef.current?.getBoundingClientRect();
+          if (rect) {
+            setPosition({
+              left: Math.max(12, Math.min(rect.left, window.innerWidth - 336)),
+              top: rect.bottom + 8,
+            });
+          }
+          setIsOpen((current) => !current);
+        }}
+        className={cn(
+          "inline-flex h-[18px] w-[18px] items-center justify-center rounded-full text-tertiary transition-colors",
+          "hover:text-custom-primary-100 focus:ring-custom-primary-100/20 hover:bg-surface-2 focus:ring-2 focus:outline-none",
+          isOpen && "text-custom-primary-100 bg-surface-2"
+        )}
+      >
+        <CircleHelp className="h-3.5 w-3.5" strokeWidth={2.2} />
+      </button>
+      {isOpen && (
+        <span
+          role="dialog"
+          aria-label={`Описание метрики "${title}"`}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          style={position}
+          className="fixed z-50 w-80 rounded border border-subtle bg-surface-1 p-3 text-left shadow-raised-200"
+        >
+          <span className="block text-13 font-semibold text-primary">{title}</span>
+          <MetricHelpRow label="Что считает" value={help.what} />
+          <MetricHelpRow label="Откуда берется" value={help.source} />
+          <MetricHelpRow label="Как помогает" value={help.value} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+function MetricHelpRow({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="mt-2 block">
+      <span className="block text-10 font-medium tracking-wide text-tertiary uppercase">{label}</span>
+      <span className="mt-0.5 block text-12 leading-5 whitespace-normal text-secondary">{value}</span>
+    </span>
+  );
+}
+
+function ChartCard({ title, helpKey, children }: { title: string; helpKey?: string; children: ReactNode }) {
   return (
     <section className="rounded border border-subtle bg-surface-1 p-3">
-      <div className="mb-3 text-13 font-semibold text-primary">{title}</div>
+      <MetricTitle className="mb-3 text-13 font-semibold text-primary" title={title} helpKey={helpKey} />
       {children}
     </section>
   );
@@ -698,7 +1065,7 @@ function WorkloadBars({ rows }: { rows: any[] }) {
   const { t } = useTranslation();
   const sortedRows = sortedCopy(rows, (a, b) => (b.workload?.percent ?? 0) - (a.workload?.percent ?? 0)).slice(0, 10);
   return (
-    <ChartCard title={t("management_analytics.charts.workload_by_member")}>
+    <ChartCard title={t("management_analytics.charts.workload_by_member")} helpKey="workload_by_member">
       <div className="space-y-2">
         {sortedRows.map((row) => {
           const value = Math.min(row.workload?.percent ?? 0, 140);
@@ -726,7 +1093,7 @@ function WorkloadDistributionChart({ rows }: { rows: any[] }) {
   const buckets = ["available", "healthy", "high", "overloaded"];
   const counts = buckets.map((bucket) => rows.filter((row) => row.workload?.level === bucket).length);
   return (
-    <ChartCard title={t("management_analytics.charts.workload_distribution")}>
+    <ChartCard title={t("management_analytics.charts.workload_distribution")} helpKey="workload_distribution">
       <SegmentedBar
         labels={buckets.map((bucket) => t(`management_analytics.workload_levels.${bucket}`))}
         values={counts}
@@ -746,7 +1113,7 @@ function TeamActivityChart({ rows }: { rows: any[] }) {
     overdue: row.overdue_work_items ?? 0,
   }));
   return (
-    <ChartCard title={t("management_analytics.charts.team_activity")}>
+    <ChartCard title={t("management_analytics.charts.team_activity")} helpKey="team_activity">
       <StackedRows rows={data} keys={["active", "blocked", "overdue"]} tones={["healthy", "high", "overloaded"]} />
     </ChartCard>
   );
@@ -756,7 +1123,7 @@ function ProjectProgressChart({ rows }: { rows: any[] }) {
   const { t } = useTranslation();
   const sortedRows = sortedCopy(rows, (a, b) => (a.progress?.value ?? 0) - (b.progress?.value ?? 0)).slice(0, 10);
   return (
-    <ChartCard title={t("management_analytics.charts.project_progress")}>
+    <ChartCard title={t("management_analytics.charts.project_progress")} helpKey="project_progress">
       <div className="space-y-2">
         {sortedRows.map((row) => {
           const value = row.progress?.value ?? 0;
@@ -784,7 +1151,7 @@ function RiskDistributionChart({ rows }: { rows: any[] }) {
   const buckets = ["low", "medium", "high"];
   const counts = buckets.map((bucket) => rows.filter((row) => row.risk?.level === bucket).length);
   return (
-    <ChartCard title={t("management_analytics.charts.risk_distribution")}>
+    <ChartCard title={t("management_analytics.charts.risk_distribution")} helpKey="risk_distribution">
       <SegmentedBar
         labels={buckets.map((bucket) => t(`management_analytics.risk.${bucket}`))}
         values={counts}
@@ -799,7 +1166,7 @@ function RiskScoreChart({ rows }: { rows: any[] }) {
   const sortedRows = sortedCopy(rows, (a, b) => (b.risk?.score ?? 0) - (a.risk?.score ?? 0)).slice(0, 10);
   const maxScore = Math.max(...sortedRows.map((row) => row.risk?.score ?? 0), 1);
   return (
-    <ChartCard title={t("management_analytics.charts.risk_score")}>
+    <ChartCard title={t("management_analytics.charts.risk_score")} helpKey="risk_score">
       <div className="space-y-2">
         {sortedRows.map((row) => (
           <div key={row.id} className="grid grid-cols-[minmax(140px,1fr)_3fr_40px] items-center gap-2 text-12">
@@ -834,7 +1201,7 @@ function IssuePressureChart({ kpis }: { kpis: TManagementAnalyticsKPI[] }) {
     getKpi("unassigned_work_items"),
   ];
   return (
-    <ChartCard title={t("management_analytics.charts.issue_pressure")}>
+    <ChartCard title={t("management_analytics.charts.issue_pressure")} helpKey="issue_pressure">
       <SegmentedBar
         labels={[
           t("management_analytics.kpis.work_items_in_progress"),
@@ -858,11 +1225,15 @@ function DeliveryMetricChart({ metrics }: { metrics: Record<string, any> }) {
     ["lead_time_hours", metrics.lead_time_hours],
   ];
   return (
-    <ChartCard title={t("management_analytics.charts.delivery_metrics")}>
+    <ChartCard title={t("management_analytics.charts.delivery_metrics")} helpKey="delivery_metrics">
       <div className="grid grid-cols-2 gap-2">
         {values.map(([key, value]) => (
           <div key={key} className="rounded bg-surface-2 p-3">
-            <div className="text-11 text-tertiary">{t(`management_analytics.summary.${key}`)}</div>
+            <MetricTitle
+              className="text-11 text-tertiary"
+              title={t(`management_analytics.summary.${key}`)}
+              helpKey={key}
+            />
             <div className="mt-1 text-20 font-semibold text-primary">{value ?? "—"}</div>
           </div>
         ))}
@@ -879,7 +1250,7 @@ function ThroughputChart({ rows }: { rows: any[] }) {
     value: row.count ?? 0,
   }));
   return (
-    <ChartCard title={t("management_analytics.charts.throughput")}>
+    <ChartCard title={t("management_analytics.charts.throughput")} helpKey="throughput">
       <HorizontalValueBars rows={data} />
     </ChartCard>
   );
@@ -890,7 +1261,7 @@ function QualityScoreChart({ score }: { score?: number }) {
   const normalized = Math.max(Math.min(score ?? 0, 100), 0);
   const circumference = 2 * Math.PI * 42;
   return (
-    <ChartCard title={t("management_analytics.data_quality.score")}>
+    <ChartCard title={t("management_analytics.data_quality.score")} helpKey="quality_score">
       <div className="flex items-center gap-4">
         <svg className="h-28 w-28 -rotate-90" viewBox="0 0 100 100" role="img" aria-label={`${normalized}%`}>
           <circle
@@ -930,9 +1301,10 @@ function DataQualityBars({ rows, onOpenDrilldown }: { rows: any[]; onOpenDrilldo
     .slice(0, 8)
     .map((row) => ({ id: row.key, label: t(`management_analytics.quality.${row.key}`), value: row.count ?? 0 }));
   return (
-    <ChartCard title={t("management_analytics.charts.data_quality_violations")}>
+    <ChartCard title={t("management_analytics.charts.data_quality_violations")} helpKey="data_quality_violations">
       <HorizontalValueBars
         rows={data}
+        showRowHelp
         onOpenRow={(id) => {
           if (QUALITY_DRILLDOWN_KEYS.has(id)) onOpenDrilldown?.(id);
         }}
@@ -1000,9 +1372,11 @@ function StackedRows({ rows, keys, tones }: { rows: any[]; keys: string[]; tones
 function HorizontalValueBars({
   rows,
   onOpenRow,
+  showRowHelp = false,
 }: {
   rows: { id: string; label: string; value: number }[];
   onOpenRow?: (id: string) => void;
+  showRowHelp?: boolean;
 }) {
   const max = Math.max(...rows.map((row) => row.value), 1);
   return (
@@ -1011,7 +1385,11 @@ function HorizontalValueBars({
         const isClickable = !!onOpenRow && row.value > 0;
         const content = (
           <>
-            <div className="truncate text-secondary">{row.label}</div>
+            {showRowHelp ? (
+              <MetricTitle className="text-secondary" title={row.label} helpKey={row.id} />
+            ) : (
+              <div className="truncate text-secondary">{row.label}</div>
+            )}
             <div className="h-2 overflow-hidden rounded bg-surface-2">
               <div
                 className="h-full rounded"
@@ -1027,14 +1405,22 @@ function HorizontalValueBars({
 
         if (isClickable) {
           return (
-            <button
+            <div
               key={row.id}
-              type="button"
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              role="button"
+              tabIndex={0}
               onClick={() => onOpenRow?.(row.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onOpenRow?.(row.id);
+                }
+              }}
               className="grid w-full grid-cols-[minmax(140px,1fr)_3fr_40px] items-center gap-2 rounded px-1 py-0.5 text-left text-12 transition-colors hover:bg-surface-2 focus:bg-surface-2 focus:outline-none"
             >
               {content}
-            </button>
+            </div>
           );
         }
 
@@ -1072,14 +1458,26 @@ function KpiGrid({
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
       {kpis.map((kpi) => (
-        <button
+        <div
           key={kpi.key}
-          type="button"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="button"
+          tabIndex={0}
           onClick={() => onOpenDrilldown(kpi.key)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onOpenDrilldown(kpi.key);
+            }
+          }}
           className="group hover:border-custom-primary-70/60 hover:bg-custom-primary-100/5 focus:ring-custom-primary-100/20 rounded border border-subtle bg-surface-1 p-3 text-left transition-colors focus:ring-2 focus:outline-none"
         >
           <div className="flex items-start justify-between gap-2">
-            <div className="text-12 font-medium text-secondary">{t(`management_analytics.kpis.${kpi.key}`)}</div>
+            <MetricTitle
+              className="text-12 font-medium text-secondary"
+              title={t(`management_analytics.kpis.${kpi.key}`)}
+              helpKey={kpi.key}
+            />
             <div className="flex items-center gap-1">
               <div
                 className={cn(
@@ -1094,7 +1492,7 @@ function KpiGrid({
           </div>
           <div className="mt-2 text-24 font-semibold text-primary">{formatValue(kpi.value, kpi.value_type)}</div>
           <div className="mt-2 line-clamp-2 text-11 text-tertiary">{t(kpi.formula)}</div>
-        </button>
+        </div>
       ))}
     </div>
   );
@@ -1400,19 +1798,34 @@ function TeamTable({
   return (
     <section className="overflow-hidden rounded border border-subtle bg-surface-1">
       <div className="border-b border-subtle px-3 py-2 text-13 font-semibold text-primary">
-        {t(workloadOnly ? "management_analytics.blocks.workload" : "management_analytics.blocks.who_is_doing_what")}
+        <MetricTitle
+          title={t(
+            workloadOnly ? "management_analytics.blocks.workload" : "management_analytics.blocks.who_is_doing_what"
+          )}
+          helpKey={workloadOnly ? "workload_table" : "who_is_doing_what"}
+        />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[860px] text-left text-12">
           <thead className="bg-surface-2 text-secondary">
             <tr>
               <th className="px-3 py-2">{t("management_analytics.tables.member")}</th>
-              <th className="px-3 py-2">{t("management_analytics.tables.main_work")}</th>
+              <th className="px-3 py-2">
+                <MetricTitle title={t("management_analytics.tables.main_work")} helpKey="main_work_item" />
+              </th>
               <th className="px-3 py-2">{t("management_analytics.tables.projects")}</th>
-              <th className="px-3 py-2">{t("management_analytics.tables.active")}</th>
-              <th className="px-3 py-2">{t("management_analytics.tables.blocked")}</th>
-              <th className="px-3 py-2">{t("management_analytics.tables.overdue")}</th>
-              <th className="px-3 py-2">{t("management_analytics.tables.workload")}</th>
+              <th className="px-3 py-2">
+                <MetricTitle title={t("management_analytics.tables.active")} helpKey="active_work_items" />
+              </th>
+              <th className="px-3 py-2">
+                <MetricTitle title={t("management_analytics.tables.blocked")} helpKey="blocked_column" />
+              </th>
+              <th className="px-3 py-2">
+                <MetricTitle title={t("management_analytics.tables.overdue")} helpKey="overdue_column" />
+              </th>
+              <th className="px-3 py-2">
+                <MetricTitle title={t("management_analytics.tables.workload")} helpKey="workload_by_member" />
+              </th>
               {!compact && <th className="px-3 py-2">{t("management_analytics.tables.updated")}</th>}
             </tr>
           </thead>
@@ -1451,7 +1864,10 @@ function ProjectTable({
   return (
     <section className="overflow-hidden rounded border border-subtle bg-surface-1">
       <div className="border-b border-subtle px-3 py-2 text-13 font-semibold text-primary">
-        {t(riskOnly ? "management_analytics.blocks.risks" : "management_analytics.blocks.project_health")}
+        <MetricTitle
+          title={t(riskOnly ? "management_analytics.blocks.risks" : "management_analytics.blocks.project_health")}
+          helpKey={riskOnly ? "project_risk_table" : "project_health"}
+        />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[900px] text-left text-12">
@@ -1459,10 +1875,18 @@ function ProjectTable({
             <tr>
               <th className="px-3 py-2">{t("management_analytics.tables.project")}</th>
               <th className="px-3 py-2">{t("management_analytics.tables.owner")}</th>
-              <th className="px-3 py-2">{t("management_analytics.tables.progress")}</th>
-              <th className="px-3 py-2">{t("management_analytics.tables.blocked")}</th>
-              <th className="px-3 py-2">{t("management_analytics.tables.overdue")}</th>
-              <th className="px-3 py-2">{t("management_analytics.tables.risk")}</th>
+              <th className="px-3 py-2">
+                <MetricTitle title={t("management_analytics.tables.progress")} helpKey="progress_column" />
+              </th>
+              <th className="px-3 py-2">
+                <MetricTitle title={t("management_analytics.tables.blocked")} helpKey="blocked_column" />
+              </th>
+              <th className="px-3 py-2">
+                <MetricTitle title={t("management_analytics.tables.overdue")} helpKey="overdue_column" />
+              </th>
+              <th className="px-3 py-2">
+                <MetricTitle title={t("management_analytics.tables.risk")} helpKey="risk_column" />
+              </th>
               {!compact && <th className="px-3 py-2">{t("management_analytics.tables.reason")}</th>}
             </tr>
           </thead>
@@ -1512,7 +1936,11 @@ function SummaryStrip({
         const content = (
           <>
             <div className="flex items-center justify-between gap-2">
-              <div className="text-11 text-tertiary">{t(`management_analytics.summary.${key}`)}</div>
+              <MetricTitle
+                className="text-11 text-tertiary"
+                title={t(`management_analytics.summary.${key}`)}
+                helpKey={key}
+              />
               {canDrilldown && (
                 <ArrowUpRight className="h-3 w-3 text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
               )}
@@ -1523,14 +1951,22 @@ function SummaryStrip({
 
         if (canDrilldown) {
           return (
-            <button
+            <div
               key={key}
-              type="button"
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              role="button"
+              tabIndex={0}
               onClick={() => onOpenDrilldown?.(key)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onOpenDrilldown?.(key);
+                }
+              }}
               className="group hover:border-custom-primary-70/60 hover:bg-custom-primary-100/5 focus:ring-custom-primary-100/20 rounded border border-subtle bg-surface-1 p-3 text-left transition-colors focus:ring-2 focus:outline-none"
             >
               {content}
-            </button>
+            </div>
           );
         }
 
@@ -1548,6 +1984,9 @@ function DataQualityTable({ rows, onOpenDrilldown }: { rows: any[]; onOpenDrilld
   const { t } = useTranslation();
   return (
     <section className="overflow-hidden rounded border border-subtle bg-surface-1">
+      <div className="border-b border-subtle px-3 py-2 text-13 font-semibold text-primary">
+        <MetricTitle title="Таблица качества данных" helpKey="quality_table" />
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-12">
           <thead className="bg-surface-2 text-secondary">
@@ -1567,7 +2006,7 @@ function DataQualityTable({ rows, onOpenDrilldown }: { rows: any[]; onOpenDrilld
                 >
                   <td className="px-3 py-2 font-medium text-primary">
                     <div className="flex items-center gap-1">
-                      {t(`management_analytics.quality.${row.key}`)}
+                      <MetricTitle title={t(`management_analytics.quality.${row.key}`)} helpKey={row.key} />
                       {canDrilldown && <ArrowUpRight className="h-3 w-3 text-tertiary" />}
                     </div>
                   </td>
