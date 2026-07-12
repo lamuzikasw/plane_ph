@@ -6,7 +6,9 @@
 
 import React, { useMemo } from "react";
 import { observer } from "mobx-react";
-import { Ellipsis } from "lucide-react";
+import Link from "next/link";
+import { useParams, usePathname } from "next/navigation";
+import { CalendarCheck, Ellipsis } from "lucide-react";
 import { Disclosure, Transition } from "@headlessui/react";
 // plane imports
 import {
@@ -17,7 +19,7 @@ import {
 } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { ChevronRightIcon } from "@plane/propel/icons";
-import { cn } from "@plane/utils";
+import { cn, joinUrlPath } from "@plane/utils";
 // components
 import { SidebarNavItem } from "@/components/sidebar/sidebar-navigation";
 // store hooks
@@ -39,6 +41,9 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
 
   // store hooks
   const { isExtendedSidebarOpened, toggleExtendedSidebar } = useAppTheme();
+  // router hooks
+  const { workspaceSlug } = useParams();
+  const pathname = usePathname();
   // hooks
   const { preferences: personalPreferences } = usePersonalNavigationPreferences();
   const { preferences: workspacePreferences } = useWorkspaceNavigationPreferences();
@@ -48,6 +53,8 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
   const toggleListDisclosure = (isOpen: boolean) => {
     toggleWorkspaceMenu(isOpen);
   };
+  const workspaceSlugString = workspaceSlug?.toString() ?? "";
+  const todayHref = joinUrlPath(workspaceSlugString, "/today");
 
   // Filter static navigation items based on personal preferences
   const filteredStaticNavigationItems = useMemo(() => {
@@ -82,24 +89,29 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
     return [...items, ...personalItems];
   }, [personalPreferences]);
 
-  const sortedNavigationItems = useMemo(
-    () =>
-      WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS.map((item) => {
-        const preference = workspacePreferences.items[item.key];
-        return {
-          ...item,
-          sort_order: preference ? preference.sort_order : 0,
-        };
-      }).sort((a, b) => a.sort_order - b.sort_order),
-    [workspacePreferences]
-  );
+  const sortedNavigationItems = useMemo(() => {
+    const items = WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS_LINKS.map((item) => {
+      const preference = workspacePreferences.items[item.key];
+      return Object.assign({}, item, { sort_order: preference ? preference.sort_order : 0 });
+    });
+    // eslint-disable-next-line unicorn/no-array-sort
+    return items.sort((a, b) => a.sort_order - b.sort_order);
+  }, [workspacePreferences]);
 
   return (
     <>
       <div className="flex flex-col gap-0.5">
-        {filteredStaticNavigationItems.map((item, _index) => (
-          <SidebarItem key={`static_${_index}`} item={item} />
+        {filteredStaticNavigationItems.map((item) => (
+          <SidebarItem key={`static_${item.key}`} item={item} />
         ))}
+        <Link href={todayHref}>
+          <SidebarNavItem isActive={pathname === todayHref}>
+            <div className="flex items-center gap-1.5 py-[1px]">
+              <CalendarCheck className="size-4 flex-shrink-0 stroke-[1.5]" />
+              <p className="text-13 leading-5 font-medium">Сегодня</p>
+            </div>
+          </SidebarNavItem>
+        </Link>
       </div>
       <Disclosure as="div" className="flex flex-col" defaultOpen={!!isWorkspaceMenuOpen}>
         <div className="group flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-placeholder hover:bg-layer-transparent-hover">
@@ -148,11 +160,11 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
           {isWorkspaceMenuOpen && (
             <Disclosure.Panel as="div" className="flex flex-col gap-0.5" static>
               <>
-                {WORKSPACE_SIDEBAR_STATIC_PINNED_NAVIGATION_ITEMS_LINKS.map((item, _index) => (
-                  <SidebarItem key={`static_${_index}`} item={item} />
+                {WORKSPACE_SIDEBAR_STATIC_PINNED_NAVIGATION_ITEMS_LINKS.map((item) => (
+                  <SidebarItem key={`static_${item.key}`} item={item} />
                 ))}
-                {sortedNavigationItems.map((item, _index) => (
-                  <SidebarItem key={`dynamic_${_index}`} item={item} />
+                {sortedNavigationItems.map((item) => (
+                  <SidebarItem key={`dynamic_${item.key}`} item={item} />
                 ))}
                 <SidebarNavItem>
                   <button

@@ -62,6 +62,9 @@ export const coreRoutes: RouteConfigEntry[] = [
         // Workspace Home
         route(":workspaceSlug", "./(all)/[workspaceSlug]/(projects)/page.tsx"),
 
+        // Workspace Today
+        route(":workspaceSlug/today", "./(all)/[workspaceSlug]/(projects)/today/page.tsx"),
+
         // Active Cycles
         layout("./(all)/[workspaceSlug]/(projects)/active-cycles/layout.tsx", [
           route(":workspaceSlug/active-cycles", "./(all)/[workspaceSlug]/(projects)/active-cycles/page.tsx"),
