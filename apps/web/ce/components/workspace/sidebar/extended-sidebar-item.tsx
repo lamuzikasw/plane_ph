@@ -10,7 +10,7 @@ import { draggable, dropTargetForElements } from "@atlaskit/pragmatic-drag-and-d
 import { attachInstruction, extractInstruction } from "@atlaskit/pragmatic-drag-and-drop-hitbox/tree-item";
 import { observer } from "mobx-react";
 import Link from "next/link";
-import { useParams, usePathname } from "next/navigation";
+import { useParams, usePathname, useSearchParams } from "next/navigation";
 import { Pin, PinOff } from "lucide-react";
 // plane imports
 import type { IWorkspaceSidebarNavigationItem } from "@plane/constants";
@@ -53,10 +53,11 @@ export const ExtendedSidebarItem = observer(function ExtendedSidebarItem(props: 
 
   // nextjs hooks
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { workspaceSlug } = useParams();
   // store hooks
   const { toggleExtendedSidebar } = useAppTheme();
-  const { data } = useUser();
+  const { data: userData } = useUser();
   const { allowPermissions } = useUserPermissions();
   const { preferences: workspacePreferences, toggleWorkspaceItem } = useWorkspaceNavigationPreferences();
 
@@ -66,14 +67,14 @@ export const ExtendedSidebarItem = observer(function ExtendedSidebarItem(props: 
   const handleLinkClick = () => toggleExtendedSidebar(true);
 
   useEffect(() => {
-    const element = navigationIemRef.current;
+    const navigationElement = navigationIemRef.current;
     const dragHandleElement = dragHandleRef.current;
 
-    if (!element) return;
+    if (!navigationElement) return;
 
     return combine(
       draggable({
-        element,
+        element: navigationElement,
         canDrag: () => !disableDrag,
         dragHandle: dragHandleElement ?? undefined,
         getInitialData: () => ({ id: item.key, dragInstanceId: "NAVIGATION" }), // var1
@@ -85,16 +86,16 @@ export const ExtendedSidebarItem = observer(function ExtendedSidebarItem(props: 
         },
       }),
       dropTargetForElements({
-        element,
+        element: navigationElement,
         canDrop: ({ source }) =>
           !disableDrop && source?.data?.id !== item.key && source?.data?.dragInstanceId === "NAVIGATION",
-        getData: ({ input, element }) => {
-          const data = { id: item.key };
+        getData: ({ input, element: targetElement }) => {
+          const dropData = { id: item.key };
 
           // attach instruction for last in list
-          return attachInstruction(data, {
+          return attachInstruction(dropData, {
             input,
-            element,
+            element: targetElement,
             currentLevel: 0,
             indentPerLevel: 0,
             mode: isLastChild ? "last-in-group" : "standard",
@@ -136,9 +137,15 @@ export const ExtendedSidebarItem = observer(function ExtendedSidebarItem(props: 
 
   const itemHref =
     item.key === "your_work"
-      ? `/${workspaceSlug.toString()}${item.href}${data?.id}`
+      ? `/${workspaceSlug.toString()}${item.href}${userData?.id}`
       : `/${workspaceSlug.toString()}${item.href}`;
-  const isActive = itemHref === pathname;
+  const isTimelineRequested = searchParams.get("layout") === "gantt_chart";
+  const isActive =
+    item.key === "timeline"
+      ? isTimelineRequested && pathname.includes(`/${workspaceSlug.toString()}/workspace-views/all-issues`)
+      : item.key === "views" && isTimelineRequested
+        ? false
+        : itemHref === pathname;
 
   const pinNavigationItem = (key: string) => {
     toggleWorkspaceItem(key, true);

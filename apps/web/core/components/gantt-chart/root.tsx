@@ -5,6 +5,7 @@
  */
 
 import { useEffect } from "react";
+import type { ReactNode } from "react";
 import { observer } from "mobx-react";
 // components
 import type { IBlockUpdateData, IBlockUpdateDependencyData } from "@plane/types";
@@ -13,6 +14,7 @@ import { useTimeLineChartStore } from "@/hooks/use-timeline-chart";
 import { ChartViewRoot } from "./chart/root";
 
 type GanttChartRootProps = {
+  headerActions?: ReactNode;
   border?: boolean;
   title: string;
   loaderTitle: string;
@@ -40,6 +42,7 @@ type GanttChartRootProps = {
 export const GanttChartRoot = observer(function GanttChartRoot(props: GanttChartRootProps) {
   const {
     border = true,
+    headerActions,
     title,
     blockIds,
     loaderTitle = "blocks",
@@ -68,11 +71,12 @@ export const GanttChartRoot = observer(function GanttChartRoot(props: GanttChart
   // update the timeline store with updated blockIds
   useEffect(() => {
     setBlockIds(blockIds);
-  }, [blockIds]);
+  }, [blockIds, setBlockIds]);
 
   return (
     <ChartViewRoot
       border={border}
+      headerActions={headerActions}
       title={title}
       blockIds={blockIds}
       loadMoreBlocks={loadMoreBlocks}

@@ -4,15 +4,14 @@
  * See the LICENSE file for details.
  */
 
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { observer } from "mobx-react";
 import { useParams, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 // plane imports
-import { GLOBAL_VIEW_TRACKER_ELEMENTS, ISSUE_DISPLAY_FILTERS_BY_PAGE } from "@plane/constants";
+import { EIssueFilterType, GLOBAL_VIEW_TRACKER_ELEMENTS, ISSUE_DISPLAY_FILTERS_BY_PAGE } from "@plane/constants";
 import { EmptyStateDetailed } from "@plane/propel/empty-state";
-import type { EIssueLayoutTypes } from "@plane/types";
-import { EIssuesStoreType, STATIC_VIEW_TYPES } from "@plane/types";
+import { EIssueLayoutTypes, EIssuesStoreType, STATIC_VIEW_TYPES } from "@plane/types";
 // assets
 // components
 import { IssuePeekOverview } from "@/components/issues/peek-overview";
@@ -41,9 +40,10 @@ export const AllIssueLayoutRoot = observer(function AllIssueLayoutRoot(props: Pr
   const globalViewId = routerGlobalViewId ? routerGlobalViewId.toString() : undefined;
   // search params
   const searchParams = useSearchParams();
+  const [hasAppliedRouteLayout, setHasAppliedRouteLayout] = useState(false);
   // store hooks
   const {
-    issuesFilter: { filters, fetchFilters, updateFilterExpression },
+    issuesFilter: { filters, fetchFilters, updateFilterExpression, updateFilters },
     issues: { clear, groupedIssueIds, fetchIssues, fetchNextIssues },
   } = useIssues(EIssuesStoreType.GLOBAL);
   const { fetchAllGlobalViews, getViewDetailsById } = useGlobalView();
@@ -51,6 +51,31 @@ export const AllIssueLayoutRoot = observer(function AllIssueLayoutRoot(props: Pr
   const viewDetails = globalViewId ? getViewDetailsById(globalViewId) : undefined;
   const workItemFilters = globalViewId ? filters?.[globalViewId] : undefined;
   const activeLayout: EIssueLayoutTypes | undefined = workItemFilters?.displayFilters?.layout;
+
+  useEffect(() => {
+    if (
+      hasAppliedRouteLayout ||
+      !workspaceSlug ||
+      !globalViewId ||
+      searchParams.get("layout") !== EIssueLayoutTypes.GANTT
+    )
+      return;
+    if (activeLayout === EIssueLayoutTypes.GANTT) {
+      setHasAppliedRouteLayout(true);
+      return;
+    }
+
+    updateFilters(
+      workspaceSlug,
+      undefined,
+      EIssueFilterType.DISPLAY_FILTERS,
+      {
+        layout: EIssueLayoutTypes.GANTT,
+      },
+      globalViewId
+    );
+    setHasAppliedRouteLayout(true);
+  }, [activeLayout, globalViewId, hasAppliedRouteLayout, searchParams, updateFilters, workspaceSlug]);
   // Determine initial work item filters based on view type and availability
   const initialWorkItemFilters = useMemo(() => {
     if (!globalViewId) return undefined;

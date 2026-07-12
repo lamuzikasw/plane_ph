@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 // plane imports
@@ -13,7 +13,7 @@ import { useTranslation } from "@plane/i18n";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { IBlockUpdateData, TIssue } from "@plane/types";
 import { EIssueLayoutTypes, EIssuesStoreType, GANTT_TIMELINE_TYPE } from "@plane/types";
-import { renderFormattedPayloadDate } from "@plane/utils";
+import { getDate, renderFormattedPayloadDate } from "@plane/utils";
 // components
 import { TimeLineTypeContext } from "@/components/gantt-chart/contexts";
 import { GanttChartRoot } from "@/components/gantt-chart/root";
@@ -21,6 +21,7 @@ import { IssueGanttSidebar } from "@/components/gantt-chart/sidebar/issues/sideb
 // hooks
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { useIssues } from "@/hooks/store/use-issues";
+import { useProject } from "@/hooks/store/use-project";
 import { useUserPermissions } from "@/hooks/store/user";
 import { useIssueStoreType } from "@/hooks/use-issue-layout-store";
 import { useIssuesActions } from "@/hooks/use-issues-actions";
@@ -45,6 +46,21 @@ export type GanttStoreType =
   | EIssuesStoreType.PROJECT_VIEW
   | EIssuesStoreType.EPIC;
 
+type TGanttQuickFilter = "all" | "unscheduled" | "overdue";
+
+const isIssueUnscheduled = (issue: TIssue | undefined) => !!issue && !issue.start_date && !issue.target_date;
+
+const isIssueOverdue = (issue: TIssue | undefined) => {
+  const targetDate = getDate(issue?.target_date);
+  if (!issue || !targetDate) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  targetDate.setHours(0, 0, 0, 0);
+
+  return targetDate.getTime() < today.getTime();
+};
+
 export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRoot) {
   const { viewId, isCompletedCycle = false, isEpic = false } = props;
   const { t } = useTranslation();
@@ -56,8 +72,10 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
   const {
     issue: { getIssueById },
   } = useIssueDetail();
+  const { getPartialProjectById } = useProject();
   const { fetchIssues, fetchNextIssues, updateIssue, quickAddIssue } = useIssuesActions(storeType);
   const { initGantt } = useTimeLineChart(GANTT_TIMELINE_TYPE.ISSUE);
+  const [quickFilter, setQuickFilter] = useState<TGanttQuickFilter>("all");
   // store hooks
   const { allowPermissions } = useUserPermissions();
 
@@ -76,7 +94,46 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
     initGantt();
   }, [initGantt]);
 
-  const issuesIds = (issues.groupedIssueIds?.[ALL_ISSUES] as string[]) ?? [];
+  const allIssueIds = useMemo(() => (issues.groupedIssueIds?.[ALL_ISSUES] as string[]) ?? [], [issues.groupedIssueIds]);
+  const issuesIds = useMemo(() => {
+    const issueIds = [...allIssueIds];
+
+    if (storeType === EIssuesStoreType.GLOBAL) {
+      issueIds.sort((firstIssueId, secondIssueId) => {
+        const firstIssue = getIssueById(firstIssueId);
+        const secondIssue = getIssueById(secondIssueId);
+        const firstProject = getPartialProjectById(firstIssue?.project_id);
+        const secondProject = getPartialProjectById(secondIssue?.project_id);
+        const projectCompare = (firstProject?.name ?? "").localeCompare(secondProject?.name ?? "");
+
+        if (projectCompare !== 0) return projectCompare;
+        return (firstIssue?.sequence_id ?? 0) - (secondIssue?.sequence_id ?? 0);
+      });
+    }
+
+    return issueIds.filter((issueId) => {
+      const issue = getIssueById(issueId);
+
+      if (quickFilter === "unscheduled") return isIssueUnscheduled(issue);
+      if (quickFilter === "overdue") return isIssueOverdue(issue);
+      return true;
+    });
+  }, [allIssueIds, getIssueById, getPartialProjectById, quickFilter, storeType]);
+  const ganttStats = useMemo(() => {
+    const stats = {
+      all: allIssueIds.length,
+      unscheduled: 0,
+      overdue: 0,
+    };
+
+    allIssueIds.forEach((issueId) => {
+      const issue = getIssueById(issueId);
+      if (isIssueUnscheduled(issue)) stats.unscheduled += 1;
+      if (isIssueOverdue(issue)) stats.overdue += 1;
+    });
+
+    return stats;
+  }, [allIssueIds, getIssueById]);
   const nextPageResults = issues.getPaginationData(undefined, undefined)?.nextPageResults;
 
   const { enableIssueCreation } = issues?.viewFlags || {};
@@ -165,12 +222,146 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
       />
     ) : undefined;
 
+  const exportGanttPng = useCallback(() => {
+    const issueRows = issuesIds
+      .map((issueId) => getIssueById(issueId))
+      .filter((issue): issue is TIssue => !!issue && (!!issue.start_date || !!issue.target_date));
+
+    if (issueRows.length === 0) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: t("toast.error"),
+        message: "There are no scheduled work items to export.",
+      });
+      return;
+    }
+
+    const dates = issueRows.flatMap((issue) => [getDate(issue.start_date), getDate(issue.target_date)]).filter(Boolean);
+    const minDate = new Date(Math.min(...dates.map((date) => date!.getTime())));
+    const maxDate = new Date(Math.max(...dates.map((date) => date!.getTime())));
+    minDate.setHours(0, 0, 0, 0);
+    maxDate.setHours(0, 0, 0, 0);
+
+    const dayMs = 24 * 60 * 60 * 1000;
+    const days = Math.max(1, Math.round((maxDate.getTime() - minDate.getTime()) / dayMs) + 1);
+    const rowHeight = 34;
+    const sidebarWidth = 320;
+    const dayWidth = 26;
+    const headerHeight = 52;
+    const width = Math.min(6000, sidebarWidth + days * dayWidth + 40);
+    const height = headerHeight + issueRows.length * rowHeight + 32;
+    const canvas = document.createElement("canvas");
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.scale(ratio, ratio);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#111827";
+    ctx.font = "600 18px Inter, sans-serif";
+    ctx.fillText("Plane Gantt export", 20, 30);
+    ctx.font = "12px Inter, sans-serif";
+    ctx.fillStyle = "#6b7280";
+    ctx.fillText(`${issueRows.length} work items`, 20, 48);
+
+    for (let dayIndex = 0; dayIndex < days; dayIndex += 1) {
+      const x = sidebarWidth + dayIndex * dayWidth;
+      ctx.strokeStyle = dayIndex % 7 === 0 ? "#d1d5db" : "#eef0f3";
+      ctx.beginPath();
+      ctx.moveTo(x, headerHeight);
+      ctx.lineTo(x, height - 16);
+      ctx.stroke();
+    }
+
+    issueRows.forEach((issue, index) => {
+      const y = headerHeight + index * rowHeight;
+      const startDate = getDate(issue.start_date) ?? getDate(issue.target_date);
+      const rowTargetDate = getDate(issue.target_date) ?? getDate(issue.start_date);
+      if (!startDate || !rowTargetDate) return;
+
+      const startOffset = Math.max(0, Math.round((startDate.getTime() - minDate.getTime()) / dayMs));
+      const duration = Math.max(1, Math.round((rowTargetDate.getTime() - startDate.getTime()) / dayMs) + 1);
+      const x = sidebarWidth + startOffset * dayWidth;
+      const barWidth = Math.max(18, duration * dayWidth - 4);
+
+      ctx.fillStyle = index % 2 === 0 ? "#f9fafb" : "#ffffff";
+      ctx.fillRect(0, y, width, rowHeight);
+      ctx.fillStyle = "#111827";
+      ctx.font = "13px Inter, sans-serif";
+      ctx.fillText(issue.name ?? "", 20, y + 22, sidebarWidth - 36);
+      ctx.fillStyle = isIssueOverdue(issue) ? "#ef4444" : "#93c5fd";
+      ctx.fillRect(x, y + 8, barWidth, 18);
+      ctx.fillStyle = "#111827";
+      ctx.fillText(issue.name ?? "", x + 8, y + 22, Math.max(80, barWidth - 12));
+    });
+
+    const link = document.createElement("a");
+    link.download = "plane-gantt.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }, [getIssueById, issuesIds, t]);
+
+  const printGanttPdf = useCallback(() => {
+    window.print();
+  }, []);
+
+  const headerActions = (
+    <>
+      {(["all", "unscheduled", "overdue"] as TGanttQuickFilter[]).map((filter) => {
+        const label =
+          filter === "all"
+            ? `All ${ganttStats.all}`
+            : filter === "unscheduled"
+              ? `No dates ${ganttStats.unscheduled}`
+              : `Overdue ${ganttStats.overdue}`;
+
+        return (
+          <button
+            key={filter}
+            type="button"
+            className={`rounded-md px-2 py-1 text-11 font-medium ${
+              quickFilter === filter
+                ? "bg-accent-primary text-white"
+                : "bg-layer-transparent text-secondary hover:bg-layer-transparent-hover"
+            }`}
+            onClick={() => setQuickFilter(filter)}
+          >
+            {label}
+          </button>
+        );
+      })}
+      <span className="rounded-md bg-layer-transparent px-2 py-1 text-11 font-medium text-tertiary">
+        Dependencies on
+      </span>
+      <button
+        type="button"
+        className="rounded-md bg-layer-transparent px-2 py-1 text-11 font-medium text-secondary hover:bg-layer-transparent-hover"
+        onClick={exportGanttPng}
+      >
+        PNG
+      </button>
+      <button
+        type="button"
+        className="rounded-md bg-layer-transparent px-2 py-1 text-11 font-medium text-secondary hover:bg-layer-transparent-hover"
+        onClick={printGanttPdf}
+      >
+        PDF
+      </button>
+    </>
+  );
+
   return (
     <IssueLayoutHOC layout={EIssueLayoutTypes.GANTT}>
       <TimeLineTypeContext.Provider value={GANTT_TIMELINE_TYPE.ISSUE}>
         <div className="h-full w-full">
           <GanttChartRoot
             border={false}
+            headerActions={headerActions}
             title={isEpic ? t("epic.label", { count: 2 }) : t("issue.label", { count: 2 })}
             loaderTitle={isEpic ? t("epic.label", { count: 2 }) : t("issue.label", { count: 2 })}
             blockIds={issuesIds}

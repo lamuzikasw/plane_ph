@@ -7,7 +7,7 @@
 import type { ReactNode } from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";
-import { useParams, usePathname } from "next/navigation";
+import { useParams, usePathname, useSearchParams } from "next/navigation";
 // plane imports
 import type { IWorkspaceSidebarNavigationItem } from "@plane/constants";
 import { EUserPermissionsLevel } from "@plane/constants";
@@ -35,6 +35,7 @@ export const SidebarItemBase = observer(function SidebarItemBase({
 }: Props) {
   const { t } = useTranslation();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { workspaceSlug } = useParams();
   const { allowPermissions } = useUserPermissions();
   const { isWorkspaceItemPinned } = useWorkspaceNavigationPreferences();
@@ -51,6 +52,7 @@ export const SidebarItemBase = observer(function SidebarItemBase({
     "home",
     "pi_chat",
     "projects",
+    "timeline",
     "your_work",
     "stickies",
     "drafts",
@@ -64,12 +66,23 @@ export const SidebarItemBase = observer(function SidebarItemBase({
   if (!isPinned && !staticItems.includes(item.key)) return null;
 
   const itemHref =
-    item.key === "your_work" && data?.id ? joinUrlPath(slug, item.href, data?.id) : joinUrlPath(slug, item.href);
+    item.key === "your_work" && data?.id
+      ? joinUrlPath(slug, item.href, data?.id)
+      : item.href.includes("?")
+        ? `/${slug}${item.href}`
+        : joinUrlPath(slug, item.href);
   const icon = getSidebarNavigationItemIcon(item.key);
+  const isTimelineRequested = searchParams.get("layout") === "gantt_chart";
+  const isActive =
+    item.key === "timeline"
+      ? isTimelineRequested && pathname.includes(joinUrlPath(slug, "/workspace-views/all-issues/"))
+      : item.key === "views" && isTimelineRequested
+        ? false
+        : item.highlight(pathname, itemHref);
 
   return (
     <Link href={itemHref} onClick={handleLinkClick}>
-      <SidebarNavItem isActive={item.highlight(pathname, itemHref)}>
+      <SidebarNavItem isActive={isActive}>
         <div className="flex items-center gap-1.5 py-[1px]">
           {icon}
           <p className="text-13 leading-5 font-medium">{t(item.labelTranslationKey)}</p>

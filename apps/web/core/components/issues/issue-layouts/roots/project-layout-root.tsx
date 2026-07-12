@@ -5,10 +5,11 @@
  */
 
 import { observer } from "mobx-react";
-import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 // plane constants
-import { ISSUE_DISPLAY_FILTERS_BY_PAGE, PROJECT_VIEW_TRACKER_ELEMENTS } from "@plane/constants";
+import { EIssueFilterType, ISSUE_DISPLAY_FILTERS_BY_PAGE, PROJECT_VIEW_TRACKER_ELEMENTS } from "@plane/constants";
 import { EIssueLayoutTypes, EIssuesStoreType } from "@plane/types";
 import { Spinner } from "@plane/ui";
 // components
@@ -45,6 +46,8 @@ function ProjectIssueLayout(props: { activeLayout: EIssueLayoutTypes | undefined
 export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
   // router
   const { workspaceSlug: routerWorkspaceSlug, projectId: routerProjectId } = useParams();
+  const searchParams = useSearchParams();
+  const [hasAppliedRouteLayout, setHasAppliedRouteLayout] = useState(false);
   const workspaceSlug = routerWorkspaceSlug ? routerWorkspaceSlug.toString() : undefined;
   const projectId = routerProjectId ? routerProjectId.toString() : undefined;
   // hooks
@@ -52,6 +55,20 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
   // derived values
   const workItemFilters = projectId ? issuesFilter?.getIssueFilters(projectId) : undefined;
   const activeLayout = workItemFilters?.displayFilters?.layout;
+
+  useEffect(() => {
+    if (hasAppliedRouteLayout || !workspaceSlug || !projectId || searchParams.get("layout") !== EIssueLayoutTypes.GANTT)
+      return;
+    if (activeLayout === EIssueLayoutTypes.GANTT) {
+      setHasAppliedRouteLayout(true);
+      return;
+    }
+
+    issuesFilter?.updateFilters(workspaceSlug, projectId, EIssueFilterType.DISPLAY_FILTERS, {
+      layout: EIssueLayoutTypes.GANTT,
+    });
+    setHasAppliedRouteLayout(true);
+  }, [activeLayout, hasAppliedRouteLayout, issuesFilter, projectId, searchParams, workspaceSlug]);
 
   useSWR(
     workspaceSlug && projectId ? `PROJECT_ISSUES_${workspaceSlug}_${projectId}` : null,

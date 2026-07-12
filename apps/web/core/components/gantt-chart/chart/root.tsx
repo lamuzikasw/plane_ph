@@ -4,6 +4,7 @@
  * See the LICENSE file for details.
  */
 
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { observer } from "mobx-react";
 import { createPortal } from "react-dom";
@@ -23,6 +24,7 @@ import type { IMonthBlock, IMonthView, IWeekBlock } from "../views";
 import { getNumberOfDaysBetweenTwoDates, monthView, quarterView, weekView } from "../views";
 
 type ChartViewRootProps = {
+  headerActions?: ReactNode;
   border: boolean;
   title: string;
   loaderTitle: string;
@@ -53,9 +55,17 @@ const timelineViewHelpers = {
   quarter: quarterView,
 };
 
+const updateCurrentLeftScrollPosition = (width: number) => {
+  const scrollContainer = document.querySelector("#gantt-container") as HTMLDivElement;
+  if (!scrollContainer) return;
+
+  scrollContainer.scrollLeft = width + scrollContainer?.scrollLeft;
+};
+
 export const ChartViewRoot = observer(function ChartViewRoot(props: ChartViewRootProps) {
   const {
     border,
+    headerActions,
     title,
     blockIds,
     loadMoreBlocks,
@@ -152,13 +162,6 @@ export const ChartViewRoot = observer(function ChartViewRoot(props: ChartViewRoo
     setItemsContainerWidth(width + scrollContainer?.scrollLeft);
   };
 
-  const updateCurrentLeftScrollPosition = (width: number) => {
-    const scrollContainer = document.querySelector("#gantt-container") as HTMLDivElement;
-    if (!scrollContainer) return;
-
-    scrollContainer.scrollLeft = width + scrollContainer?.scrollLeft;
-  };
-
   const handleScrollToCurrentSelectedDate = (currentState: ChartDataType, date: Date) => {
     const scrollContainer = document.querySelector("#gantt-container") as HTMLDivElement;
     if (!scrollContainer) return;
@@ -186,6 +189,7 @@ export const ChartViewRoot = observer(function ChartViewRoot(props: ChartViewRoo
       })}
     >
       <GanttChartHeader
+        actions={headerActions}
         blockIds={blockIds}
         fullScreenMode={fullScreenMode}
         toggleFullScreenMode={() => setFullScreenMode((prevData) => !prevData)}
