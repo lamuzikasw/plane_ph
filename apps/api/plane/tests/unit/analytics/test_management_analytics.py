@@ -8,7 +8,18 @@ import pytest
 from django.utils import timezone
 
 from plane.app.analytics.management import ManagementAnalyticsService
-from plane.db.models import Estimate, EstimatePoint, Issue, IssueAssignee, IssueBlocker, Project, State, Workspace, WorkspaceMember
+from plane.db.models import (
+    Estimate,
+    EstimatePoint,
+    Issue,
+    IssueAssignee,
+    IssueBlocker,
+    IssueRelation,
+    Project,
+    State,
+    Workspace,
+    WorkspaceMember,
+)
 from plane.tests.factories import UserFactory, WorkspaceFactory
 
 
@@ -200,6 +211,64 @@ def test_data_quality_reports_missing_target_date():
     checks = {check["key"]: check["count"] for check in service.data_quality()["checks"]}
 
     assert checks["missing_target_date"] == 1
+
+
+def test_drilldown_reports_data_quality_issue_rows():
+    workspace, _ = make_workspace("quality-drilldown")
+    project, _, started, _ = make_project(workspace)
+    issue = make_issue(workspace, project, started, "No assignee")
+
+    service = ManagementAnalyticsService(workspace.slug, {"period": "last_30_days"})
+    payload = service.drilldown("missing_assignee")
+
+    assert payload["entity"] == "issue"
+    assert payload["count"] == 1
+    assert payload["rows"][0]["id"] == str(issue.id)
+
+
+def test_drilldown_reports_blocked_issue_rows_from_legacy_and_relation_models():
+    workspace, _ = make_workspace("blocked-drilldown")
+    project, _, started, _ = make_project(workspace)
+    legacy_blocked = make_issue(workspace, project, started, "Legacy blocked")
+    legacy_blocker = make_issue(workspace, project, started, "Legacy blocker")
+    relation_blocked = make_issue(workspace, project, started, "Relation blocked")
+    relation_blocker = make_issue(workspace, project, started, "Relation blocker")
+    IssueBlocker.objects.create(workspace=workspace, project=project, block=legacy_blocked, blocked_by=legacy_blocker)
+    IssueRelation.objects.create(
+        workspace=workspace,
+        project=project,
+        issue=relation_blocked,
+        related_issue=relation_blocker,
+        relation_type="blocked_by",
+    )
+
+    service = ManagementAnalyticsService(workspace.slug, {"period": "last_30_days"})
+    payload = service.drilldown("blocked_work_items")
+    row_ids = {row["id"] for row in payload["rows"]}
+
+    assert payload["entity"] == "issue"
+    assert str(legacy_blocked.id) in row_ids
+    assert str(relation_blocked.id) in row_ids
+
+
+def test_drilldown_reports_delivery_and_risk_rows():
+    workspace, _ = make_workspace("delivery-risk-drilldown")
+    project, _, started, completed = make_project(workspace)
+    now = timezone.now()
+    completed_issue = make_issue(workspace, project, completed, "Delivered", completed_at=now, target_date=now)
+    for index in range(5):
+        blocked = make_issue(workspace, project, started, f"Overdue {index}", target_date=now - timedelta(days=1))
+        blocker = make_issue(workspace, project, started, f"Blocker {index}")
+        IssueBlocker.objects.create(workspace=workspace, project=project, block=blocked, blocked_by=blocker)
+
+    service = ManagementAnalyticsService(workspace.slug, {"period": "last_30_days"})
+    throughput = service.drilldown("throughput")
+    high_risk = service.drilldown("high")
+
+    assert throughput["entity"] == "issue"
+    assert throughput["rows"][0]["id"] == str(completed_issue.id)
+    assert high_risk["entity"] == "project"
+    assert high_risk["count"] == 1
 
 
 def test_workspace_isolation_keeps_other_workspace_out():

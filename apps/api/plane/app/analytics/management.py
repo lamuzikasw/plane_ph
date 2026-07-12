@@ -108,8 +108,10 @@ class ManagementAnalyticsService:
         snapshot = self._filtered_issues(include_period=False)
         now = timezone.now()
         open_current = current.filter(state__group__in=OPEN_STATE_GROUPS)
+        all_open = snapshot.filter(state__group__in=OPEN_STATE_GROUPS)
 
         issue_metrics = {
+            "active_work_items": all_open,
             "work_items_in_progress": open_current.filter(state__group="started"),
             "work_items_in_review": self._review_issues(current),
             "blocked_work_items": self._blocked_issues(snapshot),
@@ -118,11 +120,34 @@ class ManagementAnalyticsService:
             "unestimated_work_items": open_current.filter(Q(point__isnull=True) & Q(estimate_point__isnull=True)),
             "unscheduled_work_items": open_current.filter(target_date__isnull=True),
             "completed_work_items": current.filter(state__group="completed", completed_at__isnull=False),
+            "throughput": current.filter(state__group="completed", completed_at__isnull=False),
             "on_time_delivery_percent": current.filter(
                 state__group="completed",
                 completed_at__isnull=False,
                 target_date__isnull=False,
                 completed_at__lte=models_f("target_date"),
+            ),
+            "lead_time_hours": current.filter(state__group="completed", completed_at__isnull=False),
+            "cycle_time_hours": current.filter(state__group="completed", completed_at__isnull=False),
+            "reopened_work_items": self._reopened_issues(),
+            "missing_assignee": snapshot.filter(state__group__in=OPEN_STATE_GROUPS, assignees__isnull=True).distinct(),
+            "missing_module": snapshot.filter(issue_module__isnull=True).distinct(),
+            "missing_type": snapshot.filter(type__isnull=True),
+            "missing_estimate": snapshot.filter(Q(point__isnull=True) & Q(estimate_point__isnull=True)),
+            "missing_start_date": snapshot.filter(start_date__isnull=True),
+            "missing_target_date": snapshot.filter(target_date__isnull=True),
+            "missing_priority": snapshot.filter(Q(priority__isnull=True) | Q(priority="none")),
+            "started_without_assignee": snapshot.filter(state__group="started", assignees__isnull=True).distinct(),
+            "blocked_without_reason": self._blocked_issues(snapshot),
+            "stale_work_items": snapshot.filter(
+                state__group__in=OPEN_STATE_GROUPS,
+                updated_at__lt=now - timedelta(days=self.settings["stale_work_days"]),
+            ),
+            "large_work_items": snapshot.filter(point__gt=self.settings["large_task_estimate_threshold"]),
+            "invalid_dates": snapshot.filter(
+                start_date__isnull=False,
+                target_date__isnull=False,
+                target_date__lt=models_f("start_date"),
             ),
         }
 
@@ -146,8 +171,38 @@ class ManagementAnalyticsService:
                 "rows": rows,
             }
 
+        if metric == "overloaded_members":
+            rows = [row for row in self.team()["results"] if self._is_overloaded(row["workload"]["percent"])]
+            return {
+                "metric": metric,
+                "entity": "member",
+                "period": self._period_payload(),
+                "count": len(rows),
+                "rows": rows,
+            }
+
+        if metric == "members_with_capacity":
+            rows = [row for row in self.team()["results"] if row["workload"]["level"] == "available"]
+            return {
+                "metric": metric,
+                "entity": "member",
+                "period": self._period_payload(),
+                "count": len(rows),
+                "rows": rows,
+            }
+
         if metric == "active_projects":
             rows = self.projects()["results"]
+            return {
+                "metric": metric,
+                "entity": "project",
+                "period": self._period_payload(),
+                "count": len(rows),
+                "rows": rows,
+            }
+
+        if metric in ["high", "medium", "low"]:
+            rows = [project for project in self.projects()["results"] if project["risk"]["level"] == metric]
             return {
                 "metric": metric,
                 "entity": "project",
@@ -655,6 +710,19 @@ class ManagementAnalyticsService:
             .filter(old_value__in=["completed", "cancelled"], new_value="started")
             .count()
         )
+
+    def _reopened_issues(self):
+        issue_ids = (
+            IssueActivity.objects.filter(
+                workspace=self.workspace,
+                field="state",
+                created_at__gte=self.period.start,
+                created_at__lte=self.period.end,
+            )
+            .filter(old_value__in=["completed", "cancelled"], new_value="started")
+            .values("issue_id")
+        )
+        return self._filtered_issues(include_period=False).filter(id__in=issue_ids)
 
     def _active_members_count(self):
         return WorkspaceMember.objects.filter(workspace=self.workspace, is_active=True, member__is_bot=False).count()

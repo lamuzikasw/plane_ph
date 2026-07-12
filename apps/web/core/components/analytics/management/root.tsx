@@ -42,6 +42,52 @@ const SECTION_TITLE_KEYS: Record<string, string> = {
 
 const EMPTY_HIDDEN_ANALYTICS_BLOCKS: Record<string, string[]> = {};
 
+const SUMMARY_DRILLDOWN_KEYS = new Set([
+  "average_workload_percent",
+  "overloaded_members",
+  "members_with_capacity",
+  "throughput",
+  "on_time_delivery_percent",
+  "cycle_time_hours",
+  "lead_time_hours",
+  "reopened_work_items",
+  "high",
+  "medium",
+  "low",
+]);
+
+const QUALITY_DRILLDOWN_KEYS = new Set([
+  "missing_assignee",
+  "missing_module",
+  "missing_type",
+  "missing_estimate",
+  "missing_start_date",
+  "missing_target_date",
+  "missing_priority",
+  "started_without_assignee",
+  "blocked_without_reason",
+  "stale_work_items",
+  "large_work_items",
+  "invalid_dates",
+]);
+
+const KPI_TITLE_KEYS = new Set([
+  "active_members",
+  "active_projects",
+  "work_items_in_progress",
+  "work_items_in_review",
+  "blocked_work_items",
+  "overdue_work_items",
+  "unassigned_work_items",
+  "unestimated_work_items",
+  "unscheduled_work_items",
+  "completed_work_items",
+  "average_cycle_time_hours",
+  "on_time_delivery_percent",
+  "average_team_workload_percent",
+  "high_risk_projects",
+]);
+
 type AnalyticsBlockDefinition = {
   key: string;
   label: string;
@@ -57,6 +103,7 @@ export function ManagementAnalyticsSection({ section }: Props) {
   const searchParams = useSearchParams();
   const query = searchParams.toString();
   const params = useMemo(() => Object.fromEntries(searchParams.entries()), [searchParams]);
+  const [selectedMetric, setSelectedMetric] = useState<string | undefined>();
   const { data, error, isLoading } = useSWR(
     workspaceSlug ? ["management-analytics", workspaceSlug.toString(), section, query] : null,
     () => analyticsService.getManagementAnalytics(workspaceSlug.toString(), section, params)
@@ -72,13 +119,20 @@ export function ManagementAnalyticsSection({ section }: Props) {
           {data.history?.status === "partial" && (
             <AnalyticsState tone="warning" i18nKey="management_analytics.states.partial_history" />
           )}
-          {section === "overview" && <OverviewPanel data={data} params={params} />}
+          {section === "overview" && <OverviewPanel data={data} onOpenDrilldown={setSelectedMetric} />}
           {section === "team" && <TeamPanel data={data} />}
           {section === "projects" && <ProjectsPanel data={data} />}
-          {section === "workload" && <WorkloadPanel data={data} />}
-          {section === "delivery" && <DeliveryPanel data={data} />}
-          {section === "risks" && <RisksPanel data={data} />}
-          {section === "data-quality" && <DataQualityPanel data={data} />}
+          {section === "workload" && <WorkloadPanel data={data} onOpenDrilldown={setSelectedMetric} />}
+          {section === "delivery" && <DeliveryPanel data={data} onOpenDrilldown={setSelectedMetric} />}
+          {section === "risks" && <RisksPanel data={data} onOpenDrilldown={setSelectedMetric} />}
+          {section === "data-quality" && <DataQualityPanel data={data} onOpenDrilldown={setSelectedMetric} />}
+          <ManagementAnalyticsDrilldownDrawer
+            metric={selectedMetric}
+            params={params}
+            isOpen={!!selectedMetric}
+            onClose={() => setSelectedMetric(undefined)}
+          />
+          <IssuePeekOverview />
         </div>
       )}
     </AnalyticsWrapper>
@@ -205,9 +259,8 @@ function ManagementAnalyticsFilters() {
   );
 }
 
-function OverviewPanel({ data, params }: { data: any; params: Record<string, string | undefined> }) {
+function OverviewPanel({ data, onOpenDrilldown }: { data: any; onOpenDrilldown: (metric: string) => void }) {
   const { workspaceSlug } = useParams();
-  const [selectedMetric, setSelectedMetric] = useState<string | undefined>();
   const [isMetricSettingsOpen, setIsMetricSettingsOpen] = useState(false);
   const workspaceSlugString = workspaceSlug?.toString();
   const { data: settings, mutate: mutateSettings } = useSWR(
@@ -252,7 +305,7 @@ function OverviewPanel({ data, params }: { data: any; params: Record<string, str
         onToggleKpi={toggleKpi}
         onShowAll={() => saveHiddenKpis([])}
       />
-      <KpiGrid kpis={visibleKpis} onOpenDrilldown={setSelectedMetric} />
+      <KpiGrid kpis={visibleKpis} onOpenDrilldown={onOpenDrilldown} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <WorkloadDistributionChart rows={data.team_snapshot ?? []} />
         <RiskDistributionChart rows={data.project_health ?? []} />
@@ -262,13 +315,6 @@ function OverviewPanel({ data, params }: { data: any; params: Record<string, str
       <AttentionList items={data.attention ?? []} />
       <TeamTable rows={data.team_snapshot ?? []} compact />
       <ProjectTable rows={data.project_health ?? []} compact />
-      <ManagementAnalyticsDrilldownDrawer
-        metric={selectedMetric}
-        params={params}
-        isOpen={!!selectedMetric}
-        onClose={() => setSelectedMetric(undefined)}
-      />
-      <IssuePeekOverview />
     </>
   );
 }
@@ -408,7 +454,7 @@ function ProjectsPanel({ data }: { data: any }) {
   );
 }
 
-function WorkloadPanel({ data }: { data: any }) {
+function WorkloadPanel({ data, onOpenDrilldown }: { data: any; onOpenDrilldown: (metric: string) => void }) {
   const blocks = useMemo<AnalyticsBlockDefinition[]>(
     () => [
       { key: "summary", label: "Сводка", description: "Короткие числа по загрузке" },
@@ -427,7 +473,7 @@ function WorkloadPanel({ data }: { data: any }) {
   return (
     <>
       <AnalyticsBlockControls blocks={blocks} visibility={visibility} />
-      {visibility.isVisible("summary") && <SummaryStrip summary={data.summary} />}
+      {visibility.isVisible("summary") && <SummaryStrip summary={data.summary} onOpenDrilldown={onOpenDrilldown} />}
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {visibility.isVisible("workload_by_member") && <WorkloadBars rows={data.results ?? []} />}
         {visibility.isVisible("workload_distribution") && <WorkloadDistributionChart rows={data.results ?? []} />}
@@ -437,7 +483,7 @@ function WorkloadPanel({ data }: { data: any }) {
   );
 }
 
-function DeliveryPanel({ data }: { data: any }) {
+function DeliveryPanel({ data, onOpenDrilldown }: { data: any; onOpenDrilldown: (metric: string) => void }) {
   const blocks = useMemo<AnalyticsBlockDefinition[]>(
     () => [
       { key: "summary", label: "Сводка", description: "Короткие числа по срокам" },
@@ -452,7 +498,7 @@ function DeliveryPanel({ data }: { data: any }) {
   return (
     <>
       <AnalyticsBlockControls blocks={blocks} visibility={visibility} />
-      {visibility.isVisible("summary") && <SummaryStrip summary={data.metrics} />}
+      {visibility.isVisible("summary") && <SummaryStrip summary={data.metrics} onOpenDrilldown={onOpenDrilldown} />}
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {visibility.isVisible("delivery_metrics") && <DeliveryMetricChart metrics={data.metrics ?? {}} />}
         {visibility.isVisible("throughput") && <ThroughputChart rows={data.grouped_throughput ?? []} />}
@@ -467,7 +513,7 @@ function DeliveryPanel({ data }: { data: any }) {
   );
 }
 
-function RisksPanel({ data }: { data: any }) {
+function RisksPanel({ data, onOpenDrilldown }: { data: any; onOpenDrilldown: (metric: string) => void }) {
   const blocks = useMemo<AnalyticsBlockDefinition[]>(
     () => [
       { key: "summary", label: "Сводка", description: "Сколько проектов в каждом уровне риска" },
@@ -482,7 +528,7 @@ function RisksPanel({ data }: { data: any }) {
   return (
     <>
       <AnalyticsBlockControls blocks={blocks} visibility={visibility} />
-      {visibility.isVisible("summary") && <SummaryStrip summary={data.summary} />}
+      {visibility.isVisible("summary") && <SummaryStrip summary={data.summary} onOpenDrilldown={onOpenDrilldown} />}
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {visibility.isVisible("risk_distribution") && <RiskDistributionChart rows={data.results ?? []} />}
         {visibility.isVisible("risk_score") && <RiskScoreChart rows={data.results ?? []} />}
@@ -492,8 +538,7 @@ function RisksPanel({ data }: { data: any }) {
   );
 }
 
-function DataQualityPanel({ data }: { data: any }) {
-  const { t } = useTranslation();
+function DataQualityPanel({ data, onOpenDrilldown }: { data: any; onOpenDrilldown: (metric: string) => void }) {
   const blocks = useMemo<AnalyticsBlockDefinition[]>(
     () => [
       { key: "quality_score", label: "Оценка качества", description: "Общий процент заполненности данных" },
@@ -509,13 +554,12 @@ function DataQualityPanel({ data }: { data: any }) {
       <AnalyticsBlockControls blocks={blocks} visibility={visibility} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {visibility.isVisible("quality_score") && <QualityScoreChart score={data.score} />}
-        {visibility.isVisible("quality_violations") && <DataQualityBars rows={data.checks ?? []} />}
+        {visibility.isVisible("quality_violations") && (
+          <DataQualityBars rows={data.checks ?? []} onOpenDrilldown={onOpenDrilldown} />
+        )}
       </div>
       {visibility.isVisible("quality_table") && (
-        <SimpleTable
-          columns={["management_analytics.tables.check", "management_analytics.tables.violations"]}
-          rows={(data.checks ?? []).map((row: any) => [t(`management_analytics.quality.${row.key}`), row.count])}
-        />
+        <DataQualityTable rows={data.checks ?? []} onOpenDrilldown={onOpenDrilldown} />
       )}
     </>
   );
@@ -880,14 +924,19 @@ function QualityScoreChart({ score }: { score?: number }) {
   );
 }
 
-function DataQualityBars({ rows }: { rows: any[] }) {
+function DataQualityBars({ rows, onOpenDrilldown }: { rows: any[]; onOpenDrilldown?: (metric: string) => void }) {
   const { t } = useTranslation();
   const data = sortedCopy(rows, (a, b) => (b.count ?? 0) - (a.count ?? 0))
     .slice(0, 8)
     .map((row) => ({ id: row.key, label: t(`management_analytics.quality.${row.key}`), value: row.count ?? 0 }));
   return (
     <ChartCard title={t("management_analytics.charts.data_quality_violations")}>
-      <HorizontalValueBars rows={data} />
+      <HorizontalValueBars
+        rows={data}
+        onOpenRow={(id) => {
+          if (QUALITY_DRILLDOWN_KEYS.has(id)) onOpenDrilldown?.(id);
+        }}
+      />
     </ChartCard>
   );
 }
@@ -948,25 +997,56 @@ function StackedRows({ rows, keys, tones }: { rows: any[]; keys: string[]; tones
   );
 }
 
-function HorizontalValueBars({ rows }: { rows: { id: string; label: string; value: number }[] }) {
+function HorizontalValueBars({
+  rows,
+  onOpenRow,
+}: {
+  rows: { id: string; label: string; value: number }[];
+  onOpenRow?: (id: string) => void;
+}) {
   const max = Math.max(...rows.map((row) => row.value), 1);
   return (
     <div className="space-y-2">
-      {rows.map((row) => (
-        <div key={row.id} className="grid grid-cols-[minmax(140px,1fr)_3fr_40px] items-center gap-2 text-12">
-          <div className="truncate text-secondary">{row.label}</div>
-          <div className="h-2 overflow-hidden rounded bg-surface-2">
-            <div
-              className="h-full rounded"
-              style={{
-                width: `${Math.max((row.value / max) * 100, row.value ? 2 : 0)}%`,
-                backgroundColor: chartColor("progress"),
-              }}
-            />
+      {rows.map((row) => {
+        const isClickable = !!onOpenRow && row.value > 0;
+        const content = (
+          <>
+            <div className="truncate text-secondary">{row.label}</div>
+            <div className="h-2 overflow-hidden rounded bg-surface-2">
+              <div
+                className="h-full rounded"
+                style={{
+                  width: `${Math.max((row.value / max) * 100, row.value ? 2 : 0)}%`,
+                  backgroundColor: chartColor("progress"),
+                }}
+              />
+            </div>
+            <div className="text-right text-tertiary">{row.value}</div>
+          </>
+        );
+
+        if (isClickable) {
+          return (
+            <button
+              key={row.id}
+              type="button"
+              onClick={() => onOpenRow?.(row.id)}
+              className="grid w-full grid-cols-[minmax(140px,1fr)_3fr_40px] items-center gap-2 rounded px-1 py-0.5 text-left text-12 transition-colors hover:bg-surface-2 focus:bg-surface-2 focus:outline-none"
+            >
+              {content}
+            </button>
+          );
+        }
+
+        return (
+          <div
+            key={row.id}
+            className="grid grid-cols-[minmax(140px,1fr)_3fr_40px] items-center gap-2 px-1 py-0.5 text-12"
+          >
+            {content}
           </div>
-          <div className="text-right text-tertiary">{row.value}</div>
-        </div>
-      ))}
+        );
+      })}
       {rows.length === 0 && <EmptyChartState />}
     </div>
   );
@@ -1056,7 +1136,7 @@ function ManagementAnalyticsDrilldownDrawer({
   if (!isOpen || !metric) return null;
 
   const entity = data?.entity ?? "unknown";
-  const metricTitle = t(`management_analytics.kpis.${metric}`);
+  const metricTitle = getMetricTitle(metric, t);
   const periodLabel = params.period
     ? t(`management_analytics.periods.${params.period}`)
     : t("management_analytics.periods.current_week");
@@ -1143,6 +1223,13 @@ function DrilldownLoader() {
       <Loader.Item height="40px" width="100%" />
     </Loader>
   );
+}
+
+function getMetricTitle(metric: string, t: (key: string) => string) {
+  if (KPI_TITLE_KEYS.has(metric)) return t(`management_analytics.kpis.${metric}`);
+  if (QUALITY_DRILLDOWN_KEYS.has(metric)) return t(`management_analytics.quality.${metric}`);
+  if (SUMMARY_DRILLDOWN_KEYS.has(metric)) return t(`management_analytics.summary.${metric}`);
+  return metric;
 }
 
 function IssueDrilldownTable({ rows, onOpenIssue }: { rows: any[]; onOpenIssue: (row: any) => void }) {
@@ -1409,18 +1496,89 @@ function ProjectTable({
   );
 }
 
-function SummaryStrip({ summary }: { summary?: Record<string, any> }) {
+function SummaryStrip({
+  summary,
+  onOpenDrilldown,
+}: {
+  summary?: Record<string, any>;
+  onOpenDrilldown?: (metric: string) => void;
+}) {
   const { t } = useTranslation();
   if (!summary) return null;
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-      {Object.entries(summary).map(([key, value]) => (
-        <div key={key} className="rounded border border-subtle bg-surface-1 p-3">
-          <div className="text-11 text-tertiary">{t(`management_analytics.summary.${key}`)}</div>
-          <div className="mt-1 text-20 font-semibold text-primary">{value ?? "—"}</div>
-        </div>
-      ))}
+      {Object.entries(summary).map(([key, value]) => {
+        const canDrilldown = SUMMARY_DRILLDOWN_KEYS.has(key) && value !== null && value !== undefined;
+        const content = (
+          <>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-11 text-tertiary">{t(`management_analytics.summary.${key}`)}</div>
+              {canDrilldown && (
+                <ArrowUpRight className="h-3 w-3 text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
+              )}
+            </div>
+            <div className="mt-1 text-20 font-semibold text-primary">{value ?? "—"}</div>
+          </>
+        );
+
+        if (canDrilldown) {
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onOpenDrilldown?.(key)}
+              className="group hover:border-custom-primary-70/60 hover:bg-custom-primary-100/5 focus:ring-custom-primary-100/20 rounded border border-subtle bg-surface-1 p-3 text-left transition-colors focus:ring-2 focus:outline-none"
+            >
+              {content}
+            </button>
+          );
+        }
+
+        return (
+          <div key={key} className="rounded border border-subtle bg-surface-1 p-3">
+            {content}
+          </div>
+        );
+      })}
     </div>
+  );
+}
+
+function DataQualityTable({ rows, onOpenDrilldown }: { rows: any[]; onOpenDrilldown: (metric: string) => void }) {
+  const { t } = useTranslation();
+  return (
+    <section className="overflow-hidden rounded border border-subtle bg-surface-1">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-12">
+          <thead className="bg-surface-2 text-secondary">
+            <tr>
+              <th className="px-3 py-2">{t("management_analytics.tables.check")}</th>
+              <th className="px-3 py-2">{t("management_analytics.tables.violations")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-subtle">
+            {rows.map((row) => {
+              const canDrilldown = QUALITY_DRILLDOWN_KEYS.has(row.key) && (row.count ?? 0) > 0;
+              return (
+                <tr
+                  key={row.key}
+                  className={cn(canDrilldown && "cursor-pointer transition-colors hover:bg-surface-2")}
+                  onClick={() => canDrilldown && onOpenDrilldown(row.key)}
+                >
+                  <td className="px-3 py-2 font-medium text-primary">
+                    <div className="flex items-center gap-1">
+                      {t(`management_analytics.quality.${row.key}`)}
+                      {canDrilldown && <ArrowUpRight className="h-3 w-3 text-tertiary" />}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-secondary">{row.count ?? 0}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
