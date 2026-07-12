@@ -36,6 +36,14 @@ type BlockData = {
   project_id?: string | undefined | null;
 };
 
+export type TDependencyDrag = {
+  sourceBlockId: string;
+  startX: number;
+  startY: number;
+  pointerX: number;
+  pointerY: number;
+};
+
 export interface IBaseTimelineStore {
   // observables
   blocksMap: Record<string, IGanttBlock>;
@@ -46,6 +54,7 @@ export interface IBaseTimelineStore {
   renderView: any;
   isDragging: boolean;
   isDependencyEnabled: boolean;
+  dependencyDrag: TDependencyDrag | null;
   //
   setBlockIds: (ids: string[]) => void;
   getBlockById: (blockId: string) => IGanttBlock;
@@ -58,6 +67,9 @@ export interface IBaseTimelineStore {
   updateActiveBlockId: (blockId: string | null) => void;
   updateRenderView: (data: any) => void;
   updateAllBlocksOnChartChangeWhileDragging: (addedWidth: number) => void;
+  startDependencyDrag: (sourceBlockId: string, startX: number, startY: number) => void;
+  updateDependencyDrag: (pointerX: number, pointerY: number) => void;
+  endDependencyDrag: () => void;
   getUpdatedPositionAfterDrag: (
     id: string,
     shouldUpdateHalfBlock: boolean,
@@ -85,6 +97,7 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
   rootStore: RootStore;
 
   isDependencyEnabled = false;
+  dependencyDrag: TDependencyDrag | null = null;
 
   constructor(_rootStore: RootStore) {
     makeObservable(this, {
@@ -96,6 +109,7 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
       currentViewData: observable,
       activeBlockId: observable.ref,
       renderView: observable,
+      dependencyDrag: observable.ref,
       // actions
       setIsDragging: action,
       setBlockIds: action.bound,
@@ -104,6 +118,9 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
       updateCurrentViewData: action.bound,
       updateActiveBlockId: action.bound,
       updateRenderView: action.bound,
+      startDependencyDrag: action.bound,
+      updateDependencyDrag: action.bound,
+      endDependencyDrag: action.bound,
     });
 
     this.initGantt();
@@ -134,6 +151,8 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
    * @param {string} blockId
    */
   isBlockActive = computedFn((blockId: string): boolean => this.activeBlockId === blockId);
+
+  getIsCurrentDependencyDragging = computedFn((blockId: string) => this.dependencyDrag?.sourceBlockId === blockId);
 
   /**
    * @description update current view
@@ -167,6 +186,30 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
    */
   updateRenderView = (data: any[]) => {
     this.renderView = data;
+  };
+
+  startDependencyDrag = (sourceBlockId: string, startX: number, startY: number) => {
+    this.dependencyDrag = {
+      sourceBlockId,
+      startX,
+      startY,
+      pointerX: startX,
+      pointerY: startY,
+    };
+  };
+
+  updateDependencyDrag = (pointerX: number, pointerY: number) => {
+    if (!this.dependencyDrag) return;
+
+    this.dependencyDrag = {
+      ...this.dependencyDrag,
+      pointerX,
+      pointerY,
+    };
+  };
+
+  endDependencyDrag = () => {
+    this.dependencyDrag = null;
   };
 
   /**
@@ -342,7 +385,4 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
       });
     });
   });
-
-  // Dummy method to return if the current Block's dependency is being dragged
-  getIsCurrentDependencyDragging = computedFn((_blockId: string) => false);
 }

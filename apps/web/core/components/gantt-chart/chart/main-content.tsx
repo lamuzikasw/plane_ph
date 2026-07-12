@@ -109,7 +109,7 @@ export const GanttChartMainContent = observer(function GanttChartMainContent(pro
         canScroll: ({ source }) => source.data.dragInstanceId === "GANTT_REORDER",
       })
     );
-  }, [ganttContainerRef?.current]);
+  }, [ganttContainerRef]);
 
   // handling scroll functionality
   const onScroll = (e: React.UIEvent<HTMLDivElement, UIEvent>) => {
@@ -202,6 +202,7 @@ export const GanttChartMainContent = observer(function GanttChartMainContent(pro
                 <ActiveChartView />
                 {currentViewData && (
                   <div
+                    data-gantt-chart-content
                     className="relative h-full"
                     style={{
                       width: `${itemsContainerWidth}px`,

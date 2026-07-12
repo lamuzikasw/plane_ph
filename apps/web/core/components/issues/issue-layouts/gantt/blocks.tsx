@@ -38,15 +38,33 @@ type Props = {
 
 const visibleRelationTypes = new Set<TIssueRelationTypes>(["blocking", "blocked_by"]);
 
-const getDependencyCount = (issueDetails: any) => {
+const getDependencyCount = (
+  issueDetails: any,
+  getRelationsByIssueId: (issueId: string) => { [key in TIssueRelationTypes]?: string[] } | undefined
+) => {
+  const relationsMap = issueDetails?.id ? getRelationsByIssueId(issueDetails.id) : undefined;
+  const relationIds = new Set<string>();
+
+  visibleRelationTypes.forEach((relationType) => {
+    (relationsMap?.[relationType] ?? []).forEach((issueId) => relationIds.add(`${relationType}:${issueId}`));
+  });
+
   const relationCount = Array.isArray(issueDetails?.issue_relation)
-    ? issueDetails.issue_relation.filter((relation: any) => visibleRelationTypes.has(relation.relation_type)).length
+    ? issueDetails.issue_relation.filter((relation: any) => {
+        if (!visibleRelationTypes.has(relation.relation_type)) return false;
+        relationIds.add(`${relation.relation_type}:${relation.id}`);
+        return true;
+      }).length
     : 0;
   const relatedCount = Array.isArray(issueDetails?.issue_related)
-    ? issueDetails.issue_related.filter((relation: any) => visibleRelationTypes.has(relation.relation_type)).length
+    ? issueDetails.issue_related.filter((relation: any) => {
+        if (!visibleRelationTypes.has(relation.relation_type)) return false;
+        relationIds.add(`${relation.relation_type}:${relation.id}`);
+        return true;
+      }).length
     : 0;
 
-  return relationCount + relatedCount;
+  return Math.max(relationIds.size, relationCount + relatedCount);
 };
 
 export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
@@ -58,6 +76,7 @@ export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
   const { getProjectStates } = useProjectState();
   const {
     issue: { getIssueById },
+    relation: { getRelationsByIssueId },
   } = useIssueDetail();
   // hooks
   const { isMobile } = usePlatformOS();
@@ -79,7 +98,7 @@ export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
   targetDate?.setHours(0, 0, 0, 0);
   const isOverdue = !!targetDate && targetDate.getTime() < today.getTime();
   const isMilestone = duration <= 1;
-  const dependencyCount = getDependencyCount(issueDetails);
+  const dependencyCount = getDependencyCount(issueDetails, getRelationsByIssueId);
   const dependencyLabel = dependencyCount
     ? `${dependencyCount} blocking relation${dependencyCount > 1 ? "s" : ""}`
     : undefined;

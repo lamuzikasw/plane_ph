@@ -63,15 +63,33 @@ const isIssueOverdue = (issue: TIssue | undefined) => {
   return targetDate.getTime() < today.getTime();
 };
 
-const getIssueDependencyCount = (issue: TIssue | undefined) => {
+const getIssueDependencyCount = (
+  issue: TIssue | undefined,
+  getRelationsByIssueId: (issueId: string) => { [key in TIssueRelationTypes]?: string[] } | undefined
+) => {
+  const relationIds = new Set<string>();
+  const relationsMap = issue?.id ? getRelationsByIssueId(issue.id) : undefined;
+
+  visibleRelationTypes.forEach((relationType) => {
+    (relationsMap?.[relationType] ?? []).forEach((issueId) => relationIds.add(`${relationType}:${issueId}`));
+  });
+
   const relationCount = Array.isArray(issue?.issue_relation)
-    ? issue.issue_relation.filter((relation) => visibleRelationTypes.has(relation.relation_type)).length
+    ? issue.issue_relation.filter((relation) => {
+        if (!visibleRelationTypes.has(relation.relation_type)) return false;
+        relationIds.add(`${relation.relation_type}:${relation.id}`);
+        return true;
+      }).length
     : 0;
   const relatedCount = Array.isArray(issue?.issue_related)
-    ? issue.issue_related.filter((relation) => visibleRelationTypes.has(relation.relation_type)).length
+    ? issue.issue_related.filter((relation) => {
+        if (!visibleRelationTypes.has(relation.relation_type)) return false;
+        relationIds.add(`${relation.relation_type}:${relation.id}`);
+        return true;
+      }).length
     : 0;
 
-  return relationCount + relatedCount;
+  return Math.max(relationIds.size, relationCount + relatedCount);
 };
 
 export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRoot) {
@@ -84,6 +102,7 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
   const { issues, issuesFilter } = useIssues(storeType);
   const {
     issue: { getIssueById },
+    relation: { getRelationsByIssueId },
   } = useIssueDetail();
   const { getPartialProjectById } = useProject();
   const { fetchIssues, fetchNextIssues, updateIssue, quickAddIssue } = useIssuesActions(storeType);
@@ -129,10 +148,10 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
 
       if (quickFilter === "unscheduled") return isIssueUnscheduled(issue);
       if (quickFilter === "overdue") return isIssueOverdue(issue);
-      if (quickFilter === "dependencies") return getIssueDependencyCount(issue) > 0;
+      if (quickFilter === "dependencies") return getIssueDependencyCount(issue, getRelationsByIssueId) > 0;
       return true;
     });
-  }, [allIssueIds, getIssueById, getPartialProjectById, quickFilter, storeType]);
+  }, [allIssueIds, getIssueById, getPartialProjectById, getRelationsByIssueId, quickFilter, storeType]);
   const ganttStats = useMemo(() => {
     const stats = {
       all: allIssueIds.length,
@@ -145,11 +164,11 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
       const issue = getIssueById(issueId);
       if (isIssueUnscheduled(issue)) stats.unscheduled += 1;
       if (isIssueOverdue(issue)) stats.overdue += 1;
-      if (getIssueDependencyCount(issue) > 0) stats.dependencies += 1;
+      if (getIssueDependencyCount(issue, getRelationsByIssueId) > 0) stats.dependencies += 1;
     });
 
     return stats;
-  }, [allIssueIds, getIssueById]);
+  }, [allIssueIds, getIssueById, getRelationsByIssueId]);
   const nextPageResults = issues.getPaginationData(undefined, undefined)?.nextPageResults;
 
   const { enableIssueCreation } = issues?.viewFlags || {};

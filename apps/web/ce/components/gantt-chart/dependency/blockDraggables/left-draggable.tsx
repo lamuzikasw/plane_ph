@@ -6,12 +6,13 @@
 
 import type { RefObject } from "react";
 import type { IGanttBlock } from "@plane/types";
+import { RightDependencyDraggable } from "./right-draggable";
 
 type LeftDependencyDraggableProps = {
   block: IGanttBlock;
   ganttContainerRef: RefObject<HTMLDivElement>;
 };
 
-export function LeftDependencyDraggable(_props: LeftDependencyDraggableProps) {
-  return <></>;
+export function LeftDependencyDraggable(props: LeftDependencyDraggableProps) {
+  return <RightDependencyDraggable {...props} side="left" />;
 }

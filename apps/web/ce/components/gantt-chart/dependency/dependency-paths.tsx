@@ -5,8 +5,10 @@
  */
 
 import { observer } from "mobx-react";
+import { REVERSE_RELATIONS } from "@plane/constants";
 import type { IGanttBlock, TIssueRelationTypes } from "@plane/types";
 import { BLOCK_HEIGHT } from "@/components/gantt-chart/constants";
+import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 import { useTimeLineChartStore } from "@/hooks/use-timeline-chart";
 
 type Props = {
@@ -26,16 +28,45 @@ type TDependencyPath = {
   targetIndex: number;
 };
 
-const getIssueRelations = (block: IGanttBlock): TRelation[] => {
-  const relation = Array.isArray(block.data?.issue_relation) ? block.data.issue_relation : [];
-  const related = Array.isArray(block.data?.issue_related) ? block.data.issue_related : [];
+const getIssueRelations = (
+  block: IGanttBlock,
+  getRelationsByIssueId: (issueId: string) => { [key in TIssueRelationTypes]?: string[] } | undefined
+): TRelation[] => {
+  const relationsMap = getRelationsByIssueId(block.id);
+  const normalizedRelations = relationsMap
+    ? (Object.keys(relationsMap) as TIssueRelationTypes[]).flatMap((relationType) =>
+        (relationsMap[relationType] ?? []).map((issueId) => ({
+          id: issueId,
+          relation_type: relationType,
+        }))
+      )
+    : [];
 
-  return [...relation, ...related].filter((item): item is TRelation => !!item?.id && !!item?.relation_type);
+  const directRelations = Array.isArray(block.data?.issue_relation) ? block.data.issue_relation : [];
+  const relatedRelations = Array.isArray(block.data?.issue_related)
+    ? block.data.issue_related.map((relation: TRelation) => ({
+        ...relation,
+        relation_type: REVERSE_RELATIONS[relation.relation_type] ?? relation.relation_type,
+      }))
+    : [];
+
+  const relationIds = new Set<string>();
+
+  return [...normalizedRelations, ...directRelations, ...relatedRelations].filter((item): item is TRelation => {
+    if (!item?.id || !item?.relation_type) return false;
+
+    const relationId = `${item.relation_type}:${item.id}`;
+    if (relationIds.has(relationId)) return false;
+
+    relationIds.add(relationId);
+    return true;
+  });
 };
 
 const getDependencyPaths = (
   blockIds: string[] | undefined,
-  blocksMap: Record<string, IGanttBlock>
+  blocksMap: Record<string, IGanttBlock>,
+  getRelationsByIssueId: (issueId: string) => { [key in TIssueRelationTypes]?: string[] } | undefined
 ): TDependencyPath[] => {
   if (!blockIds?.length) return [];
 
@@ -47,7 +78,7 @@ const getDependencyPaths = (
     const block = blocksMap[blockId];
     if (!block?.position) return;
 
-    getIssueRelations(block).forEach((relation) => {
+    getIssueRelations(block, getRelationsByIssueId).forEach((relation) => {
       const sourceId = relation.relation_type === "blocked_by" ? relation.id : block.id;
       const targetId = relation.relation_type === "blocked_by" ? block.id : relation.id;
 
@@ -94,7 +125,10 @@ const getPathD = (path: TDependencyPath) => {
 
 export const TimelineDependencyPaths = observer(function TimelineDependencyPaths(_props: Props) {
   const { blockIds, blocksMap } = useTimeLineChartStore();
-  const dependencyPaths = getDependencyPaths(blockIds, blocksMap);
+  const {
+    relation: { getRelationsByIssueId },
+  } = useIssueDetail();
+  const dependencyPaths = getDependencyPaths(blockIds, blocksMap, getRelationsByIssueId);
 
   if (!dependencyPaths.length || !blockIds?.length) return null;
 
