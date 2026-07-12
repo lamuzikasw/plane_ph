@@ -16,7 +16,7 @@ import type {
   EGanttBlockType,
 } from "@plane/types";
 import { renderFormattedPayloadDate } from "@plane/utils";
-import { currentViewDataWithView } from "@/components/gantt-chart/data";
+import { getScaledCurrentViewData, normalizeTimelineScale } from "@/components/gantt-chart/data";
 import {
   getDateFromPositionOnGantt,
   getItemPositionWidth,
@@ -50,6 +50,7 @@ export interface IBaseTimelineStore {
   blockIds: string[] | undefined;
   currentView: TGanttViews;
   currentViewData: ChartDataType | undefined;
+  timelineScale: number;
   activeBlockId: string | null;
   renderView: any;
   isDragging: boolean;
@@ -64,6 +65,7 @@ export interface IBaseTimelineStore {
   // actions
   updateCurrentView: (view: TGanttViews) => void;
   updateCurrentViewData: (data: ChartDataType | undefined) => void;
+  updateTimelineScale: (scale: number) => void;
   updateActiveBlockId: (blockId: string | null) => void;
   updateRenderView: (data: any) => void;
   updateAllBlocksOnChartChangeWhileDragging: (addedWidth: number) => void;
@@ -91,6 +93,7 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
   isDragging: boolean = false;
   currentView: TGanttViews = "week";
   currentViewData: ChartDataType | undefined = undefined;
+  timelineScale: number = 1;
   activeBlockId: string | null = null;
   renderView: any = [];
 
@@ -107,6 +110,7 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
       isDragging: observable.ref,
       currentView: observable.ref,
       currentViewData: observable,
+      timelineScale: observable.ref,
       activeBlockId: observable.ref,
       renderView: observable,
       dependencyDrag: observable.ref,
@@ -116,6 +120,7 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
       initGantt: action.bound,
       updateCurrentView: action.bound,
       updateCurrentViewData: action.bound,
+      updateTimelineScale: action.bound,
       updateActiveBlockId: action.bound,
       updateRenderView: action.bound,
       startDependencyDrag: action.bound,
@@ -173,6 +178,16 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
   };
 
   /**
+   * @description update timeline column scale
+   * @param {number} scale
+   */
+  updateTimelineScale = (scale: number) => {
+    runInAction(() => {
+      this.timelineScale = normalizeTimelineScale(scale);
+    });
+  };
+
+  /**
    * @description update active block
    * @param {string | null} block
    */
@@ -216,7 +231,7 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
    * @description initialize gantt chart with month view
    */
   initGantt = () => {
-    const newCurrentViewData = currentViewDataWithView(this.currentView);
+    const newCurrentViewData = getScaledCurrentViewData(this.currentView, this.timelineScale);
 
     runInAction(() => {
       this.currentViewData = newCurrentViewData;

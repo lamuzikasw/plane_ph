@@ -19,7 +19,7 @@ import { useUserProfile } from "@/hooks/store/user";
 import { useTimeLineChartStore } from "@/hooks/use-timeline-chart";
 //
 import { SIDEBAR_WIDTH } from "../constants";
-import { currentViewDataWithView } from "../data";
+import { getScaledCurrentViewData } from "../data";
 import type { IMonthBlock, IMonthView, IWeekBlock } from "../views";
 import { getNumberOfDaysBetweenTwoDates, monthView, quarterView, weekView } from "../views";
 
@@ -62,6 +62,12 @@ const updateCurrentLeftScrollPosition = (width: number) => {
   scrollContainer.scrollLeft = width + scrollContainer?.scrollLeft;
 };
 
+const getChartRenderWidth = (currentState: ChartDataType) => {
+  const days = Math.abs(getNumberOfDaysBetweenTwoDates(currentState.data.startDate, currentState.data.endDate)) + 1;
+
+  return days * currentState.data.dayWidth;
+};
+
 export const ChartViewRoot = observer(function ChartViewRoot(props: ChartViewRootProps) {
   const {
     border,
@@ -98,6 +104,8 @@ export const ChartViewRoot = observer(function ChartViewRoot(props: ChartViewRoo
     renderView,
     updateCurrentView,
     updateCurrentViewData,
+    timelineScale,
+    updateTimelineScale,
     updateRenderView,
     updateAllBlocksOnChartChangeWhileDragging,
   } = useTimeLineChartStore();
@@ -109,7 +117,7 @@ export const ChartViewRoot = observer(function ChartViewRoot(props: ChartViewRoo
     const selectedCurrentViewData: ChartDataType | undefined =
       selectedCurrentView && selectedCurrentView === currentViewData?.key
         ? currentViewData
-        : currentViewDataWithView(view);
+        : getScaledCurrentViewData(view, timelineScale);
 
     if (selectedCurrentViewData === undefined) return;
 
@@ -149,6 +157,29 @@ export const ChartViewRoot = observer(function ChartViewRoot(props: ChartViewRoo
   };
 
   const handleToday = () => updateCurrentViewRenderPayload(null, currentView);
+
+  const handleTimelineScaleChange = (scale: number) => {
+    const nextCurrentViewData = getScaledCurrentViewData(currentView, scale, currentViewData);
+    const scrollContainer = document.querySelector("#gantt-container") as HTMLDivElement;
+
+    if (!nextCurrentViewData) return;
+
+    const previousDayWidth = currentViewData?.data.dayWidth ?? nextCurrentViewData.data.dayWidth;
+    const nextDayWidth = nextCurrentViewData.data.dayWidth;
+    const visibleChartWidth = scrollContainer ? Math.max(scrollContainer.clientWidth - SIDEBAR_WIDTH, 1) : 1;
+    const previousCenterPosition = scrollContainer ? scrollContainer.scrollLeft + visibleChartWidth / 2 : 0;
+    const widthRatio = previousDayWidth ? nextDayWidth / previousDayWidth : 1;
+
+    updateTimelineScale(scale);
+    updateCurrentViewData(nextCurrentViewData);
+    setItemsContainerWidth(getChartRenderWidth(nextCurrentViewData));
+
+    setTimeout(() => {
+      if (!scrollContainer) return;
+
+      scrollContainer.scrollLeft = Math.max(0, previousCenterPosition * widthRatio - visibleChartWidth / 2);
+    }, 0);
+  };
 
   // handling the scroll positioning from left and right
   useEffect(() => {
@@ -194,6 +225,7 @@ export const ChartViewRoot = observer(function ChartViewRoot(props: ChartViewRoo
         fullScreenMode={fullScreenMode}
         toggleFullScreenMode={() => setFullScreenMode((prevData) => !prevData)}
         handleChartView={(key) => updateCurrentViewRenderPayload(null, key)}
+        handleTimelineScaleChange={handleTimelineScaleChange}
         handleToday={handleToday}
         loaderTitle={loaderTitle}
         showToday={showToday}

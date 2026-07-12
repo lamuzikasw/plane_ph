@@ -6,14 +6,14 @@
 
 import type { ReactNode } from "react";
 import { observer } from "mobx-react";
-import { Expand, Shrink } from "lucide-react";
+import { Expand, Minus, Plus, Shrink } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 // plane
 import type { TGanttViews } from "@plane/types";
 import { Row } from "@plane/ui";
 // components
 import { cn } from "@plane/utils";
-import { VIEWS_LIST } from "@/components/gantt-chart/data";
+import { MAX_TIMELINE_SCALE, MIN_TIMELINE_SCALE, TIMELINE_SCALE_STEP, VIEWS_LIST } from "@/components/gantt-chart/data";
 // helpers
 // hooks
 import { useTimeLineChartStore } from "@/hooks/use-timeline-chart";
@@ -25,6 +25,7 @@ type Props = {
   blockIds: string[];
   fullScreenMode: boolean;
   handleChartView: (view: TGanttViews) => void;
+  handleTimelineScaleChange: (scale: number) => void;
   handleToday: () => void;
   loaderTitle: string;
   toggleFullScreenMode: () => void;
@@ -38,13 +39,18 @@ export const GanttChartHeader = observer(function GanttChartHeader(props: Props)
     blockIds,
     fullScreenMode,
     handleChartView,
+    handleTimelineScaleChange,
     handleToday,
     loaderTitle,
     toggleFullScreenMode,
     showToday,
   } = props;
   // chart hook
-  const { currentView } = useTimeLineChartStore();
+  const { currentView, timelineScale } = useTimeLineChartStore();
+  const timelineScalePercent = Math.round(timelineScale * 100);
+  const minTimelineScalePercent = Math.round(MIN_TIMELINE_SCALE * 100);
+  const maxTimelineScalePercent = Math.round(MAX_TIMELINE_SCALE * 100);
+  const timelineScaleStepPercent = Math.round(TIMELINE_SCALE_STEP * 100);
 
   return (
     <Row
@@ -86,6 +92,38 @@ export const GanttChartHeader = observer(function GanttChartHeader(props: Props)
           {t("common.today")}
         </button>
       )}
+
+      <div className="flex items-center gap-1 rounded-md border border-subtle bg-layer-transparent px-1 py-0.5 text-11 text-secondary">
+        <button
+          type="button"
+          className="flex size-6 items-center justify-center rounded hover:bg-layer-transparent-hover disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={timelineScale <= MIN_TIMELINE_SCALE}
+          aria-label="Сузить даты"
+          onClick={() => handleTimelineScaleChange(timelineScale - TIMELINE_SCALE_STEP)}
+        >
+          <Minus className="size-3" />
+        </button>
+        <input
+          aria-label="Ширина дат"
+          className="h-1 w-24 cursor-ew-resize accent-[rgb(var(--color-accent-primary))]"
+          max={maxTimelineScalePercent}
+          min={minTimelineScalePercent}
+          step={timelineScaleStepPercent}
+          type="range"
+          value={timelineScalePercent}
+          onChange={(event) => handleTimelineScaleChange(Number(event.target.value) / 100)}
+        />
+        <button
+          type="button"
+          className="flex size-6 items-center justify-center rounded hover:bg-layer-transparent-hover disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={timelineScale >= MAX_TIMELINE_SCALE}
+          aria-label="Расширить даты"
+          onClick={() => handleTimelineScaleChange(timelineScale + TIMELINE_SCALE_STEP)}
+        >
+          <Plus className="size-3" />
+        </button>
+        <span className="min-w-9 text-right text-11 font-medium text-tertiary">{timelineScalePercent}%</span>
+      </div>
 
       <button
         type="button"

@@ -108,5 +108,35 @@ export const VIEWS_LIST: ChartDataType[] = [
   },
 ];
 
+export const MIN_TIMELINE_SCALE = 0.75;
+export const MAX_TIMELINE_SCALE = 4;
+export const TIMELINE_SCALE_STEP = 0.25;
+
+export const normalizeTimelineScale = (scale: number) =>
+  Math.min(MAX_TIMELINE_SCALE, Math.max(MIN_TIMELINE_SCALE, Number(scale.toFixed(2))));
+
 export const currentViewDataWithView = (view: TGanttViews = "month") =>
   VIEWS_LIST.find((_viewData) => _viewData.key === view);
+
+export const getScaledCurrentViewData = (
+  view: TGanttViews = "month",
+  scale: number = 1,
+  sourceViewData?: ChartDataType
+): ChartDataType | undefined => {
+  const baseViewData = currentViewDataWithView(view);
+  if (!baseViewData) return undefined;
+
+  const normalizedScale = normalizeTimelineScale(scale);
+  const viewData = sourceViewData ?? baseViewData;
+
+  return {
+    ...viewData,
+    data: {
+      ...viewData.data,
+      startDate: new Date(viewData.data.startDate),
+      currentDate: new Date(viewData.data.currentDate),
+      endDate: new Date(viewData.data.endDate),
+      dayWidth: Math.round(baseViewData.data.dayWidth * normalizedScale),
+    },
+  };
+};
