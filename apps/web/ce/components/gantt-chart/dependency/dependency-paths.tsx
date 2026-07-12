@@ -4,8 +4,11 @@
  * See the LICENSE file for details.
  */
 
+import { useState } from "react";
 import { observer } from "mobx-react";
+import { useParams } from "next/navigation";
 import { REVERSE_RELATIONS } from "@plane/constants";
+import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { IGanttBlock, TIssueRelationTypes } from "@plane/types";
 import { BLOCK_HEIGHT } from "@/components/gantt-chart/constants";
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
@@ -26,6 +29,12 @@ type TDependencyPath = {
   sourceIndex: number;
   target: IGanttBlock;
   targetIndex: number;
+};
+
+type TDependencyPathGeometry = {
+  d: string;
+  menuX: number;
+  menuY: number;
 };
 
 const getIssueRelations = (
@@ -105,7 +114,7 @@ const getDependencyPaths = (
   return paths;
 };
 
-const getPathD = (path: TDependencyPath) => {
+const getPathGeometry = (path: TDependencyPath): TDependencyPathGeometry => {
   const sourceCenterX = path.source.position!.marginLeft + path.source.position!.width / 2;
   const targetCenterX = path.target.position!.marginLeft + path.target.position!.width / 2;
   const isForward = sourceCenterX <= targetCenterX;
@@ -120,24 +129,50 @@ const getPathD = (path: TDependencyPath) => {
   const direction = isForward ? 1 : -1;
   const curve = Math.max(28, Math.min(96, Math.abs(targetX - sourceX) / 2));
 
-  return `M ${sourceX} ${sourceY} C ${sourceX + direction * curve} ${sourceY}, ${targetX - direction * curve} ${targetY}, ${targetX} ${targetY}`;
+  return {
+    d: `M ${sourceX} ${sourceY} C ${sourceX + direction * curve} ${sourceY}, ${targetX - direction * curve} ${targetY}, ${targetX} ${targetY}`,
+    menuX: (sourceX + targetX) / 2 - 58,
+    menuY: (sourceY + targetY) / 2 - 18,
+  };
 };
 
 export const TimelineDependencyPaths = observer(function TimelineDependencyPaths(_props: Props) {
+  const { workspaceSlug, projectId } = useParams();
+  const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
   const { blockIds, blocksMap } = useTimeLineChartStore();
   const {
-    relation: { getRelationsByIssueId },
+    relation: { getRelationsByIssueId, removeRelation },
   } = useIssueDetail();
   const dependencyPaths = getDependencyPaths(blockIds, blocksMap, getRelationsByIssueId);
 
   if (!dependencyPaths.length || !blockIds?.length) return null;
+
+  const handleRemoveRelation = async (path: TDependencyPath) => {
+    const sourceProjectId = path.source.data?.project_id ?? projectId?.toString();
+    const workspace = workspaceSlug?.toString();
+
+    if (!workspace || !sourceProjectId) return;
+
+    try {
+      await removeRelation(workspace, sourceProjectId, path.source.id, "blocking", path.target.id);
+      setSelectedPathId(null);
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: "Связь удалена",
+      });
+    } catch {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Не удалось удалить связь",
+      });
+    }
+  };
 
   return (
     <svg
       className="pointer-events-none absolute top-0 left-0 z-[4] overflow-visible"
       height={blockIds.length * BLOCK_HEIGHT}
       width="100%"
-      aria-hidden="true"
     >
       <defs>
         <marker
@@ -152,17 +187,56 @@ export const TimelineDependencyPaths = observer(function TimelineDependencyPaths
           <path d="M 0 0 L 8 4 L 0 8 z" className="fill-accent-primary" />
         </marker>
       </defs>
-      {dependencyPaths.map((path) => (
-        <path
-          key={path.id}
-          d={getPathD(path)}
-          className="stroke-accent-primary/65"
-          fill="none"
-          markerEnd="url(#gantt-dependency-arrow)"
-          strokeLinecap="round"
-          strokeWidth="1.5"
-        />
-      ))}
+      {dependencyPaths.map((path) => {
+        const geometry = getPathGeometry(path);
+        const isSelected = selectedPathId === path.id;
+
+        return (
+          <g key={path.id}>
+            <path
+              d={geometry.d}
+              className={isSelected ? "stroke-accent-primary" : "stroke-accent-primary/65"}
+              fill="none"
+              markerEnd="url(#gantt-dependency-arrow)"
+              strokeLinecap="round"
+              strokeWidth={isSelected ? "2" : "1.5"}
+            />
+            <path
+              d={geometry.d}
+              className="pointer-events-auto cursor-pointer stroke-transparent"
+              fill="none"
+              strokeLinecap="round"
+              strokeWidth="14"
+              onClick={(event) => {
+                event.stopPropagation();
+                setSelectedPathId(isSelected ? null : path.id);
+              }}
+            />
+            {isSelected && (
+              <foreignObject
+                className="pointer-events-auto overflow-visible"
+                height="42"
+                width="132"
+                x={geometry.menuX}
+                y={geometry.menuY}
+              >
+                <div className="border-custom-border-200 bg-surface-0 shadow-lg rounded-md border p-1">
+                  <button
+                    type="button"
+                    className="text-red-500 hover:bg-red-500/10 w-full rounded px-2 py-1.5 text-left text-12 font-medium"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleRemoveRelation(path);
+                    }}
+                  >
+                    Удалить связь
+                  </button>
+                </div>
+              </foreignObject>
+            )}
+          </g>
+        );
+      })}
     </svg>
   );
 });

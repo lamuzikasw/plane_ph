@@ -222,6 +222,23 @@ export class IssueRelationStore implements IIssueRelationStore {
     }
   };
 
+  filterIssueRelations = (
+    relations: TIssue["issue_relation"] | TIssue["issue_related"],
+    relatedIssueId: string,
+    relationType: TIssueRelationTypes,
+    shouldReverseRelationType = false
+  ) => {
+    if (!Array.isArray(relations)) return relations;
+
+    return relations.filter((relation) => {
+      const currentRelationType = shouldReverseRelationType
+        ? REVERSE_RELATIONS[relation.relation_type as TIssueRelationTypes]
+        : relation.relation_type;
+
+      return !(relation.id === relatedIssueId && currentRelationType === relationType);
+    });
+  };
+
   removeRelation = async (
     workspaceSlug: string,
     projectId: string,
@@ -230,6 +247,10 @@ export class IssueRelationStore implements IIssueRelationStore {
     related_issue: string,
     updateLocally = false
   ) => {
+    const reverseRelatedType = REVERSE_RELATIONS[relationType];
+    const sourceIssueBeforeUpdate = this.rootIssueDetailStore.rootIssueStore.issues.getIssueById(issueId);
+    const relatedIssueBeforeUpdate = this.rootIssueDetailStore.rootIssueStore.issues.getIssueById(related_issue);
+
     try {
       const relationIndex = this.relationMap[issueId]?.[relationType]?.findIndex(
         (_issueId) => _issueId === related_issue
@@ -239,6 +260,44 @@ export class IssueRelationStore implements IIssueRelationStore {
           this.relationMap[issueId]?.[relationType]?.splice(relationIndex, 1);
         });
 
+      const relatedIndex = this.relationMap[related_issue]?.[reverseRelatedType]?.findIndex(
+        (_issueId) => _issueId === issueId
+      );
+      if (relatedIndex >= 0)
+        runInAction(() => {
+          this.relationMap[related_issue]?.[reverseRelatedType]?.splice(relatedIndex, 1);
+        });
+
+      if (sourceIssueBeforeUpdate)
+        this.rootIssueDetailStore.rootIssueStore.issues.updateIssue(issueId, {
+          issue_relation: this.filterIssueRelations(
+            sourceIssueBeforeUpdate.issue_relation,
+            related_issue,
+            relationType
+          ) as TIssue["issue_relation"],
+          issue_related: this.filterIssueRelations(
+            sourceIssueBeforeUpdate.issue_related,
+            related_issue,
+            relationType,
+            true
+          ) as TIssue["issue_related"],
+        });
+
+      if (relatedIssueBeforeUpdate)
+        this.rootIssueDetailStore.rootIssueStore.issues.updateIssue(related_issue, {
+          issue_relation: this.filterIssueRelations(
+            relatedIssueBeforeUpdate.issue_relation,
+            issueId,
+            reverseRelatedType
+          ) as TIssue["issue_relation"],
+          issue_related: this.filterIssueRelations(
+            relatedIssueBeforeUpdate.issue_related,
+            issueId,
+            reverseRelatedType,
+            true
+          ) as TIssue["issue_related"],
+        });
+
       if (!updateLocally) {
         await this.issueRelationService.deleteIssueRelation(workspaceSlug, projectId, issueId, {
           relation_type: relationType,
@@ -246,19 +305,13 @@ export class IssueRelationStore implements IIssueRelationStore {
         });
       }
 
-      // While removing one relation, reverse of the relation should also be removed
-      const reverseRelatedType = REVERSE_RELATIONS[relationType];
-      const relatedIndex = this.relationMap[related_issue]?.[reverseRelatedType]?.findIndex(
-        (_issueId) => _issueId === related_issue
-      );
-      if (relationIndex >= 0)
-        runInAction(() => {
-          this.relationMap[related_issue]?.[reverseRelatedType]?.splice(relatedIndex, 1);
-        });
-
       // fetching activity
       this.rootIssueDetailStore.activity.fetchActivities(workspaceSlug, projectId, issueId);
     } catch (error) {
+      if (sourceIssueBeforeUpdate)
+        this.rootIssueDetailStore.rootIssueStore.issues.updateIssue(issueId, sourceIssueBeforeUpdate);
+      if (relatedIssueBeforeUpdate)
+        this.rootIssueDetailStore.rootIssueStore.issues.updateIssue(related_issue, relatedIssueBeforeUpdate);
       this.fetchRelations(workspaceSlug, projectId, issueId);
       throw error;
     }
