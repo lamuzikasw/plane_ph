@@ -62,12 +62,13 @@ class ManagementAnalyticsService:
     def overview(self) -> dict[str, Any]:
         current = self._filtered_issues()
         previous = self._filtered_issues(period="previous")
+        snapshot = self._filtered_issues(include_period=False)
         now = timezone.now()
         settings = self.settings
 
         open_current = current.filter(state__group__in=OPEN_STATE_GROUPS)
         open_previous = previous.filter(state__group__in=OPEN_STATE_GROUPS)
-        blocked_current = self._blocked_issues(current)
+        blocked_current = self._blocked_issues(snapshot)
         blocked_previous = self._blocked_issues(previous)
         overdue_current = current.filter(state__group__in=OPEN_STATE_GROUPS, target_date__lt=now)
         overdue_previous = previous.filter(state__group__in=OPEN_STATE_GROUPS, target_date__lt=self.period.previous_end)
@@ -104,13 +105,14 @@ class ManagementAnalyticsService:
 
     def drilldown(self, metric: str) -> dict[str, Any]:
         current = self._filtered_issues()
+        snapshot = self._filtered_issues(include_period=False)
         now = timezone.now()
         open_current = current.filter(state__group__in=OPEN_STATE_GROUPS)
 
         issue_metrics = {
             "work_items_in_progress": open_current.filter(state__group="started"),
             "work_items_in_review": self._review_issues(current),
-            "blocked_work_items": self._blocked_issues(current),
+            "blocked_work_items": self._blocked_issues(snapshot),
             "overdue_work_items": open_current.filter(target_date__lt=now),
             "unassigned_work_items": open_current.filter(assignees__isnull=True).distinct(),
             "unestimated_work_items": open_current.filter(Q(point__isnull=True) & Q(estimate_point__isnull=True)),
