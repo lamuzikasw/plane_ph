@@ -29,6 +29,17 @@ class ManagementAnalyticsEndpoint(BaseAPIView):
         return Response(section_map[section](), status=status.HTTP_200_OK)
 
 
+class ManagementAnalyticsDrilldownEndpoint(BaseAPIView):
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    def get(self, request, slug):
+        metric = request.GET.get("metric")
+        if not metric:
+            return Response({"error": "metric is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        service = ManagementAnalyticsService(workspace_slug=slug, params=request.GET)
+        return Response(service.drilldown(metric), status=status.HTTP_200_OK)
+
+
 class ManagementAnalyticsSettingsEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug):

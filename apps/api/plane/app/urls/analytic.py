@@ -19,6 +19,7 @@ from plane.app.views import (
     ProjectAdvanceAnalyticsStatsEndpoint,
     ProjectAdvanceAnalyticsChartEndpoint,
     ManagementAnalyticsEndpoint,
+    ManagementAnalyticsDrilldownEndpoint,
     ManagementAnalyticsSettingsEndpoint,
     ManagementAnalyticsExportEndpoint,
 )
@@ -74,6 +75,11 @@ urlpatterns = [
         "workspaces/<str:slug>/advance-analytics-charts/",
         AdvanceAnalyticsChartEndpoint.as_view(),
         name="advance-analytics-chart",
+    ),
+    path(
+        "workspaces/<str:slug>/management-analytics/drilldown/",
+        ManagementAnalyticsDrilldownEndpoint.as_view(),
+        name="management-analytics-drilldown",
     ),
     path(
         "workspaces/<str:slug>/management-analytics/<str:section>/",

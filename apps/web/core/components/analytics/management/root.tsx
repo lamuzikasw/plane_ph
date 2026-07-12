@@ -6,12 +6,16 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ArrowUpRight, Search, X } from "lucide-react";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button, Loader } from "@plane/ui";
-import type { TManagementAnalyticsKPI, TManagementAnalyticsSection } from "@plane/types";
+import type { TIssue, TManagementAnalyticsKPI, TManagementAnalyticsSection } from "@plane/types";
 import { cn } from "@plane/utils";
 import AnalyticsWrapper from "@/components/analytics/analytics-wrapper";
+import { IssuePeekOverview } from "@/components/issues/peek-overview";
+import useIssuePeekOverviewRedirection from "@/hooks/use-issue-peek-overview-redirection";
+import { usePlatformOS } from "@/hooks/use-platform-os";
 import { AnalyticsService } from "@/services/analytics.service";
 
 const analyticsService = new AnalyticsService();
@@ -60,7 +64,7 @@ export function ManagementAnalyticsSection({ section }: Props) {
           {data.history?.status === "partial" && (
             <AnalyticsState tone="warning" i18nKey="management_analytics.states.partial_history" />
           )}
-          {section === "overview" && <OverviewPanel data={data} />}
+          {section === "overview" && <OverviewPanel data={data} params={params} />}
           {section === "team" && <TeamPanel data={data} />}
           {section === "projects" && <ProjectsPanel data={data} />}
           {section === "workload" && <WorkloadPanel data={data} />}
@@ -193,10 +197,12 @@ function ManagementAnalyticsFilters() {
   );
 }
 
-function OverviewPanel({ data }: { data: any }) {
+function OverviewPanel({ data, params }: { data: any; params: Record<string, string | undefined> }) {
+  const [selectedMetric, setSelectedMetric] = useState<string | undefined>();
+
   return (
     <>
-      <KpiGrid kpis={data.kpis ?? []} />
+      <KpiGrid kpis={data.kpis ?? []} onOpenDrilldown={setSelectedMetric} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <WorkloadDistributionChart rows={data.team_snapshot ?? []} />
         <RiskDistributionChart rows={data.project_health ?? []} />
@@ -206,6 +212,13 @@ function OverviewPanel({ data }: { data: any }) {
       <AttentionList items={data.attention ?? []} />
       <TeamTable rows={data.team_snapshot ?? []} compact />
       <ProjectTable rows={data.project_health ?? []} compact />
+      <ManagementAnalyticsDrilldownDrawer
+        metric={selectedMetric}
+        params={params}
+        isOpen={!!selectedMetric}
+        onClose={() => setSelectedMetric(undefined)}
+      />
+      <IssuePeekOverview />
     </>
   );
 }
@@ -632,28 +645,290 @@ function EmptyChartState() {
   );
 }
 
-function KpiGrid({ kpis }: { kpis: TManagementAnalyticsKPI[] }) {
+function KpiGrid({
+  kpis,
+  onOpenDrilldown,
+}: {
+  kpis: TManagementAnalyticsKPI[];
+  onOpenDrilldown: (metric: string) => void;
+}) {
   const { t } = useTranslation();
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
       {kpis.map((kpi) => (
-        <div key={kpi.key} className="rounded border border-subtle bg-surface-1 p-3">
+        <button
+          key={kpi.key}
+          type="button"
+          onClick={() => onOpenDrilldown(kpi.key)}
+          className="group hover:border-custom-primary-70/60 hover:bg-custom-primary-100/5 focus:ring-custom-primary-100/20 rounded border border-subtle bg-surface-1 p-3 text-left transition-colors focus:ring-2 focus:outline-none"
+        >
           <div className="flex items-start justify-between gap-2">
             <div className="text-12 font-medium text-secondary">{t(`management_analytics.kpis.${kpi.key}`)}</div>
-            <div
-              className={cn(
-                "text-11",
-                kpi.delta_percent && kpi.delta_percent > 0 ? "text-green-600" : "text-secondary"
-              )}
-            >
-              {kpi.delta_percent === null ? "—" : `${kpi.delta_percent > 0 ? "+" : ""}${kpi.delta_percent}%`}
+            <div className="flex items-center gap-1">
+              <div
+                className={cn(
+                  "text-11",
+                  kpi.delta_percent && kpi.delta_percent > 0 ? "text-green-600" : "text-secondary"
+                )}
+              >
+                {kpi.delta_percent === null ? "—" : `${kpi.delta_percent > 0 ? "+" : ""}${kpi.delta_percent}%`}
+              </div>
+              <ArrowUpRight className="h-3 w-3 text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
             </div>
           </div>
           <div className="mt-2 text-24 font-semibold text-primary">{formatValue(kpi.value, kpi.value_type)}</div>
           <div className="mt-2 line-clamp-2 text-11 text-tertiary">{t(kpi.formula)}</div>
-        </div>
+        </button>
       ))}
     </div>
+  );
+}
+
+function ManagementAnalyticsDrilldownDrawer({
+  metric,
+  params,
+  isOpen,
+  onClose,
+}: {
+  metric?: string;
+  params: Record<string, string | undefined>;
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const router = useRouter();
+  const { workspaceSlug } = useParams();
+  const { isMobile } = usePlatformOS();
+  const { handleRedirection } = useIssuePeekOverviewRedirection();
+  const [searchQuery, setSearchQuery] = useState("");
+  const workspaceSlugString = workspaceSlug?.toString();
+  const drilldownParams = useMemo(() => ({ ...params, metric }), [params, metric]);
+  const { data, error, isLoading } = useSWR(
+    isOpen && workspaceSlugString && metric
+      ? ["management-analytics-drilldown", workspaceSlugString, metric, JSON.stringify(params)]
+      : null,
+    () => analyticsService.getManagementAnalyticsDrilldown(workspaceSlugString ?? "", drilldownParams)
+  );
+
+  const rows = useMemo(() => {
+    const sourceRows = data?.rows ?? [];
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return sourceRows;
+    return sourceRows.filter((row: any) => getSearchText(row).includes(query));
+  }, [data?.rows, searchQuery]);
+
+  if (!isOpen || !metric) return null;
+
+  const entity = data?.entity ?? "unknown";
+  const metricTitle = t(`management_analytics.kpis.${metric}`);
+  const periodLabel = params.period
+    ? t(`management_analytics.periods.${params.period}`)
+    : t("management_analytics.periods.current_week");
+
+  const openIssue = (row: any) => {
+    onClose();
+    handleRedirection(workspaceSlugString, row as TIssue, isMobile);
+  };
+
+  const openProject = (row: any) => {
+    if (!workspaceSlugString || !row.id) return;
+    onClose();
+    router.push(`/${workspaceSlugString}/projects/${row.id}/issues`);
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/20">
+      <button
+        type="button"
+        className="h-full flex-1 cursor-default"
+        aria-label="Закрыть детализацию"
+        onClick={onClose}
+      />
+      <aside className="flex h-full w-full max-w-5xl flex-col border-l border-subtle bg-surface-1 shadow-raised-200">
+        <div className="flex items-start justify-between gap-4 border-b border-subtle px-5 py-4">
+          <div>
+            <div className="text-11 font-medium tracking-wide text-tertiary uppercase">Детализация</div>
+            <div className="mt-1 text-20 font-semibold text-primary">{metricTitle}</div>
+            <div className="mt-1 text-12 text-secondary">
+              {data?.count ?? 0} записей · {periodLabel}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-secondary transition-colors hover:bg-surface-2 hover:text-primary"
+            aria-label="Закрыть"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="border-b border-subtle px-5 py-3">
+          <label className="flex h-9 items-center gap-2 rounded border border-subtle bg-surface-2 px-3 text-13">
+            <Search className="h-4 w-4 text-tertiary" />
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Поиск по задачам, проектам или сотрудникам"
+              className="h-full w-full bg-transparent text-primary outline-none placeholder:text-tertiary"
+            />
+          </label>
+        </div>
+        <div className="vertical-scrollbar scrollbar-md flex-1 overflow-auto">
+          {isLoading && <DrilldownLoader />}
+          {error && (
+            <div className="border-red-500/30 bg-red-500/10 text-red-700 m-5 rounded border px-3 py-2 text-12">
+              Не удалось загрузить детализацию.
+            </div>
+          )}
+          {!isLoading && !error && rows.length === 0 && (
+            <div className="m-5 rounded border border-subtle bg-surface-2 px-3 py-8 text-center text-13 text-tertiary">
+              По этой карточке пока нет строк.
+            </div>
+          )}
+          {!isLoading && !error && rows.length > 0 && entity === "issue" && (
+            <IssueDrilldownTable rows={rows} onOpenIssue={openIssue} />
+          )}
+          {!isLoading && !error && rows.length > 0 && entity === "member" && <MemberDrilldownTable rows={rows} />}
+          {!isLoading && !error && rows.length > 0 && entity === "project" && (
+            <ProjectDrilldownTable rows={rows} onOpenProject={openProject} />
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function DrilldownLoader() {
+  return (
+    <Loader className="space-y-2 p-5">
+      <Loader.Item height="40px" width="100%" />
+      <Loader.Item height="40px" width="100%" />
+      <Loader.Item height="40px" width="100%" />
+      <Loader.Item height="40px" width="100%" />
+    </Loader>
+  );
+}
+
+function IssueDrilldownTable({ rows, onOpenIssue }: { rows: any[]; onOpenIssue: (row: any) => void }) {
+  return (
+    <table className="w-full min-w-[920px] text-left text-12">
+      <thead className="sticky top-0 z-10 border-b border-subtle bg-surface-1 text-secondary">
+        <tr>
+          <th className="px-5 py-3 font-medium">Задача</th>
+          <th className="px-3 py-3 font-medium">Проект</th>
+          <th className="px-3 py-3 font-medium">Исполнитель</th>
+          <th className="px-3 py-3 font-medium">Статус</th>
+          <th className="px-3 py-3 font-medium">Дедлайн</th>
+          <th className="px-3 py-3 font-medium">Просрочка</th>
+          <th className="px-3 py-3 font-medium">Оценка</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-subtle">
+        {rows.map((row) => (
+          <tr
+            key={row.id}
+            className="cursor-pointer transition-colors hover:bg-surface-2"
+            onClick={() => onOpenIssue(row)}
+          >
+            <td className="max-w-[320px] px-5 py-3">
+              <div className="text-11 font-medium text-tertiary">
+                {row.project_identifier}-{row.sequence_id}
+              </div>
+              <div className="truncate font-medium text-primary">{row.name}</div>
+            </td>
+            <td className="max-w-[180px] truncate px-3 py-3 text-secondary">{row.project_name}</td>
+            <td className="max-w-[190px] truncate px-3 py-3 text-secondary">{formatAssignees(row.assignees)}</td>
+            <td className="px-3 py-3 text-secondary">{row.state_name ?? "—"}</td>
+            <td className="px-3 py-3 text-secondary">{formatDateTime(row.target_date)}</td>
+            <td className="px-3 py-3">
+              {row.days_overdue ? (
+                <span className="bg-red-500/10 text-red-600 rounded px-2 py-0.5 text-11">{row.days_overdue} дн.</span>
+              ) : (
+                <span className="text-tertiary">—</span>
+              )}
+            </td>
+            <td className="px-3 py-3 text-secondary">{row.estimate || row.estimate === 0 ? row.estimate : "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function MemberDrilldownTable({ rows }: { rows: any[] }) {
+  return (
+    <table className="w-full min-w-[900px] text-left text-12">
+      <thead className="sticky top-0 z-10 border-b border-subtle bg-surface-1 text-secondary">
+        <tr>
+          <th className="px-5 py-3 font-medium">Сотрудник</th>
+          <th className="px-3 py-3 font-medium">Основная задача</th>
+          <th className="px-3 py-3 font-medium">Проекты</th>
+          <th className="px-3 py-3 font-medium">Активные</th>
+          <th className="px-3 py-3 font-medium">Блокеры</th>
+          <th className="px-3 py-3 font-medium">Просрочка</th>
+          <th className="px-3 py-3 font-medium">Загрузка</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-subtle">
+        {rows.map((row) => (
+          <tr key={row.id} className="hover:bg-surface-2">
+            <td className="px-5 py-3">
+              <div className="font-medium text-primary">{row.display_name}</div>
+              <div className="text-11 text-tertiary">{row.email}</div>
+            </td>
+            <td className="max-w-[260px] truncate px-3 py-3 text-secondary">{row.main_work_item?.name ?? "—"}</td>
+            <td className="px-3 py-3 text-secondary">{row.active_projects}</td>
+            <td className="px-3 py-3 text-secondary">{row.active_work_items}</td>
+            <td className="px-3 py-3 text-secondary">{row.blocked_work_items}</td>
+            <td className="px-3 py-3 text-secondary">{row.overdue_work_items}</td>
+            <td className="px-3 py-3">
+              <WorkloadBadge workload={row.workload} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ProjectDrilldownTable({ rows, onOpenProject }: { rows: any[]; onOpenProject: (row: any) => void }) {
+  const { t } = useTranslation();
+  return (
+    <table className="w-full min-w-[920px] text-left text-12">
+      <thead className="sticky top-0 z-10 border-b border-subtle bg-surface-1 text-secondary">
+        <tr>
+          <th className="px-5 py-3 font-medium">Проект</th>
+          <th className="px-3 py-3 font-medium">Владелец</th>
+          <th className="px-3 py-3 font-medium">Прогресс</th>
+          <th className="px-3 py-3 font-medium">Блокеры</th>
+          <th className="px-3 py-3 font-medium">Просрочка</th>
+          <th className="px-3 py-3 font-medium">Риск</th>
+          <th className="px-3 py-3 font-medium">Причина</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-subtle">
+        {rows.map((row) => (
+          <tr key={row.id} className="cursor-pointer hover:bg-surface-2" onClick={() => onOpenProject(row)}>
+            <td className="px-5 py-3">
+              <div className="text-11 font-medium text-tertiary">{row.identifier}</div>
+              <div className="font-medium text-primary">{row.name}</div>
+            </td>
+            <td className="px-3 py-3 text-secondary">{row.owner?.display_name ?? "—"}</td>
+            <td className="px-3 py-3 text-secondary">{row.progress?.value ?? 0}%</td>
+            <td className="px-3 py-3 text-secondary">{row.blocked_work_items}</td>
+            <td className="px-3 py-3 text-secondary">{row.overdue_work_items}</td>
+            <td className="px-3 py-3">
+              <RiskBadge risk={row.risk} />
+            </td>
+            <td className="max-w-[260px] truncate px-3 py-3 text-tertiary">
+              {(row.risk?.reasons ?? [])
+                .map((reason: string) => t(`management_analytics.risk_reasons.${reason}`))
+                .join(", ") || "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -924,6 +1199,39 @@ function formatValue(value: number | null, type: string) {
 function formatDate(value?: string | null) {
   if (!value) return "—";
   return new Date(value).toLocaleDateString("ru-RU");
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatAssignees(assignees?: any[]) {
+  if (!assignees?.length) return "—";
+  return assignees.map((assignee) => assignee.display_name || assignee.email).join(", ");
+}
+
+function getSearchText(row: any) {
+  return [
+    row.name,
+    row.project_name,
+    row.project_identifier,
+    row.identifier,
+    row.display_name,
+    row.email,
+    row.owner?.display_name,
+    row.main_work_item?.name,
+    formatAssignees(row.assignees),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 }
 
 function badgeClass(level: string) {

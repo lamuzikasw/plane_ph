@@ -12,6 +12,7 @@ import type {
   TAnalyticsGraphsBase,
   TAnalyticsFilterParams,
   TManagementAnalyticsResponse,
+  TManagementAnalyticsDrilldownResponse,
   TManagementAnalyticsSection,
 } from "@plane/types";
 // services
@@ -104,6 +105,17 @@ export class AnalyticsService extends APIService {
 
   async getManagementAnalyticsSettings(workspaceSlug: string): Promise<Record<string, any>> {
     return this.get(`/api/workspaces/${workspaceSlug}/management-analytics-settings/`)
+      .then((res) => res?.data)
+      .catch((err) => {
+        throw err?.response?.data;
+      });
+  }
+
+  async getManagementAnalyticsDrilldown(
+    workspaceSlug: string,
+    params?: Record<string, string | undefined>
+  ): Promise<TManagementAnalyticsDrilldownResponse> {
+    return this.get(`/api/workspaces/${workspaceSlug}/management-analytics/drilldown/`, { params })
       .then((res) => res?.data)
       .catch((err) => {
         throw err?.response?.data;

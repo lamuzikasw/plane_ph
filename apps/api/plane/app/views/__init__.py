@@ -181,6 +181,7 @@ from .search.issue import IssueSearchEndpoint
 
 from .analytic.management import (
     ManagementAnalyticsEndpoint,
+    ManagementAnalyticsDrilldownEndpoint,
     ManagementAnalyticsSettingsEndpoint,
     ManagementAnalyticsExportEndpoint,
 )

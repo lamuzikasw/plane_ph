@@ -139,3 +139,18 @@ export type TManagementAnalyticsResponse = {
   score?: number;
   count?: number;
 };
+
+export type TManagementAnalyticsDrilldownResponse = {
+  metric: string;
+  entity: "issue" | "member" | "project" | "unknown";
+  period?: {
+    key: string;
+    start: string;
+    end: string;
+    previous_start: string;
+    previous_end: string;
+    timezone: string;
+  };
+  count: number;
+  rows: any[];
+};

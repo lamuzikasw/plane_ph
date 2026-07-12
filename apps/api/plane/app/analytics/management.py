@@ -101,6 +101,90 @@ class ManagementAnalyticsService:
             "project_health": project_rows[:10],
         }
 
+    def drilldown(self, metric: str) -> dict[str, Any]:
+        current = self._filtered_issues()
+        now = timezone.now()
+        open_current = current.filter(state__group__in=OPEN_STATE_GROUPS)
+
+        issue_metrics = {
+            "work_items_in_progress": open_current.filter(state__group="started"),
+            "work_items_in_review": self._review_issues(current),
+            "blocked_work_items": self._blocked_issues(current),
+            "overdue_work_items": open_current.filter(target_date__lt=now),
+            "unassigned_work_items": open_current.filter(assignees__isnull=True).distinct(),
+            "unestimated_work_items": open_current.filter(Q(point__isnull=True) & Q(estimate_point__isnull=True)),
+            "unscheduled_work_items": open_current.filter(target_date__isnull=True),
+            "completed_work_items": current.filter(state__group="completed", completed_at__isnull=False),
+            "on_time_delivery_percent": current.filter(
+                state__group="completed",
+                completed_at__isnull=False,
+                target_date__isnull=False,
+                completed_at__lte=models_f("target_date"),
+            ),
+        }
+
+        if metric == "active_members":
+            rows = self.team()["results"]
+            return {
+                "metric": metric,
+                "entity": "member",
+                "period": self._period_payload(),
+                "count": len(rows),
+                "rows": rows,
+            }
+
+        if metric == "average_team_workload_percent":
+            rows = sorted(self.team()["results"], key=lambda row: row["workload"]["percent"] or 0, reverse=True)
+            return {
+                "metric": metric,
+                "entity": "member",
+                "period": self._period_payload(),
+                "count": len(rows),
+                "rows": rows,
+            }
+
+        if metric == "active_projects":
+            rows = self.projects()["results"]
+            return {
+                "metric": metric,
+                "entity": "project",
+                "period": self._period_payload(),
+                "count": len(rows),
+                "rows": rows,
+            }
+
+        if metric == "high_risk_projects":
+            rows = [project for project in self.projects()["results"] if project["risk"]["level"] == "high"]
+            return {
+                "metric": metric,
+                "entity": "project",
+                "period": self._period_payload(),
+                "count": len(rows),
+                "rows": rows,
+            }
+
+        if metric == "average_cycle_time_hours":
+            queryset = current.filter(state__group="completed", completed_at__isnull=False)
+            return {
+                "metric": metric,
+                "entity": "issue",
+                "period": self._period_payload(),
+                "count": queryset.count(),
+                "rows": [self._issue_drilldown_payload(issue, now) for issue in self._issue_queryset_for_drilldown(queryset)],
+            }
+
+        queryset = issue_metrics.get(metric)
+        if queryset is None:
+            return {"metric": metric, "entity": "unknown", "period": self._period_payload(), "count": 0, "rows": []}
+
+        return {
+            "metric": metric,
+            "entity": "issue",
+            "period": self._period_payload(),
+            "count": queryset.count(),
+            "rows": [self._issue_drilldown_payload(issue, now) for issue in self._issue_queryset_for_drilldown(queryset)],
+        }
+
     def team(self) -> dict[str, Any]:
         issues = self._filtered_issues(include_period=False)
         period_issues = self._filtered_issues()
@@ -687,6 +771,31 @@ class ManagementAnalyticsService:
             "priority": issue.priority,
             "start_date": self._safe_iso(issue.start_date),
             "target_date": self._safe_iso(issue.target_date),
+        }
+
+    def _issue_queryset_for_drilldown(self, queryset):
+        return (
+            queryset.select_related("project", "state", "estimate_point")
+            .prefetch_related("assignees")
+            .order_by("target_date", "-priority", "-updated_at")[:200]
+        )
+
+    def _issue_drilldown_payload(self, issue, now):
+        target_date = issue.target_date
+        days_overdue = None
+        if target_date and target_date < now and issue.state and issue.state.group in OPEN_STATE_GROUPS:
+            days_overdue = max((now.date() - target_date.date()).days, 0)
+
+        return {
+            **self._issue_payload(issue),
+            "project_name": issue.project.name,
+            "state_name": issue.state.name if issue.state else None,
+            "assignees": [self._user_payload(user) for user in issue.assignees.all()],
+            "completed_at": self._safe_iso(issue.completed_at),
+            "created_at": self._safe_iso(issue.created_at),
+            "updated_at": self._safe_iso(issue.updated_at),
+            "days_overdue": days_overdue,
+            "estimate": self._estimate_value(issue.point, getattr(issue.estimate_point, "value", None), getattr(issue.estimate_point, "key", None)),
         }
 
     def _user_payload(self, user):
