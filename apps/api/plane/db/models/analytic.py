@@ -42,6 +42,7 @@ def get_default_management_analytics_config():
         "review_state_groups": ["started"],
         "testing_state_groups": ["started"],
         "overview_hidden_kpis": [],
+        "hidden_analytics_blocks": {},
         "required_issue_fields": [
             "assignee",
             "estimate",

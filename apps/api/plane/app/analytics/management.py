@@ -16,6 +16,7 @@ from plane.db.models import (
     Issue,
     IssueActivity,
     IssueAssignee,
+    IssueRelation,
     ManagementAnalyticsSettings,
     Project,
     ProjectMember,
@@ -552,7 +553,16 @@ class ManagementAnalyticsService:
         return round(((value - previous) / previous) * 100, 1)
 
     def _blocked_issues(self, queryset):
-        return queryset.filter(blocker_issues__isnull=False).exclude(state__group__in=DONE_STATE_GROUPS).distinct()
+        blocked_issue_ids = IssueRelation.objects.filter(
+            workspace=self.workspace,
+            relation_type="blocked_by",
+            issue__state__group__in=OPEN_STATE_GROUPS,
+        ).values("issue_id")
+        return (
+            queryset.filter(Q(id__in=blocked_issue_ids) | Q(blocked_issues__isnull=False))
+            .exclude(state__group__in=DONE_STATE_GROUPS)
+            .distinct()
+        )
 
     def _review_issues(self, queryset):
         return queryset.filter(state__group__in=self.settings["review_state_groups"]).distinct()

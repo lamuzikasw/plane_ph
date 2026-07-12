@@ -40,6 +40,14 @@ const SECTION_TITLE_KEYS: Record<string, string> = {
   "data-quality": "management_analytics.tabs.data_quality",
 };
 
+const EMPTY_HIDDEN_ANALYTICS_BLOCKS: Record<string, string[]> = {};
+
+type AnalyticsBlockDefinition = {
+  key: string;
+  label: string;
+  description?: string;
+};
+
 type Props = {
   section: TManagementAnalyticsSection;
 };
@@ -355,84 +363,281 @@ function OverviewMetricControls({
 }
 
 function TeamPanel({ data }: { data: any }) {
+  const blocks = useMemo<AnalyticsBlockDefinition[]>(
+    () => [
+      { key: "workload_by_member", label: "Загрузка по сотрудникам", description: "График плановой загрузки" },
+      { key: "team_activity", label: "Активность команды", description: "Активные, блокеры и просрочка" },
+      { key: "team_table", label: "Таблица сотрудников", description: "Детальный список участников" },
+    ],
+    []
+  );
+  const visibility = useAnalyticsBlockVisibility("team");
+
   return (
     <>
+      <AnalyticsBlockControls blocks={blocks} visibility={visibility} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <WorkloadBars rows={data.results ?? []} />
-        <TeamActivityChart rows={data.results ?? []} />
+        {visibility.isVisible("workload_by_member") && <WorkloadBars rows={data.results ?? []} />}
+        {visibility.isVisible("team_activity") && <TeamActivityChart rows={data.results ?? []} />}
       </div>
-      <TeamTable rows={data.results ?? []} />
+      {visibility.isVisible("team_table") && <TeamTable rows={data.results ?? []} />}
     </>
   );
 }
 
 function ProjectsPanel({ data }: { data: any }) {
+  const blocks = useMemo<AnalyticsBlockDefinition[]>(
+    () => [
+      { key: "project_progress", label: "Прогресс проектов", description: "Проекты с самым низким прогрессом" },
+      { key: "risk_score", label: "Оценка риска", description: "Риск по каждому проекту" },
+      { key: "project_table", label: "Таблица проектов", description: "Детальная таблица проектов" },
+    ],
+    []
+  );
+  const visibility = useAnalyticsBlockVisibility("projects");
+
   return (
     <>
+      <AnalyticsBlockControls blocks={blocks} visibility={visibility} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <ProjectProgressChart rows={data.results ?? []} />
-        <RiskScoreChart rows={data.results ?? []} />
+        {visibility.isVisible("project_progress") && <ProjectProgressChart rows={data.results ?? []} />}
+        {visibility.isVisible("risk_score") && <RiskScoreChart rows={data.results ?? []} />}
       </div>
-      <ProjectTable rows={data.results ?? []} />
+      {visibility.isVisible("project_table") && <ProjectTable rows={data.results ?? []} />}
     </>
   );
 }
 
 function WorkloadPanel({ data }: { data: any }) {
+  const blocks = useMemo<AnalyticsBlockDefinition[]>(
+    () => [
+      { key: "summary", label: "Сводка", description: "Короткие числа по загрузке" },
+      { key: "workload_by_member", label: "Загрузка по сотрудникам", description: "График плановой загрузки" },
+      {
+        key: "workload_distribution",
+        label: "Распределение загрузки",
+        description: "Кто свободен, занят или перегружен",
+      },
+      { key: "workload_table", label: "Таблица загрузки", description: "Список сотрудников по загрузке" },
+    ],
+    []
+  );
+  const visibility = useAnalyticsBlockVisibility("workload");
+
   return (
     <>
-      <SummaryStrip summary={data.summary} />
+      <AnalyticsBlockControls blocks={blocks} visibility={visibility} />
+      {visibility.isVisible("summary") && <SummaryStrip summary={data.summary} />}
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <WorkloadBars rows={data.results ?? []} />
-        <WorkloadDistributionChart rows={data.results ?? []} />
+        {visibility.isVisible("workload_by_member") && <WorkloadBars rows={data.results ?? []} />}
+        {visibility.isVisible("workload_distribution") && <WorkloadDistributionChart rows={data.results ?? []} />}
       </div>
-      <TeamTable rows={data.results ?? []} workloadOnly />
+      {visibility.isVisible("workload_table") && <TeamTable rows={data.results ?? []} workloadOnly />}
     </>
   );
 }
 
 function DeliveryPanel({ data }: { data: any }) {
+  const blocks = useMemo<AnalyticsBlockDefinition[]>(
+    () => [
+      { key: "summary", label: "Сводка", description: "Короткие числа по срокам" },
+      { key: "delivery_metrics", label: "Метрики сроков", description: "Цикл, lead time и on-time" },
+      { key: "throughput", label: "Пропускная способность", description: "Завершенные задачи по проектам" },
+      { key: "throughput_table", label: "Таблица завершенных", description: "Проекты и количество задач" },
+    ],
+    []
+  );
+  const visibility = useAnalyticsBlockVisibility("delivery");
+
   return (
     <>
-      <SummaryStrip summary={data.metrics} />
+      <AnalyticsBlockControls blocks={blocks} visibility={visibility} />
+      {visibility.isVisible("summary") && <SummaryStrip summary={data.metrics} />}
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <DeliveryMetricChart metrics={data.metrics ?? {}} />
-        <ThroughputChart rows={data.grouped_throughput ?? []} />
+        {visibility.isVisible("delivery_metrics") && <DeliveryMetricChart metrics={data.metrics ?? {}} />}
+        {visibility.isVisible("throughput") && <ThroughputChart rows={data.grouped_throughput ?? []} />}
       </div>
-      <SimpleTable
-        columns={["management_analytics.tables.project", "management_analytics.tables.completed"]}
-        rows={(data.grouped_throughput ?? []).map((row: any) => [row.project__name, row.count])}
-      />
+      {visibility.isVisible("throughput_table") && (
+        <SimpleTable
+          columns={["management_analytics.tables.project", "management_analytics.tables.completed"]}
+          rows={(data.grouped_throughput ?? []).map((row: any) => [row.project__name, row.count])}
+        />
+      )}
     </>
   );
 }
 
 function RisksPanel({ data }: { data: any }) {
+  const blocks = useMemo<AnalyticsBlockDefinition[]>(
+    () => [
+      { key: "summary", label: "Сводка", description: "Сколько проектов в каждом уровне риска" },
+      { key: "risk_distribution", label: "Распределение рисков", description: "Low, medium и high" },
+      { key: "risk_score", label: "Оценка риска", description: "Риск по каждому проекту" },
+      { key: "risk_table", label: "Таблица рисков", description: "Проекты и причины риска" },
+    ],
+    []
+  );
+  const visibility = useAnalyticsBlockVisibility("risks");
+
   return (
     <>
-      <SummaryStrip summary={data.summary} />
+      <AnalyticsBlockControls blocks={blocks} visibility={visibility} />
+      {visibility.isVisible("summary") && <SummaryStrip summary={data.summary} />}
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <RiskDistributionChart rows={data.results ?? []} />
-        <RiskScoreChart rows={data.results ?? []} />
+        {visibility.isVisible("risk_distribution") && <RiskDistributionChart rows={data.results ?? []} />}
+        {visibility.isVisible("risk_score") && <RiskScoreChart rows={data.results ?? []} />}
       </div>
-      <ProjectTable rows={data.results ?? []} riskOnly />
+      {visibility.isVisible("risk_table") && <ProjectTable rows={data.results ?? []} riskOnly />}
     </>
   );
 }
 
 function DataQualityPanel({ data }: { data: any }) {
   const { t } = useTranslation();
+  const blocks = useMemo<AnalyticsBlockDefinition[]>(
+    () => [
+      { key: "quality_score", label: "Оценка качества", description: "Общий процент заполненности данных" },
+      { key: "quality_violations", label: "Проблемы данных", description: "График нарушений по типам" },
+      { key: "quality_table", label: "Таблица качества", description: "Все проверки и количества" },
+    ],
+    []
+  );
+  const visibility = useAnalyticsBlockVisibility("data-quality");
+
   return (
     <>
+      <AnalyticsBlockControls blocks={blocks} visibility={visibility} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <QualityScoreChart score={data.score} />
-        <DataQualityBars rows={data.checks ?? []} />
+        {visibility.isVisible("quality_score") && <QualityScoreChart score={data.score} />}
+        {visibility.isVisible("quality_violations") && <DataQualityBars rows={data.checks ?? []} />}
       </div>
-      <SimpleTable
-        columns={["management_analytics.tables.check", "management_analytics.tables.violations"]}
-        rows={(data.checks ?? []).map((row: any) => [t(`management_analytics.quality.${row.key}`), row.count])}
-      />
+      {visibility.isVisible("quality_table") && (
+        <SimpleTable
+          columns={["management_analytics.tables.check", "management_analytics.tables.violations"]}
+          rows={(data.checks ?? []).map((row: any) => [t(`management_analytics.quality.${row.key}`), row.count])}
+        />
+      )}
     </>
+  );
+}
+
+function useAnalyticsBlockVisibility(section: TManagementAnalyticsSection) {
+  const { workspaceSlug } = useParams();
+  const workspaceSlugString = workspaceSlug?.toString();
+  const { data: settings, mutate: mutateSettings } = useSWR(
+    workspaceSlugString ? ["management-analytics-settings", workspaceSlugString] : null,
+    () => analyticsService.getManagementAnalyticsSettings(workspaceSlugString ?? "")
+  );
+  const hiddenBlocksBySection = settings?.hidden_analytics_blocks ?? EMPTY_HIDDEN_ANALYTICS_BLOCKS;
+  const hiddenBlocks = useMemo(
+    () => (Array.isArray(hiddenBlocksBySection?.[section]) ? hiddenBlocksBySection[section] : []),
+    [hiddenBlocksBySection, section]
+  );
+
+  const saveHiddenBlocks = async (nextHiddenBlocks: string[]) => {
+    if (!workspaceSlugString) return;
+    const nextHiddenBlocksBySection = {
+      ...hiddenBlocksBySection,
+      [section]: nextHiddenBlocks,
+    };
+    const nextSettings = { ...settings, hidden_analytics_blocks: nextHiddenBlocksBySection };
+    await mutateSettings(nextSettings, false);
+    await analyticsService.updateManagementAnalyticsSettings(workspaceSlugString, {
+      hidden_analytics_blocks: nextHiddenBlocksBySection,
+    });
+    mutateSettings();
+  };
+
+  const toggleBlock = (key: string) => {
+    const nextHiddenBlocks = hiddenBlocks.includes(key)
+      ? hiddenBlocks.filter((hiddenKey: string) => hiddenKey !== key)
+      : [...hiddenBlocks, key];
+    saveHiddenBlocks(nextHiddenBlocks);
+  };
+
+  return {
+    hiddenBlocks,
+    isVisible: (key: string) => !hiddenBlocks.includes(key),
+    toggleBlock,
+    showAll: () => saveHiddenBlocks([]),
+  };
+}
+
+function AnalyticsBlockControls({
+  blocks,
+  visibility,
+}: {
+  blocks: AnalyticsBlockDefinition[];
+  visibility: ReturnType<typeof useAnalyticsBlockVisibility>;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const visibleCount = blocks.filter((block) => visibility.isVisible(block.key)).length;
+  const hiddenCount = blocks.length - visibleCount;
+
+  return (
+    <div className="rounded border border-subtle bg-surface-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2">
+        <div>
+          <div className="text-13 font-medium text-primary">Показатели вкладки</div>
+          <div className="text-11 text-tertiary">
+            Видно {visibleCount} из {blocks.length}
+            {hiddenCount > 0 ? ` · скрыто ${hiddenCount}` : ""}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={visibility.showAll}
+              className="text-custom-primary-100 hover:text-custom-primary-200 text-12 font-medium"
+            >
+              Показать все
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setIsOpen((current) => !current)}
+            className={cn(
+              "flex h-8 items-center gap-2 rounded border border-subtle px-3 text-12 font-medium transition-colors",
+              isOpen ? "bg-surface-2 text-primary" : "bg-surface-1 text-secondary hover:bg-surface-2 hover:text-primary"
+            )}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Показатели
+          </button>
+        </div>
+      </div>
+      {isOpen && (
+        <div className="border-t border-subtle px-3 py-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {blocks.map((block) => {
+              const isVisible = visibility.isVisible(block.key);
+              const inputId = `management-analytics-block-${block.key}`;
+              return (
+                <div
+                  key={block.key}
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded border border-subtle bg-surface-1 px-3 py-2 transition-colors hover:bg-surface-2"
+                >
+                  <label htmlFor={inputId} className="min-w-0 cursor-pointer">
+                    <span className="block truncate text-13 font-medium text-primary">{block.label}</span>
+                    {block.description && (
+                      <span className="block truncate text-11 text-tertiary">{block.description}</span>
+                    )}
+                  </label>
+                  <input
+                    id={inputId}
+                    type="checkbox"
+                    checked={isVisible}
+                    onChange={() => visibility.toggleBlock(block.key)}
+                    className="text-custom-primary-100 h-4 w-4 rounded border-subtle"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
