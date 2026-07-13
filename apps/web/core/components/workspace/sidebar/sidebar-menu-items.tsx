@@ -8,7 +8,7 @@ import React, { useMemo } from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
-import { CalendarCheck, Ellipsis } from "lucide-react";
+import { CalendarCheck, Ellipsis, Megaphone } from "lucide-react";
 import { Disclosure, Transition } from "@headlessui/react";
 // plane imports
 import {
@@ -55,6 +55,7 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
   };
   const workspaceSlugString = workspaceSlug?.toString() ?? "";
   const todayHref = joinUrlPath(workspaceSlugString, "/today");
+  const whatsNewHref = joinUrlPath(workspaceSlugString, "/whats-new");
 
   // Filter static navigation items based on personal preferences
   const filteredStaticNavigationItems = useMemo(() => {
@@ -109,6 +110,14 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
             <div className="flex items-center gap-1.5 py-[1px]">
               <CalendarCheck className="size-4 flex-shrink-0 stroke-[1.5]" />
               <p className="text-13 leading-5 font-medium">Сегодня</p>
+            </div>
+          </SidebarNavItem>
+        </Link>
+        <Link href={whatsNewHref}>
+          <SidebarNavItem isActive={pathname === whatsNewHref}>
+            <div className="flex items-center gap-1.5 py-[1px]">
+              <Megaphone className="size-4 flex-shrink-0 stroke-[1.5]" />
+              <p className="text-13 leading-5 font-medium">Что нового?</p>
             </div>
           </SidebarNavItem>
         </Link>
