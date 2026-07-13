@@ -35,7 +35,7 @@ describe("release archive", () => {
 });
 
 describe("patch 1.1 release content", () => {
-  it("covers Igor, cross-project relations, performance, and reliability", () => {
+  it("covers Igor, cross-project relations, performance, and the release archive", () => {
     expect(PATCH_1_1.features.map((feature) => feature.id)).toEqual(["igor", "relations", "performance", "updates"]);
 
     const releaseText = PATCH_1_1.features
@@ -46,7 +46,8 @@ describe("patch 1.1 release content", () => {
     expect(releaseText).toContain("всем проектам");
     expect(releaseText).toContain("79%");
     expect(releaseText).toContain("синий индикатор");
-    expect(releaseText).toContain("Kanban-доске");
+    expect(releaseText).toContain("архиве обновлений");
+    expect(releaseText).not.toContain("Kanban-доске");
   });
 
   it("gives every feature a useful action and three concise highlights", () => {
