@@ -72,6 +72,7 @@ export const RelationsCollapsibleContent = observer(function RelationsCollapsibl
   // store hooks
   const {
     relation: { getRelationsByIssueId, removeRelation },
+    issue: { getIssueById },
     toggleDeleteIssueModal,
     toggleCreateIssueModal,
   } = useIssueDetail(issueServiceType);
@@ -83,6 +84,7 @@ export const RelationsCollapsibleContent = observer(function RelationsCollapsibl
   // derived values
   const relations = getRelationsByIssueId(issueId);
   const ISSUE_RELATION_OPTIONS = useTimeLineRelationOptions();
+  const sourceIssue = getIssueById(issueId);
 
   const handleIssueCrudState = (
     key: "update" | "delete" | "removeRelation",
@@ -172,13 +174,13 @@ export const RelationsCollapsibleContent = observer(function RelationsCollapsibl
           onSubmit={async () => {
             if (
               issueCrudState.removeRelation.issueId &&
-              issueCrudState.removeRelation.issue?.project_id &&
+              sourceIssue?.project_id &&
               issueCrudState.removeRelation.relationKey &&
               issueCrudState.removeRelation.relationIssueId
             ) {
               await removeRelation(
                 workspaceSlug,
-                issueCrudState.removeRelation.issue.project_id,
+                sourceIssue.project_id,
                 issueCrudState.removeRelation.issueId,
                 issueCrudState.removeRelation.relationKey as TIssueRelationTypes,
                 issueCrudState.removeRelation.relationIssueId,

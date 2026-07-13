@@ -70,6 +70,8 @@ export const RelationIssueListItem = observer(function RelationIssueListItem(pro
   const issueOperations = useRelationOperations(issue?.is_epic ? EIssueServiceType.EPICS : EIssueServiceType.ISSUES);
   const projectDetail = (issue && issue.project_id && project.getProjectById(issue.project_id)) || undefined;
   const projectId = issue?.project_id;
+  const sourceIssue = getIssueById(issueId);
+  const sourceProjectId = sourceIssue?.project_id ?? projectId;
 
   if (!issue || !projectId) return <></>;
 
@@ -83,13 +85,13 @@ export const RelationIssueListItem = observer(function RelationIssueListItem(pro
   });
 
   // handlers
-  const handleIssuePeekOverview = (issue: TIssue) => {
-    if (issue.is_epic) {
+  const handleIssuePeekOverview = (workItem: TIssue) => {
+    if (workItem.is_epic) {
       // open epics in new tab
       window.open(workItemLink, "_blank");
       return;
     }
-    handleRedirection(workspaceSlug, issue, isMobile);
+    handleRedirection(workspaceSlug, workItem, isMobile);
   };
 
   const handleEditIssue = (e: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
@@ -116,7 +118,8 @@ export const RelationIssueListItem = observer(function RelationIssueListItem(pro
   const handleRemoveRelation = (e: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
     e.preventDefault();
     e.stopPropagation();
-    removeRelation(workspaceSlug, projectId, issueId, relationKey, relationIssueId);
+    if (!sourceProjectId) return;
+    removeRelation(workspaceSlug, sourceProjectId, issueId, relationKey, relationIssueId);
   };
 
   return (
@@ -149,11 +152,15 @@ export const RelationIssueListItem = observer(function RelationIssueListItem(pro
               </Tooltip>
             </div>
             <div
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              role="button"
+              tabIndex={-1}
               className="flex-shrink-0 text-13"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
               }}
+              onKeyDown={(e) => e.stopPropagation()}
             >
               <RelationIssueProperty
                 workspaceSlug={workspaceSlug}

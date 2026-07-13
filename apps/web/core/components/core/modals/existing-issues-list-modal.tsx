@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Rocket } from "lucide-react";
 import { Combobox } from "@headlessui/react";
 // i18n
@@ -37,6 +37,10 @@ type Props = {
   searchParams: Partial<TProjectIssuesSearchParams>;
   handleOnSubmit: (data: ISearchIssueResponse[]) => Promise<void>;
   workspaceLevelToggle?: boolean;
+  defaultWorkspaceLevel?: boolean;
+  searchInputPlaceholder?: string;
+  workspaceLevelLabel?: string;
+  workspaceLevelTooltip?: string;
   shouldHideIssue?: (issue: ISearchIssueResponse) => boolean;
   selectedWorkItemIds?: string[];
   workItemSearchServiceCallback?: (params: TProjectIssuesSearchParams) => Promise<ISearchIssueResponse[]>;
@@ -55,6 +59,10 @@ export function ExistingIssuesListModal(props: Props) {
     searchParams,
     handleOnSubmit,
     workspaceLevelToggle = false,
+    defaultWorkspaceLevel = false,
+    searchInputPlaceholder,
+    workspaceLevelLabel,
+    workspaceLevelTooltip,
     shouldHideIssue,
     selectedWorkItemIds,
     workItemSearchServiceCallback,
@@ -66,7 +74,7 @@ export function ExistingIssuesListModal(props: Props) {
   const [selectedIssues, setSelectedIssues] = useState<ISearchIssueResponse[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isWorkspaceLevel, setIsWorkspaceLevel] = useState(false);
+  const [isWorkspaceLevel, setIsWorkspaceLevel] = useState(defaultWorkspaceLevel);
   const { isMobile } = usePlatformOS();
   const debouncedSearchTerm: string = useDebounce(searchTerm, 500);
   const { baseTabIndex } = getTabIndex(undefined, isMobile);
@@ -76,7 +84,7 @@ export function ExistingIssuesListModal(props: Props) {
     onClose();
     setSearchTerm("");
     setSelectedIssues([]);
-    setIsWorkspaceLevel(false);
+    setIsWorkspaceLevel(defaultWorkspaceLevel);
     hasInitializedSelection.current = false;
   };
 
@@ -98,7 +106,7 @@ export function ExistingIssuesListModal(props: Props) {
     handleClose();
   };
 
-  const handleSearch = () => {
+  const handleSearch = useCallback(() => {
     if (!isOpen || !workspaceSlug) return;
     setIsLoading(true);
     const searchService =
@@ -117,7 +125,15 @@ export function ExistingIssuesListModal(props: Props) {
         setIsSearching(false);
         setIsLoading(false);
       });
-  };
+  }, [
+    debouncedSearchTerm,
+    isOpen,
+    isWorkspaceLevel,
+    projectId,
+    searchParams,
+    workItemSearchServiceCallback,
+    workspaceSlug,
+  ]);
 
   const handleSelectIssues = () => {
     setSelectedIssues((prevData) => (prevData.length === filteredIssues.length ? [] : [...filteredIssues]));
@@ -132,7 +148,7 @@ export function ExistingIssuesListModal(props: Props) {
 
   useEffect(() => {
     handleSearch();
-  }, [debouncedSearchTerm, isOpen, isWorkspaceLevel, projectId, workspaceSlug]);
+  }, [handleSearch]);
 
   const filteredIssues = issues.filter((issue) => !shouldHideIssue?.(issue));
 
@@ -153,7 +169,7 @@ export function ExistingIssuesListModal(props: Props) {
           />
           <Combobox.Input
             className="h-12 w-full border-0 bg-transparent pr-4 pl-11 text-13 text-primary outline-none placeholder:text-placeholder focus:ring-0"
-            placeholder={t("common.search.placeholder")}
+            placeholder={searchInputPlaceholder ?? t("common.search.placeholder")}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             tabIndex={baseTabIndex}
@@ -192,7 +208,7 @@ export function ExistingIssuesListModal(props: Props) {
             </div>
           )}
           {workspaceLevelToggle && (
-            <Tooltip tooltipContent="Toggle workspace level search" isMobile={isMobile}>
+            <Tooltip tooltipContent={workspaceLevelTooltip ?? "Toggle workspace level search"} isMobile={isMobile}>
               <div
                 className={`flex flex-shrink-0 cursor-pointer items-center gap-1 text-11 ${
                   isWorkspaceLevel ? "text-primary" : "text-secondary"
@@ -204,7 +220,7 @@ export function ExistingIssuesListModal(props: Props) {
                   onClick={() => setIsWorkspaceLevel((prevData) => !prevData)}
                   className="flex-shrink-0"
                 >
-                  {t("common.workspace_level")}
+                  {workspaceLevelLabel ?? t("common.workspace_level")}
                 </button>
               </div>
             </Tooltip>
@@ -221,7 +237,7 @@ export function ExistingIssuesListModal(props: Props) {
                 {searchTerm}
                 {'"'}
               </span>{" "}
-              in project:
+              {isWorkspaceLevel ? "across workspace:" : "in project:"}
             </h5>
           )}
 
@@ -258,7 +274,7 @@ export function ExistingIssuesListModal(props: Props) {
                           } ${selected ? "text-primary" : ""}`
                         }
                       >
-                        <div className="flex items-center gap-2 truncate">
+                        <div className="flex min-w-0 items-center gap-2">
                           <input type="checkbox" checked={selected} readOnly />
                           <span
                             className="block h-1.5 w-1.5 flex-shrink-0 rounded-full"
@@ -276,7 +292,12 @@ export function ExistingIssuesListModal(props: Props) {
                               variant="secondary"
                             />
                           </span>
-                          <span className="truncate">{issue.name}</span>
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate">{issue.name}</span>
+                            {issue.project__name && (
+                              <span className="truncate text-11 text-tertiary">{issue.project__name}</span>
+                            )}
+                          </span>
                         </div>
                         <a
                           href={generateWorkItemLink({

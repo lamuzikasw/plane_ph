@@ -195,6 +195,10 @@ export const IssueDetailWidgetModals = observer(function IssueDetailWidgetModals
           searchParams={{ issue_relation: true, issue_id: issueId }}
           handleOnSubmit={handleExistingIssueModalOnSubmit}
           workspaceLevelToggle
+          defaultWorkspaceLevel
+          searchInputPlaceholder="Найти задачу в любом проекте"
+          workspaceLevelLabel="Все проекты"
+          workspaceLevelTooltip="Искать задачи во всех проектах рабочего пространства"
         />
       )}
 

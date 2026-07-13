@@ -89,6 +89,10 @@ export const IssueRelationSelect = observer(function IssueRelationSelect(props: 
         searchParams={{ issue_relation: true, issue_id: issueId }}
         handleOnSubmit={onSubmit}
         workspaceLevelToggle
+        defaultWorkspaceLevel
+        searchInputPlaceholder="Найти задачу в любом проекте"
+        workspaceLevelLabel="Все проекты"
+        workspaceLevelTooltip="Искать задачи во всех проектах рабочего пространства"
       />
 
       <button
@@ -139,7 +143,16 @@ export const IssueRelationSelect = observer(function IssueRelationSelect(props: 
                     {!disabled && (
                       <Tooltip tooltipContent="Remove" position="bottom" isMobile={isMobile}>
                         <span
+                          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                          role="button"
+                          tabIndex={0}
                           onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            removeRelation(workspaceSlug, projectId, issueId, relationKey, relationIssueId);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key !== "Enter" && e.key !== " ") return;
                             e.preventDefault();
                             e.stopPropagation();
                             removeRelation(workspaceSlug, projectId, issueId, relationKey, relationIssueId);
