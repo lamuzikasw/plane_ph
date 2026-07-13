@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Rocket } from "lucide-react";
 import { Combobox } from "@headlessui/react";
 // i18n
@@ -75,6 +75,7 @@ export function ExistingIssuesListModal(props: Props) {
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isWorkspaceLevel, setIsWorkspaceLevel] = useState(defaultWorkspaceLevel);
+  const [selectedProjectFilterId, setSelectedProjectFilterId] = useState<string | undefined>(projectId);
   const { isMobile } = usePlatformOS();
   const debouncedSearchTerm: string = useDebounce(searchTerm, 500);
   const { baseTabIndex } = getTabIndex(undefined, isMobile);
@@ -85,6 +86,7 @@ export function ExistingIssuesListModal(props: Props) {
     setSearchTerm("");
     setSelectedIssues([]);
     setIsWorkspaceLevel(defaultWorkspaceLevel);
+    setSelectedProjectFilterId(projectId);
     hasInitializedSelection.current = false;
   };
 
@@ -118,7 +120,7 @@ export function ExistingIssuesListModal(props: Props) {
     searchService({
       search: debouncedSearchTerm,
       ...searchParams,
-      workspace_search: isWorkspaceLevel,
+      workspace_search: workspaceLevelToggle ? true : isWorkspaceLevel,
     })
       .then((res) => setIssues(res))
       .finally(() => {
@@ -132,11 +134,53 @@ export function ExistingIssuesListModal(props: Props) {
     projectId,
     searchParams,
     workItemSearchServiceCallback,
+    workspaceLevelToggle,
     workspaceSlug,
   ]);
 
+  const projectFilterOptions = useMemo(() => {
+    const projectMap = new Map<string, { id: string; name: string }>();
+
+    issues.forEach((issue) => {
+      if (!issue.project_id || projectMap.has(issue.project_id)) return;
+
+      projectMap.set(issue.project_id, {
+        id: issue.project_id,
+        name: issue.project__name || issue.project__identifier,
+      });
+    });
+
+    return Array.from(projectMap.values());
+  }, [issues]);
+
+  const filteredIssues = useMemo(
+    () =>
+      issues.filter((issue) => {
+        if (shouldHideIssue?.(issue)) return false;
+        if (!isWorkspaceLevel && selectedProjectFilterId) return issue.project_id === selectedProjectFilterId;
+
+        return true;
+      }),
+    [issues, isWorkspaceLevel, selectedProjectFilterId, shouldHideIssue]
+  );
+
+  const areAllFilteredIssuesSelected =
+    filteredIssues.length > 0 &&
+    filteredIssues.every((issue) => selectedIssues.some((selected) => selected.id === issue.id));
+
   const handleSelectIssues = () => {
-    setSelectedIssues((prevData) => (prevData.length === filteredIssues.length ? [] : [...filteredIssues]));
+    setSelectedIssues((prevData) => {
+      if (areAllFilteredIssuesSelected) {
+        const filteredIssueIds = new Set(filteredIssues.map((issue) => issue.id));
+
+        return prevData.filter((issue) => !filteredIssueIds.has(issue.id));
+      }
+
+      const selectedIssueIds = new Set(prevData.map((issue) => issue.id));
+      const newIssues = filteredIssues.filter((issue) => !selectedIssueIds.has(issue.id));
+
+      return [...prevData, ...newIssues];
+    });
   };
 
   useEffect(() => {
@@ -150,7 +194,17 @@ export function ExistingIssuesListModal(props: Props) {
     handleSearch();
   }, [handleSearch]);
 
-  const filteredIssues = issues.filter((issue) => !shouldHideIssue?.(issue));
+  useEffect(() => {
+    if (isWorkspaceLevel) return;
+    if (selectedProjectFilterId && projectFilterOptions.some((project) => project.id === selectedProjectFilterId))
+      return;
+
+    const currentProjectOption = projectId
+      ? projectFilterOptions.find((project) => project.id === projectId)
+      : undefined;
+
+    setSelectedProjectFilterId(currentProjectOption?.id ?? projectFilterOptions[0]?.id);
+  }, [isWorkspaceLevel, projectFilterOptions, projectId, selectedProjectFilterId]);
 
   return (
     <ModalCore isOpen={isOpen} handleClose={handleClose} position={EModalPosition.CENTER} width={EModalWidth.XXL}>
@@ -208,22 +262,49 @@ export function ExistingIssuesListModal(props: Props) {
             </div>
           )}
           {workspaceLevelToggle && (
-            <Tooltip tooltipContent={workspaceLevelTooltip ?? "Toggle workspace level search"} isMobile={isMobile}>
-              <div
-                className={`flex flex-shrink-0 cursor-pointer items-center gap-1 text-11 ${
-                  isWorkspaceLevel ? "text-primary" : "text-secondary"
-                }`}
-              >
-                <ToggleSwitch value={isWorkspaceLevel} onChange={() => setIsWorkspaceLevel((prevData) => !prevData)} />
-                <button
-                  type="button"
-                  onClick={() => setIsWorkspaceLevel((prevData) => !prevData)}
-                  className="flex-shrink-0"
+            <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+              {!isWorkspaceLevel && projectFilterOptions.length > 0 && (
+                <label className="flex items-center gap-2 text-11 text-secondary">
+                  <span className="hidden sm:inline">Проект</span>
+                  <select
+                    value={selectedProjectFilterId ?? ""}
+                    onChange={(e) => setSelectedProjectFilterId(e.target.value || undefined)}
+                    className="focus:border-custom-primary-100 h-8 max-w-56 rounded-md border border-subtle bg-layer-1 px-2 text-12 text-primary outline-none"
+                  >
+                    {projectFilterOptions.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <Tooltip tooltipContent={workspaceLevelTooltip ?? "Toggle workspace level search"} isMobile={isMobile}>
+                <div
+                  className={`flex cursor-pointer items-center gap-1 text-11 ${
+                    isWorkspaceLevel ? "text-primary" : "text-secondary"
+                  }`}
                 >
-                  {workspaceLevelLabel ?? t("common.workspace_level")}
-                </button>
-              </div>
-            </Tooltip>
+                  <ToggleSwitch
+                    value={isWorkspaceLevel}
+                    onChange={() => {
+                      setIsWorkspaceLevel((prevData) => !prevData);
+                      setSelectedProjectFilterId(projectId);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsWorkspaceLevel((prevData) => !prevData);
+                      setSelectedProjectFilterId(projectId);
+                    }}
+                    className="flex-shrink-0"
+                  >
+                    {workspaceLevelLabel ?? t("common.workspace_level")}
+                  </button>
+                </div>
+              </Tooltip>
+            </div>
           )}
         </div>
 
@@ -237,7 +318,7 @@ export function ExistingIssuesListModal(props: Props) {
                 {searchTerm}
                 {'"'}
               </span>{" "}
-              {isWorkspaceLevel ? "across workspace:" : "in project:"}
+              {isWorkspaceLevel ? "across workspace:" : "in selected project:"}
             </h5>
           )}
 
@@ -330,7 +411,7 @@ export function ExistingIssuesListModal(props: Props) {
           disabled={filteredIssues.length === 0}
           className={filteredIssues.length === 0 ? "p-0" : ""}
         >
-          {selectedIssues.length === issues.length ? t("issue.select.deselect_all") : t("issue.select.select_all")}
+          {areAllFilteredIssuesSelected ? t("issue.select.deselect_all") : t("issue.select.select_all")}
         </Button>
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" size="lg" onClick={handleClose}>
