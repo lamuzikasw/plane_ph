@@ -7,18 +7,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
-import {
-  AlertTriangle,
-  ArrowUpRight,
-  CalendarCheck,
-  Clock3,
-  Copy,
-  Search,
-  Send,
-  Sparkles,
-  UserRound,
-  X,
-} from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CalendarCheck, Clock3, Copy, Search, Sparkles, UserRound, X } from "lucide-react";
 import useSWR from "swr";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import { Button, Loader } from "@plane/ui";
@@ -377,7 +366,9 @@ function DigestCard({ digestText, onCopy }: { digestText: string; onCopy: () => 
           <Sparkles className="text-custom-primary-100 h-4 w-4" />
           <div>
             <h2 className="text-14 font-semibold text-primary">Daily digest</h2>
-            <p className="text-12 text-secondary">Готовый короткий статус для утреннего или вечернего сообщения.</p>
+            <p className="text-12 text-secondary">
+              Короткая сводка по текущим задачам, срокам и блокерам. Обновляется вместе с задачами.
+            </p>
           </div>
         </div>
         <Button variant="neutral-primary" size="sm" onClick={onCopy}>
@@ -388,10 +379,6 @@ function DigestCard({ digestText, onCopy }: { digestText: string; onCopy: () => 
       <div className="p-4">
         <div className="rounded border border-subtle bg-surface-2 p-3 text-13 leading-6 whitespace-pre-wrap text-primary">
           {digestText}
-        </div>
-        <div className="bg-custom-primary-100/10 text-custom-primary-100 mt-3 flex items-center gap-2 rounded px-3 py-2 text-12">
-          <Send className="h-3.5 w-3.5" />
-          Следующий шаг: этот текст можно подключить к Telegram или Slack без изменения логики.
         </div>
       </div>
     </div>
