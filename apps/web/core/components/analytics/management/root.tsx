@@ -6,7 +6,7 @@
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowUpRight, CircleHelp, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, CircleHelp, Search, SlidersHorizontal, X } from "lucide-react";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
 import { Button, Loader } from "@plane/ui";
@@ -39,6 +39,20 @@ const SECTION_TITLE_KEYS: Record<string, string> = {
   risks: "management_analytics.tabs.risks",
   "data-quality": "management_analytics.tabs.data_quality",
 };
+
+const PRIORITY_FILTER_OPTIONS = [
+  { id: "urgent", label: "Urgent" },
+  { id: "high", label: "High" },
+  { id: "medium", label: "Medium" },
+  { id: "low", label: "Low" },
+  { id: "none", label: "Без приоритета" },
+];
+
+const PLANNED_FILTER_OPTIONS = [
+  { id: "", label: "Все задачи" },
+  { id: "planned", label: "Запланированные" },
+  { id: "unplanned", label: "Без цикла" },
+];
 
 const EMPTY_HIDDEN_ANALYTICS_BLOCKS: Record<string, string[]> = {};
 
@@ -92,6 +106,12 @@ type AnalyticsBlockDefinition = {
   key: string;
   label: string;
   description?: string;
+};
+
+type FilterOption = {
+  id: string;
+  label: string;
+  caption?: string;
 };
 
 type MetricHelpDefinition = {
@@ -510,7 +530,43 @@ function ManagementAnalyticsFilters() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { workspaceSlug } = useParams();
+  const workspaceSlugString = workspaceSlug?.toString() ?? "";
   const currentPeriod = searchParams.get("period") ?? "current_week";
+  const selectedProjectIds = useMemo(() => splitCsv(searchParams.get("project_ids")), [searchParams]);
+  const selectedMemberIds = useMemo(() => splitCsv(searchParams.get("member_ids")), [searchParams]);
+  const selectedPriorities = useMemo(() => splitCsv(searchParams.get("priorities")), [searchParams]);
+  const selectedPlanned = searchParams.get("planned") ?? "";
+
+  const { data: projectFilterData, isLoading: isProjectsLoading } = useSWR(
+    workspaceSlugString ? ["management-analytics-filter-projects", workspaceSlugString, currentPeriod] : null,
+    () => analyticsService.getManagementAnalytics(workspaceSlugString, "projects", { period: currentPeriod })
+  );
+  const { data: memberFilterData, isLoading: isMembersLoading } = useSWR(
+    workspaceSlugString ? ["management-analytics-filter-members", workspaceSlugString, currentPeriod] : null,
+    () => analyticsService.getManagementAnalytics(workspaceSlugString, "team", { period: currentPeriod })
+  );
+
+  const projectOptions = useMemo<FilterOption[]>(
+    () =>
+      (projectFilterData?.results ?? []).map((project: any) => ({
+        id: project.id,
+        label: project.name,
+        caption: project.identifier
+          ? `${project.identifier} · ${project.total_work_items ?? 0} задач`
+          : `${project.total_work_items ?? 0} задач`,
+      })),
+    [projectFilterData?.results]
+  );
+  const memberOptions = useMemo<FilterOption[]>(
+    () =>
+      (memberFilterData?.results ?? []).map((member: any) => ({
+        id: member.id,
+        label: member.display_name,
+        caption: member.email,
+      })),
+    [memberFilterData?.results]
+  );
 
   const setParam = (key: string, value?: string) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -520,37 +576,289 @@ function ManagementAnalyticsFilters() {
     router.push(query ? `${pathname}?${query}` : pathname);
   };
 
+  const toggleMultiParam = (key: string, selectedIds: string[], id: string) => {
+    const nextSelectedIds = selectedIds.includes(id)
+      ? selectedIds.filter((selectedId) => selectedId !== id)
+      : [...selectedIds, id];
+    setParam(key, nextSelectedIds.join(","));
+  };
+
+  const removeChip = (key: string, selectedIds: string[], id: string) =>
+    setParam(key, selectedIds.filter((selectedId) => selectedId !== id).join(","));
+
+  const activeChips = [
+    ...selectedProjectIds.map((id) => ({
+      key: "project_ids",
+      id,
+      label: getFilterOptionLabel(projectOptions, id),
+      selectedIds: selectedProjectIds,
+    })),
+    ...selectedMemberIds.map((id) => ({
+      key: "member_ids",
+      id,
+      label: getFilterOptionLabel(memberOptions, id),
+      selectedIds: selectedMemberIds,
+    })),
+    ...selectedPriorities.map((id) => ({
+      key: "priorities",
+      id,
+      label: getFilterOptionLabel(PRIORITY_FILTER_OPTIONS, id),
+      selectedIds: selectedPriorities,
+    })),
+    ...(selectedPlanned
+      ? [
+          {
+            key: "planned",
+            id: selectedPlanned,
+            label: getFilterOptionLabel(PLANNED_FILTER_OPTIONS, selectedPlanned),
+            selectedIds: [selectedPlanned],
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-subtle pb-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={currentPeriod}
-          onChange={(event) => setParam("period", event.target.value)}
-          className="h-8 rounded border border-subtle bg-surface-1 px-2 text-12 text-primary outline-none"
-        >
-          {PERIOD_OPTIONS.map((period) => (
-            <option key={period} value={period}>
-              {t(`management_analytics.periods.${period}`)}
-            </option>
-          ))}
-        </select>
-        <input
-          defaultValue={searchParams.get("project_ids") ?? ""}
-          onBlur={(event) => setParam("project_ids", event.target.value.trim())}
-          placeholder={t("management_analytics.filters.project_ids")}
-          className="h-8 w-52 rounded border border-subtle bg-surface-1 px-2 text-12 text-primary outline-none"
-        />
-        <input
-          defaultValue={searchParams.get("member_ids") ?? ""}
-          onBlur={(event) => setParam("member_ids", event.target.value.trim())}
-          placeholder={t("management_analytics.filters.member_ids")}
-          className="h-8 w-52 rounded border border-subtle bg-surface-1 px-2 text-12 text-primary outline-none"
-        />
+    <div className="mb-4 border-b border-subtle pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={currentPeriod}
+            onChange={(event) => setParam("period", event.target.value)}
+            className="h-8 rounded border border-subtle bg-surface-1 px-2 text-12 text-primary transition-colors outline-none hover:bg-surface-2"
+          >
+            {PERIOD_OPTIONS.map((period) => (
+              <option key={period} value={period}>
+                {t(`management_analytics.periods.${period}`)}
+              </option>
+            ))}
+          </select>
+          <MultiSelectFilter
+            label="Проекты"
+            options={projectOptions}
+            selectedIds={selectedProjectIds}
+            isLoading={isProjectsLoading}
+            emptyText="Проекты не найдены"
+            onToggle={(id) => toggleMultiParam("project_ids", selectedProjectIds, id)}
+            onClear={() => setParam("project_ids")}
+          />
+          <MultiSelectFilter
+            label="Сотрудники"
+            options={memberOptions}
+            selectedIds={selectedMemberIds}
+            isLoading={isMembersLoading}
+            emptyText="Сотрудники не найдены"
+            onToggle={(id) => toggleMultiParam("member_ids", selectedMemberIds, id)}
+            onClear={() => setParam("member_ids")}
+          />
+          <MultiSelectFilter
+            label="Приоритет"
+            options={PRIORITY_FILTER_OPTIONS}
+            selectedIds={selectedPriorities}
+            emptyText="Приоритеты не найдены"
+            onToggle={(id) => toggleMultiParam("priorities", selectedPriorities, id)}
+            onClear={() => setParam("priorities")}
+          />
+          <SingleSelectFilter
+            label="Планирование"
+            options={PLANNED_FILTER_OPTIONS}
+            value={selectedPlanned}
+            onChange={(value) => setParam("planned", value)}
+          />
+        </div>
+        <button className="text-custom-primary-100 text-12 font-medium" onClick={() => router.push(pathname)}>
+          {t("management_analytics.filters.reset")}
+        </button>
       </div>
-      <button className="text-custom-primary-100 text-12 font-medium" onClick={() => router.push(pathname)}>
-        {t("management_analytics.filters.reset")}
-      </button>
+      {activeChips.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-11 font-medium text-tertiary">Активные фильтры</span>
+          {activeChips.map((chip) => (
+            <FilterChip
+              key={`${chip.key}-${chip.id}`}
+              label={chip.label}
+              onRemove={() =>
+                chip.key === "planned" ? setParam("planned") : removeChip(chip.key, chip.selectedIds, chip.id)
+              }
+            />
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function MultiSelectFilter({
+  label,
+  options,
+  selectedIds,
+  isLoading = false,
+  emptyText,
+  onToggle,
+  onClear,
+}: {
+  label: string;
+  options: FilterOption[];
+  selectedIds: string[];
+  isLoading?: boolean;
+  emptyText: string;
+  onToggle: (id: string) => void;
+  onClear: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const selectedOptions = selectedIds.map((id) => options.find((option) => option.id === id) ?? fallbackOption(id));
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return options;
+    return options.filter((option) =>
+      `${option.label} ${option.caption ?? ""}`.toLowerCase().includes(normalizedQuery)
+    );
+  }, [options, query]);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        className={cn(
+          "flex h-8 min-w-[132px] items-center justify-between gap-2 rounded border border-subtle bg-surface-1 px-2.5 text-12 transition-colors hover:bg-surface-2",
+          selectedIds.length ? "text-primary" : "text-secondary"
+        )}
+      >
+        <span className="truncate">{selectedIds.length ? `${label}: ${selectedIds.length}` : label}</span>
+        <ChevronDown className={cn("h-3.5 w-3.5 text-tertiary transition-transform", isOpen && "rotate-180")} />
+      </button>
+      {isOpen && (
+        <div className="absolute top-9 left-0 z-30 w-80 overflow-hidden rounded border border-subtle bg-surface-1 shadow-raised-200">
+          <div className="border-b border-subtle p-2">
+            <label className="flex h-8 items-center gap-2 rounded border border-subtle bg-surface-2 px-2 text-12">
+              <Search className="h-3.5 w-3.5 text-tertiary" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={`Найти ${label.toLowerCase()}`}
+                className="h-full w-full bg-transparent text-primary outline-none placeholder:text-tertiary"
+              />
+            </label>
+          </div>
+          {selectedOptions.length > 0 && (
+            <div className="flex flex-wrap gap-1 border-b border-subtle px-2 py-2">
+              {selectedOptions.slice(0, 4).map((option) => (
+                <FilterChip key={option.id} label={option.label} onRemove={() => onToggle(option.id)} />
+              ))}
+              {selectedOptions.length > 4 && (
+                <span className="rounded bg-surface-2 px-2 py-1 text-11 text-secondary">
+                  +{selectedOptions.length - 4}
+                </span>
+              )}
+              <button type="button" className="text-custom-primary-100 px-1 text-11 font-medium" onClick={onClear}>
+                Очистить
+              </button>
+            </div>
+          )}
+          <div className="vertical-scrollbar scrollbar-sm max-h-72 overflow-auto py-1">
+            {isLoading && <div className="px-3 py-6 text-center text-12 text-tertiary">Загружаю...</div>}
+            {!isLoading && filteredOptions.length === 0 && (
+              <div className="px-3 py-6 text-center text-12 text-tertiary">{emptyText}</div>
+            )}
+            {!isLoading &&
+              filteredOptions.map((option) => {
+                const isSelected = selectedIds.includes(option.id);
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => onToggle(option.id)}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-surface-2"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-13 font-medium text-primary">{option.label}</span>
+                      {option.caption && <span className="block truncate text-11 text-tertiary">{option.caption}</span>}
+                    </span>
+                    <span
+                      className={cn(
+                        "flex h-4 w-4 items-center justify-center rounded border",
+                        isSelected
+                          ? "border-custom-primary-100 bg-custom-primary-100 text-white"
+                          : "border-subtle text-transparent"
+                      )}
+                    >
+                      <Check className="h-3 w-3" />
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SingleSelectFilter({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: FilterOption[];
+  value: string;
+  onChange: (value?: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedOption = options.find((option) => option.id === value) ?? options[0];
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        className="flex h-8 min-w-[154px] items-center justify-between gap-2 rounded border border-subtle bg-surface-1 px-2.5 text-12 text-secondary transition-colors hover:bg-surface-2 hover:text-primary"
+      >
+        <span className="truncate">
+          {label}: {selectedOption?.label}
+        </span>
+        <ChevronDown className={cn("h-3.5 w-3.5 text-tertiary transition-transform", isOpen && "rotate-180")} />
+      </button>
+      {isOpen && (
+        <div className="absolute top-9 left-0 z-30 w-56 overflow-hidden rounded border border-subtle bg-surface-1 py-1 shadow-raised-200">
+          {options.map((option) => {
+            const isSelected = option.id === value;
+            return (
+              <button
+                key={option.id || "all"}
+                type="button"
+                onClick={() => {
+                  onChange(option.id || undefined);
+                  setIsOpen(false);
+                }}
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-13 transition-colors hover:bg-surface-2"
+              >
+                <span className={isSelected ? "font-medium text-primary" : "text-secondary"}>{option.label}</span>
+                {isSelected && <Check className="text-custom-primary-100 h-3.5 w-3.5" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex max-w-[240px] items-center gap-1 rounded border border-subtle bg-surface-2 px-2 py-1 text-11 text-secondary">
+      <span className="truncate">{label}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="rounded text-tertiary transition-colors hover:text-primary"
+        aria-label={`Убрать фильтр ${label}`}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </span>
   );
 }
 
@@ -2165,6 +2473,25 @@ function getSearchText(row: any) {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+function splitCsv(value?: string | null) {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function fallbackOption(id: string): FilterOption {
+  return {
+    id,
+    label: id.length > 8 ? `${id.slice(0, 8)}...` : id,
+  };
+}
+
+function getFilterOptionLabel(options: FilterOption[], id: string) {
+  return options.find((option) => option.id === id)?.label ?? fallbackOption(id).label;
 }
 
 function badgeClass(level: string) {

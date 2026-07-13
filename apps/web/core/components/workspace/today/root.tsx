@@ -58,6 +58,15 @@ type TMemberRow = {
   };
 };
 
+type TTodayStatKey = "dueToday" | "overdue" | "blocked" | "active";
+
+type TTodayStatDetail = {
+  title: string;
+  description: string;
+  emptyText: string;
+  rows: TIssueRow[];
+};
+
 const OPEN_GROUPS = new Set(["backlog", "unstarted", "started"]);
 
 export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
@@ -67,6 +76,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
   const { isMobile } = usePlatformOS();
   const { handleRedirection } = useIssuePeekOverviewRedirection();
   const [selectedMember, setSelectedMember] = useState<TMemberRow | undefined>();
+  const [selectedTodayStat, setSelectedTodayStat] = useState<TTodayStatKey | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
 
   const currentUserId = currentUser?.id;
@@ -113,6 +123,35 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
 
   const todayBucketRows = useMemo(() => mergeIssueRows(activeRows, unassignedRows), [activeRows, unassignedRows]);
   const todayBuckets = useMemo(() => buildTodayBuckets(todayBucketRows, blockedRows), [todayBucketRows, blockedRows]);
+  const todayStatDetails = useMemo<Record<TTodayStatKey, TTodayStatDetail>>(
+    () => ({
+      dueToday: {
+        title: "На сегодня",
+        description: "Задачи с дедлайном на сегодня. Это главный рабочий фокус дня.",
+        emptyText: "На сегодня задач нет.",
+        rows: todayBuckets.dueToday,
+      },
+      overdue: {
+        title: "Просрочено",
+        description: "Открытые задачи, у которых срок уже прошел. Их лучше разобрать первыми.",
+        emptyText: "Просроченных задач нет.",
+        rows: todayBuckets.overdue,
+      },
+      blocked: {
+        title: "Блокеры",
+        description: "Задачи, которые не двигаются из-за активной зависимости или блокировки.",
+        emptyText: "Блокеров нет.",
+        rows: todayBuckets.blocked,
+      },
+      active: {
+        title: "Активно",
+        description: "Все открытые задачи, которые сейчас находятся в работе или в бэклоге у сотрудника.",
+        emptyText: "Активных задач нет.",
+        rows: sortCopy(activeRows, compareIssuesForFocus),
+      },
+    }),
+    [activeRows, todayBuckets]
+  );
   const currentMember = useMemo(
     () => teamRows.find((member) => member.id === currentUserId),
     [currentUserId, teamRows]
@@ -170,10 +209,30 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
               </div>
 
               <div className="grid gap-3 md:grid-cols-4">
-                <TodayStatCard title="На сегодня" value={todayBuckets.dueToday.length} tone="blue" />
-                <TodayStatCard title="Просрочено" value={todayBuckets.overdue.length} tone="red" />
-                <TodayStatCard title="Блокеры" value={todayBuckets.blocked.length} tone="amber" />
-                <TodayStatCard title="Активно" value={activeRows.length} tone="neutral" />
+                <TodayStatCard
+                  title="На сегодня"
+                  value={todayBuckets.dueToday.length}
+                  tone="blue"
+                  onOpen={() => setSelectedTodayStat("dueToday")}
+                />
+                <TodayStatCard
+                  title="Просрочено"
+                  value={todayBuckets.overdue.length}
+                  tone="red"
+                  onOpen={() => setSelectedTodayStat("overdue")}
+                />
+                <TodayStatCard
+                  title="Блокеры"
+                  value={todayBuckets.blocked.length}
+                  tone="amber"
+                  onOpen={() => setSelectedTodayStat("blocked")}
+                />
+                <TodayStatCard
+                  title="Активно"
+                  value={activeRows.length}
+                  tone="neutral"
+                  onOpen={() => setSelectedTodayStat("active")}
+                />
               </div>
             </section>
 
@@ -276,6 +335,11 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
         onClose={() => setSelectedMember(undefined)}
         onOpenIssue={openIssue}
       />
+      <TodayIssuesDrawer
+        detail={selectedTodayStat ? todayStatDetails[selectedTodayStat] : undefined}
+        onClose={() => setSelectedTodayStat(undefined)}
+        onOpenIssue={openIssue}
+      />
       <IssuePeekOverview />
     </>
   );
@@ -285,10 +349,12 @@ function TodayStatCard({
   title,
   value,
   tone,
+  onOpen,
 }: {
   title: string;
   value: number;
   tone: "blue" | "red" | "amber" | "neutral";
+  onOpen?: () => void;
 }) {
   const toneClassName = {
     blue: "bg-custom-primary-100/10 text-custom-primary-100",
@@ -297,11 +363,26 @@ function TodayStatCard({
     neutral: "bg-surface-2 text-primary",
   }[tone];
 
-  return (
-    <div className="rounded border border-subtle p-3">
-      <div className="text-12 font-medium text-secondary">{title}</div>
+  const content = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-12 font-medium text-secondary">{title}</div>
+        {onOpen && <span className="text-11 text-tertiary transition-colors group-hover:text-secondary">Открыть</span>}
+      </div>
       <div className={cn("text-2xl mt-2 inline-flex rounded px-2 py-1 font-semibold", toneClassName)}>{value}</div>
-    </div>
+    </>
+  );
+
+  if (!onOpen) return <div className="rounded border border-subtle p-3">{content}</div>;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group hover:border-custom-primary-100/40 focus:ring-custom-primary-100/20 rounded border border-subtle p-3 text-left transition-colors hover:bg-surface-2 focus:ring-2 focus:outline-none"
+    >
+      {content}
+    </button>
   );
 }
 
@@ -366,6 +447,81 @@ function IssueListItem({ issue, onOpenIssue }: { issue: TIssueRow; onOpenIssue: 
       </div>
       <ArrowUpRight className="h-4 w-4 flex-shrink-0 text-tertiary" />
     </button>
+  );
+}
+
+function TodayIssuesDrawer({
+  detail,
+  onClose,
+  onOpenIssue,
+}: {
+  detail?: TTodayStatDetail;
+  onClose: () => void;
+  onOpenIssue: (issue: TIssueRow) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const rows = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const source = detail?.rows ?? [];
+    if (!normalizedQuery) return source;
+    return source.filter((issue) =>
+      `${issue.project_identifier}-${issue.sequence_id} ${issue.name} ${issue.project_name ?? ""} ${
+        issue.state_name ?? ""
+      }`
+        .toLowerCase()
+        .includes(normalizedQuery)
+    );
+  }, [detail?.rows, query]);
+
+  if (!detail) return null;
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/20">
+      <button type="button" className="h-full flex-1 cursor-default" aria-label="Закрыть список" onClick={onClose} />
+      <aside className="flex h-full w-full max-w-4xl flex-col border-l border-subtle bg-surface-1 shadow-raised-200">
+        <div className="flex items-start justify-between gap-4 border-b border-subtle px-5 py-4">
+          <div>
+            <div className="text-11 font-medium tracking-wide text-tertiary uppercase">Фокус на день</div>
+            <div className="mt-1 text-20 font-semibold text-primary">{detail.title}</div>
+            <div className="mt-1 text-12 text-secondary">
+              {detail.rows.length} задач · {detail.description}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-secondary transition-colors hover:bg-surface-2 hover:text-primary"
+            aria-label="Закрыть"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="border-b border-subtle px-5 py-3">
+          <label className="flex h-9 items-center gap-2 rounded border border-subtle bg-surface-2 px-3 text-13">
+            <Search className="h-4 w-4 text-tertiary" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Поиск по задачам, проектам или статусам"
+              className="h-full w-full bg-transparent text-primary outline-none placeholder:text-tertiary"
+            />
+          </label>
+        </div>
+        <div className="vertical-scrollbar scrollbar-md flex-1 overflow-auto">
+          {rows.length === 0 ? (
+            <div className="m-5 rounded border border-subtle bg-surface-2 px-3 py-8 text-center text-13 text-tertiary">
+              {query ? "По этому поиску задач нет." : detail.emptyText}
+            </div>
+          ) : (
+            <div className="divide-y divide-subtle">
+              {rows.map((issue) => (
+                <IssueListItem key={issue.id} issue={issue} onOpenIssue={onOpenIssue} />
+              ))}
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
   );
 }
 
