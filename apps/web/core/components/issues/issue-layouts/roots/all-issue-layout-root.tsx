@@ -4,17 +4,18 @@
  * See the LICENSE file for details.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo } from "react";
 import { observer } from "mobx-react";
 import { useParams, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 // plane imports
-import { EIssueFilterType, GLOBAL_VIEW_TRACKER_ELEMENTS, ISSUE_DISPLAY_FILTERS_BY_PAGE } from "@plane/constants";
+import { GLOBAL_VIEW_TRACKER_ELEMENTS, ISSUE_DISPLAY_FILTERS_BY_PAGE } from "@plane/constants";
 import { EmptyStateDetailed } from "@plane/propel/empty-state";
 import { EIssueLayoutTypes, EIssuesStoreType, STATIC_VIEW_TYPES } from "@plane/types";
 // assets
 // components
 import { IssuePeekOverview } from "@/components/issues/peek-overview";
+import { resolveWorkspaceIssueLayout } from "@/components/issues/issue-layouts/layout-loading";
 import { WorkspaceActiveLayout } from "@/components/views/helper";
 import { WorkspaceLevelWorkItemFiltersHOC } from "@/components/work-item-filters/filters-hoc/workspace-level";
 import { WorkItemFiltersRow } from "@/components/work-item-filters/filters-row";
@@ -40,42 +41,17 @@ export const AllIssueLayoutRoot = observer(function AllIssueLayoutRoot(props: Pr
   const globalViewId = routerGlobalViewId ? routerGlobalViewId.toString() : undefined;
   // search params
   const searchParams = useSearchParams();
-  const [hasAppliedRouteLayout, setHasAppliedRouteLayout] = useState(false);
   // store hooks
   const {
-    issuesFilter: { filters, fetchFilters, updateFilterExpression, updateFilters },
+    issuesFilter: { filters, fetchFilters, updateFilterExpression },
     issues: { clear, groupedIssueIds, fetchIssues, fetchNextIssues },
   } = useIssues(EIssuesStoreType.GLOBAL);
   const { fetchAllGlobalViews, getViewDetailsById } = useGlobalView();
   // Derived values
   const viewDetails = globalViewId ? getViewDetailsById(globalViewId) : undefined;
   const workItemFilters = globalViewId ? filters?.[globalViewId] : undefined;
-  const activeLayout: EIssueLayoutTypes | undefined = workItemFilters?.displayFilters?.layout;
-
-  useEffect(() => {
-    if (
-      hasAppliedRouteLayout ||
-      !workspaceSlug ||
-      !globalViewId ||
-      searchParams.get("layout") !== EIssueLayoutTypes.GANTT
-    )
-      return;
-    if (activeLayout === EIssueLayoutTypes.GANTT) {
-      setHasAppliedRouteLayout(true);
-      return;
-    }
-
-    updateFilters(
-      workspaceSlug,
-      undefined,
-      EIssueFilterType.DISPLAY_FILTERS,
-      {
-        layout: EIssueLayoutTypes.GANTT,
-      },
-      globalViewId
-    );
-    setHasAppliedRouteLayout(true);
-  }, [activeLayout, globalViewId, hasAppliedRouteLayout, searchParams, updateFilters, workspaceSlug]);
+  const savedLayout: EIssueLayoutTypes | undefined = workItemFilters?.displayFilters?.layout;
+  const activeLayout = resolveWorkspaceIssueLayout(savedLayout, searchParams.get("layout"));
   // Determine initial work item filters based on view type and availability
   const initialWorkItemFilters = useMemo(() => {
     if (!globalViewId) return undefined;

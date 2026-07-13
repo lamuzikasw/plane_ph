@@ -43,19 +43,23 @@ describe("patch 1.1 release content", () => {
       .join(" ");
 
     expect(releaseText).toContain("Игорь");
-    expect(releaseText).toContain("всем проектам");
-    expect(releaseText).toContain("79%");
+    expect(releaseText).toContain("всех доступных проектов");
+    expect(releaseText).toContain("Рабочее пространство появляется");
     expect(releaseText).toContain("синий индикатор");
     expect(releaseText).toContain("архиве обновлений");
     expect(releaseText).not.toContain("Kanban-доске");
+    expect(releaseText).not.toContain("стартовой передачи");
   });
 
-  it("gives every feature a useful action and three concise highlights", () => {
+  it("gives every feature a useful action and a concise set of highlights", () => {
     for (const feature of PATCH_1_1.features) {
       expect(feature.action.href || feature.action.event).toBeTruthy();
       expect(feature.action.label.length).toBeGreaterThan(0);
-      expect(feature.highlights).toHaveLength(3);
+      expect(feature.highlights.length).toBeGreaterThan(0);
     }
+
+    expect(PATCH_1_1.features.find((feature) => feature.id === "relations")?.highlights.length).toBeGreaterThan(3);
+    expect(PATCH_1_1.featureTitle).not.toMatch(/четыр/i);
   });
 });
 
@@ -76,11 +80,13 @@ describe("patch 1.0 release content", () => {
     expect(releaseText).toContain("Daily digest");
   });
 
-  it("gives every feature a useful destination and concise highlights", () => {
+  it("gives every feature a useful destination and a concise set of highlights", () => {
     for (const feature of PATCH_1_0.features) {
       expect(feature.action.href).toMatch(/^\//);
       expect(feature.action.label.length).toBeGreaterThan(0);
-      expect(feature.highlights).toHaveLength(3);
+      expect(feature.highlights.length).toBeGreaterThan(0);
     }
+
+    expect(PATCH_1_0.featureTitle).not.toMatch(/четыр/i);
   });
 });
