@@ -92,6 +92,15 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
       })
   );
 
+  const { data: unassignedData, isLoading: unassignedLoading } = useSWR(
+    workspaceSlugString ? ["today-unassigned", workspaceSlugString] : null,
+    () =>
+      analyticsService.getManagementAnalyticsDrilldown(workspaceSlugString, {
+        metric: "missing_assignee",
+        period: currentPeriod,
+      })
+  );
+
   const { data: teamData, isLoading: teamLoading } = useSWR(
     workspaceSlugString ? ["today-team", workspaceSlugString] : null,
     () => analyticsService.getManagementAnalytics(workspaceSlugString, "team", { period: currentPeriod })
@@ -99,9 +108,11 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
 
   const activeRows = useMemo(() => (activeData?.rows ?? []) as TIssueRow[], [activeData?.rows]);
   const blockedRows = useMemo(() => (blockedData?.rows ?? []) as TIssueRow[], [blockedData?.rows]);
+  const unassignedRows = useMemo(() => (unassignedData?.rows ?? []) as TIssueRow[], [unassignedData?.rows]);
   const teamRows = useMemo(() => (teamData?.results ?? []) as TMemberRow[], [teamData?.results]);
 
-  const todayBuckets = useMemo(() => buildTodayBuckets(activeRows, blockedRows), [activeRows, blockedRows]);
+  const todayBucketRows = useMemo(() => mergeIssueRows(activeRows, unassignedRows), [activeRows, unassignedRows]);
+  const todayBuckets = useMemo(() => buildTodayBuckets(todayBucketRows, blockedRows), [todayBucketRows, blockedRows]);
   const currentMember = useMemo(
     () => teamRows.find((member) => member.id === currentUserId),
     [currentUserId, teamRows]
@@ -131,7 +142,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
     }
   };
 
-  const isLoading = activeLoading || blockedLoading || teamLoading;
+  const isLoading = activeLoading || blockedLoading || unassignedLoading || teamLoading;
 
   return (
     <>
@@ -190,7 +201,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
                     />
                     <IssuePanel
                       title="Ближайшее"
-                      description="Что стоит держать в голове после сегодняшнего дня."
+                      description="Назначенные и незакрепленные задачи после сегодняшнего дня."
                       emptyText="Ближайших задач со сроком нет."
                       rows={todayBuckets.upcoming.slice(0, 6)}
                       icon={<Clock3 className="h-4 w-4" />}
@@ -601,6 +612,14 @@ function buildTodayBuckets(activeRows: TIssueRow[], blockedRows: TIssueRow[]) {
       compareIssuesForFocus
     ),
   };
+}
+
+function mergeIssueRows(...groups: TIssueRow[][]) {
+  const issueMap = new Map<string, TIssueRow>();
+  groups.flat().forEach((issue) => {
+    issueMap.set(issue.id, issue);
+  });
+  return [...issueMap.values()];
 }
 
 function sortCopy<T>(rows: T[], compare: (a: T, b: T) => number) {
