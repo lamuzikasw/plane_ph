@@ -13,13 +13,24 @@ import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import { Tooltip } from "@plane/propel/tooltip";
 import { cn, generateWorkItemLink } from "@plane/utils";
 // services
-import { AIService, type TIgorChatResponse, type TIgorChatWorkItem } from "@/services/ai.service";
+import {
+  AIService,
+  type TIgorChatContext,
+  type TIgorChatHistoryItem,
+  type TIgorChatResponse,
+  type TIgorChatWorkItem,
+} from "@/services/ai.service";
 
 type TIgorMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
   response?: TIgorChatResponse;
+  request?: {
+    message: string;
+    history: TIgorChatHistoryItem[];
+    context?: Partial<TIgorChatContext> | null;
+  };
 };
 
 type Props = {
@@ -43,6 +54,16 @@ const stateLabels: Record<string, string> = {
   completed: "Done",
   cancelled: "Cancelled",
 };
+
+const buildHistoryPayload = (messages: TIgorMessage[]): TIgorChatHistoryItem[] =>
+  messages
+    .filter((message) => message.id !== "welcome")
+    .slice(-8)
+    .map((message) => ({
+      role: message.role,
+      text: message.text,
+      context: message.response?.context ?? null,
+    }));
 
 export function IgorChat({ workspaceSlug }: Props) {
   const [isOpen, setIsOpen] = useState(false);
@@ -84,6 +105,7 @@ export function IgorChat({ workspaceSlug }: Props) {
 
     setInput("");
     setIsSubmitting(true);
+    const historyPayload = buildHistoryPayload(messages);
     setMessages((currentMessages) => [
       ...currentMessages,
       {
@@ -94,7 +116,7 @@ export function IgorChat({ workspaceSlug }: Props) {
     ]);
 
     try {
-      const response = await aiService.askIgor(workspaceSlug, { message: trimmedMessage });
+      const response = await aiService.askIgor(workspaceSlug, { message: trimmedMessage, history: historyPayload });
       setMessages((currentMessages) => [
         ...currentMessages,
         {
@@ -102,6 +124,11 @@ export function IgorChat({ workspaceSlug }: Props) {
           role: "assistant",
           text: response.answer,
           response,
+          request: {
+            message: trimmedMessage,
+            history: historyPayload,
+            context: response.context,
+          },
         },
       ]);
     } catch {
@@ -184,7 +211,12 @@ export function IgorChat({ workspaceSlug }: Props) {
                         key={`${message.id}-${widget.type}-${widget.title}`}
                         title={widget.title}
                         items={widget.items}
+                        total={widget.total}
+                        limit={widget.limit}
+                        hasMore={widget.has_more}
+                        nextOffset={widget.next_offset}
                         workspaceSlug={workspaceSlug}
+                        request={message.request}
                       />
                     ))}
                   </div>
@@ -246,56 +278,134 @@ export function IgorChat({ workspaceSlug }: Props) {
 type TIgorWorkItemWidgetProps = {
   title: string;
   items: TIgorChatWorkItem[];
+  total?: number;
+  limit?: number;
+  hasMore?: boolean;
+  nextOffset?: number | null;
   workspaceSlug: string;
+  request?: {
+    message: string;
+    history: TIgorChatHistoryItem[];
+    context?: Partial<TIgorChatContext> | null;
+  };
 };
 
-function IgorWorkItemWidget({ title, items, workspaceSlug }: TIgorWorkItemWidgetProps) {
+function IgorWorkItemWidget({
+  title,
+  items,
+  total,
+  limit,
+  hasMore,
+  nextOffset,
+  workspaceSlug,
+  request,
+}: TIgorWorkItemWidgetProps) {
+  const [loadedItems, setLoadedItems] = useState(items);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreItems, setHasMoreItems] = useState(Boolean(hasMore));
+  const [nextItemsOffset, setNextItemsOffset] = useState(nextOffset ?? null);
+
+  useEffect(() => {
+    setLoadedItems(items);
+    setHasMoreItems(Boolean(hasMore));
+    setNextItemsOffset(nextOffset ?? null);
+  }, [hasMore, items, nextOffset]);
+
+  const loadMore = async () => {
+    if (!request || isLoadingMore || nextItemsOffset === null) return;
+
+    setIsLoadingMore(true);
+    try {
+      const response = await aiService.askIgor(workspaceSlug, {
+        message: request.message,
+        history: request.history,
+        context: request.context,
+        limit: limit ?? 12,
+        offset: nextItemsOffset,
+      });
+      const workItemsWidget = response.widgets.find((widget) => widget.type === "work_items");
+      if (!workItemsWidget) return;
+
+      setLoadedItems((currentItems) => [...currentItems, ...workItemsWidget.items]);
+      setHasMoreItems(Boolean(workItemsWidget.has_more));
+      setNextItemsOffset(workItemsWidget.next_offset ?? null);
+    } catch {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Не получилось загрузить ещё",
+        message: "Игорь не смог продолжить список. Попробуй повторить чуть позже.",
+      });
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
   return (
     <div className="mt-3 overflow-hidden rounded-md border border-subtle bg-surface-1">
-      <div className="text-xs border-b border-subtle px-3 py-2 font-medium text-secondary">{title}</div>
-      {items.length === 0 ? (
+      <div className="text-xs flex items-center justify-between gap-2 border-b border-subtle px-3 py-2 font-medium text-secondary">
+        <span className="min-w-0 truncate">{title}</span>
+        {typeof total === "number" && total > loadedItems.length && (
+          <span className="shrink-0 text-tertiary">
+            {loadedItems.length}/{total}
+          </span>
+        )}
+      </div>
+      {loadedItems.length === 0 ? (
         <div className="text-xs px-3 py-3 text-tertiary">Подходящих задач нет.</div>
       ) : (
-        <div className="max-h-72 overflow-y-auto">
-          {items.map((item) => {
-            const workItemLink = generateWorkItemLink({
-              workspaceSlug,
-              projectId: item.project_id,
-              issueId: item.id,
-              projectIdentifier: item.project_identifier,
-              sequenceId: item.sequence_id,
-            });
+        <>
+          <div className="max-h-72 overflow-y-auto">
+            {loadedItems.map((item) => {
+              const workItemLink = generateWorkItemLink({
+                workspaceSlug,
+                projectId: item.project_id,
+                issueId: item.id,
+                projectIdentifier: item.project_identifier,
+                sequenceId: item.sequence_id,
+              });
 
-            return (
-              <Link
-                key={item.id}
-                to={workItemLink}
-                className="group flex gap-3 border-b border-subtle px-3 py-2 last:border-b-0 hover:bg-surface-2"
-              >
-                <div className="bg-custom-primary-100 mt-1 h-2 w-2 shrink-0 rounded-full" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs flex items-center gap-2 text-tertiary">
-                    <span>
-                      {item.project_identifier}-{item.sequence_id}
-                    </span>
-                    <span className="truncate">{item.project_name}</span>
+              return (
+                <Link
+                  key={item.id}
+                  to={workItemLink}
+                  className="group flex gap-3 border-b border-subtle px-3 py-2 last:border-b-0 hover:bg-surface-2"
+                >
+                  <div className="bg-custom-primary-100 mt-1 h-2 w-2 shrink-0 rounded-full" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs flex items-center gap-2 text-tertiary">
+                      <span>
+                        {item.project_identifier}-{item.sequence_id}
+                      </span>
+                      <span className="truncate">{item.project_name}</span>
+                    </div>
+                    <div className="text-sm mt-0.5 line-clamp-2 font-medium text-primary">{item.name}</div>
+                    <div className="text-xs mt-1 flex flex-wrap gap-1.5 text-secondary">
+                      {item.state_group && (
+                        <span>{stateLabels[item.state_group] ?? item.state_name ?? item.state_group}</span>
+                      )}
+                      {item.target_date && <span>до {formatDate(item.target_date)}</span>}
+                      {item.assignees.length > 0 && (
+                        <span>{item.assignees.map((assignee) => assignee.name).join(", ")}</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-sm mt-0.5 line-clamp-2 font-medium text-primary">{item.name}</div>
-                  <div className="text-xs mt-1 flex flex-wrap gap-1.5 text-secondary">
-                    {item.state_group && (
-                      <span>{stateLabels[item.state_group] ?? item.state_name ?? item.state_group}</span>
-                    )}
-                    {item.target_date && <span>до {formatDate(item.target_date)}</span>}
-                    {item.assignees.length > 0 && (
-                      <span>{item.assignees.map((assignee) => assignee.name).join(", ")}</span>
-                    )}
-                  </div>
-                </div>
-                <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-tertiary opacity-0 transition group-hover:opacity-100" />
-              </Link>
-            );
-          })}
-        </div>
+                  <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-tertiary opacity-0 transition group-hover:opacity-100" />
+                </Link>
+              );
+            })}
+          </div>
+          {hasMoreItems && (
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={isLoadingMore}
+              className="text-xs text-custom-primary-100 flex w-full items-center justify-center gap-2 border-t border-subtle px-3 py-2 font-medium transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isLoadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Показать ещё
+            </button>
+          )}
+        </>
       )}
     </div>
   );

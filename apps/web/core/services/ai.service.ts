@@ -42,6 +42,23 @@ export type TIgorChatWorkItem = {
   }[];
 };
 
+export type TIgorChatContext = {
+  intent: string;
+  project_id: string | null;
+  project_name: string | null;
+  member_id: string | null;
+  member_name: string | null;
+  period_label: string | null;
+  period_start: string | null;
+  period_end: string | null;
+};
+
+export type TIgorChatHistoryItem = {
+  role: "user" | "assistant";
+  text: string;
+  context?: Partial<TIgorChatContext> | null;
+};
+
 export type TIgorChatResponse = {
   assistant: string;
   intent: string;
@@ -51,12 +68,26 @@ export type TIgorChatResponse = {
     start: string | null;
     end: string | null;
   };
+  context: TIgorChatContext;
   widgets: {
     type: "work_items";
     title: string;
     items: TIgorChatWorkItem[];
+    total?: number;
+    limit?: number;
+    offset?: number;
+    has_more?: boolean;
+    next_offset?: number | null;
   }[];
   suggestions: string[];
+};
+
+export type TIgorChatPayload = {
+  message: string;
+  history?: TIgorChatHistoryItem[];
+  context?: Partial<TIgorChatContext> | null;
+  limit?: number;
+  offset?: number;
 };
 
 export class AIService extends APIService {
@@ -72,7 +103,7 @@ export class AIService extends APIService {
       });
   }
 
-  async askIgor(workspaceSlug: string, data: { message: string }): Promise<TIgorChatResponse> {
+  async askIgor(workspaceSlug: string, data: TIgorChatPayload): Promise<TIgorChatResponse> {
     return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, data)
       .then((response) => response?.data)
       .catch((error) => {
