@@ -29,6 +29,7 @@ type Props = {
 const aiService = new AIService();
 
 const INITIAL_SUGGESTIONS = [
+  "Привет, как дела?",
   "Что сделал Danila Kuzovatov за прошлую неделю?",
   "Покажи просроченные задачи",
   "Какие задачи сейчас заблокированы?",
