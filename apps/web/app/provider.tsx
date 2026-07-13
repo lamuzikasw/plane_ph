@@ -13,10 +13,15 @@ import { TranslationProvider } from "@plane/i18n";
 import { Toast } from "@plane/propel/toast";
 // helpers
 import { resolveGeneralTheme } from "@plane/utils";
-// mobx store provider
-import { StoreProvider } from "@/lib/store-context";
+// components
+import { LogoSpinner } from "@/components/common/logo-spinner";
 
 // lazy imports
+const StoreProvider = lazy(async function StoreProvider() {
+  const storeContext = await import("@/lib/store-context");
+  return { default: storeContext.StoreProvider };
+});
+
 const AppProgressBar = lazy(function AppProgressBar() {
   return import("@/lib/b-progress/AppProgressBar");
 });
@@ -39,20 +44,28 @@ export function AppProvider(props: IAppProvider) {
   const { resolvedTheme } = useTheme();
 
   return (
-    <StoreProvider>
-      <>
-        <AppProgressBar />
-        <TranslationProvider>
-          <Toast theme={resolveGeneralTheme(resolvedTheme)} />
-          <StoreWrapper>
-            <InstanceWrapper>
-              <Suspense>
-                <SWRConfig value={WEB_SWR_CONFIG}>{children}</SWRConfig>
-              </Suspense>
-            </InstanceWrapper>
-          </StoreWrapper>
-        </TranslationProvider>
-      </>
-    </StoreProvider>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center" role="status" aria-label="Loading application">
+          <LogoSpinner />
+        </div>
+      }
+    >
+      <StoreProvider>
+        <>
+          <AppProgressBar />
+          <TranslationProvider>
+            <Toast theme={resolveGeneralTheme(resolvedTheme)} />
+            <StoreWrapper>
+              <InstanceWrapper>
+                <Suspense>
+                  <SWRConfig value={WEB_SWR_CONFIG}>{children}</SWRConfig>
+                </Suspense>
+              </InstanceWrapper>
+            </StoreWrapper>
+          </TranslationProvider>
+        </>
+      </StoreProvider>
+    </Suspense>
   );
 }
