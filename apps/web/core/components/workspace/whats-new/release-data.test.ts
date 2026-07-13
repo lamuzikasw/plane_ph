@@ -44,11 +44,14 @@ describe("patch 1.1 release content", () => {
 
     expect(releaseText).toContain("Игорь");
     expect(releaseText).toContain("всех доступных проектов");
-    expect(releaseText).toContain("Рабочее пространство появляется");
+    expect(releaseText).toContain("79%");
+    expect(releaseText).toContain("2,41 МБ");
+    expect(releaseText).toContain("498 КБ");
+    expect(releaseText).toContain("gzip");
+    expect(releaseText).toContain("store-context");
     expect(releaseText).toContain("синий индикатор");
     expect(releaseText).toContain("архиве обновлений");
     expect(releaseText).not.toContain("Kanban-доске");
-    expect(releaseText).not.toContain("стартовой передачи");
   });
 
   it("gives every feature a useful action and a concise set of highlights", () => {
@@ -59,6 +62,7 @@ describe("patch 1.1 release content", () => {
     }
 
     expect(PATCH_1_1.features.find((feature) => feature.id === "relations")?.highlights.length).toBeGreaterThan(3);
+    expect(PATCH_1_1.features.find((feature) => feature.id === "performance")?.highlights.length).toBeGreaterThan(3);
     expect(PATCH_1_1.featureTitle).not.toMatch(/четыр/i);
   });
 });
