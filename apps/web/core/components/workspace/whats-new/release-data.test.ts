@@ -12,6 +12,7 @@ import {
   PATCH_1_0,
   PATCH_1_1,
   PRODUCT_RELEASES,
+  shouldResetReleaseScroll,
   WHATS_NEW_LAST_SEEN_STORAGE_KEY,
 } from "./release-data";
 
@@ -31,6 +32,12 @@ describe("release archive", () => {
     expect(hasUnseenRelease(null)).toBe(true);
     expect(hasUnseenRelease("1-0")).toBe(true);
     expect(hasUnseenRelease("1-1")).toBe(false);
+  });
+
+  it("resets the page position only when the selected release changes", () => {
+    expect(shouldResetReleaseScroll(null, "1-1")).toBe(false);
+    expect(shouldResetReleaseScroll("1-1", "1-1")).toBe(false);
+    expect(shouldResetReleaseScroll("1-0", "1-1")).toBe(true);
   });
 });
 

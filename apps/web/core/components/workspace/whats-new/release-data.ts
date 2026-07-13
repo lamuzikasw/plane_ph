@@ -219,4 +219,7 @@ export const getReleaseBySlug = (releaseSlug?: string) =>
 
 export const hasUnseenRelease = (lastSeenRelease?: string | null) => lastSeenRelease !== LATEST_RELEASE.slug;
 
+export const shouldResetReleaseScroll = (previousReleaseSlug: string | null, releaseSlug: string) =>
+  previousReleaseSlug !== null && previousReleaseSlug !== releaseSlug;
+
 export const WHATS_NEW_LAST_SEEN_STORAGE_KEY = "whats-new:last-seen-release";

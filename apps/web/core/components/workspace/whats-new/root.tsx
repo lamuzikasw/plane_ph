@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -30,6 +30,7 @@ import {
   getReleaseBySlug,
   LATEST_RELEASE,
   PRODUCT_RELEASES,
+  shouldResetReleaseScroll,
   type TReleaseAction,
   type TReleaseFeature,
   type TReleaseFeatureIcon,
@@ -52,6 +53,8 @@ const GANTT_COLUMNS = ["monday", "tuesday", "wednesday", "thursday", "friday"] a
 export function WorkspaceWhatsNewRoot() {
   const { releaseVersion, workspaceSlug } = useParams();
   const router = useRouter();
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
+  const previousReleaseSlugRef = useRef<string | null>(null);
   const workspaceSlugString = workspaceSlug?.toString() ?? "";
   const release = getReleaseBySlug(releaseVersion?.toString());
   const releaseIndex = PRODUCT_RELEASES.findIndex((item) => item.slug === release.slug);
@@ -68,10 +71,17 @@ export function WorkspaceWhatsNewRoot() {
     }
   }, [lastSeenRelease, markReleaseAsSeen, release.slug]);
 
+  useEffect(() => {
+    if (shouldResetReleaseScroll(previousReleaseSlugRef.current, release.slug)) {
+      pageRootRef.current?.scrollIntoView({ block: "start" });
+    }
+    previousReleaseSlugRef.current = release.slug;
+  }, [release.slug]);
+
   const getReleaseHref = (releaseSlug: string) => joinUrlPath(workspaceSlugString, `/whats-new/${releaseSlug}/`);
 
   return (
-    <div className="min-h-full bg-surface-1">
+    <div ref={pageRootRef} className="min-h-full bg-surface-1">
       <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-8 px-5 pt-6 pb-40 sm:px-8 sm:pt-8 sm:pb-40">
         <section
           className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
