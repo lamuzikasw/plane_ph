@@ -24,7 +24,15 @@ from rest_framework.response import Response
 # Module import
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers import ProjectLiteSerializer, WorkspaceLiteSerializer
-from plane.db.models import Issue, IssueActivity, IssueRelation, Project, StateGroup, Workspace, WorkspaceMember
+from plane.db.models import (
+    Issue,
+    IssueActivity,
+    IssueRelation,
+    Project,
+    StateGroup,
+    Workspace,
+    WorkspaceMember,
+)
 from plane.license.utils.instance_value import get_configuration_value
 from plane.utils.exception_logger import log_exception
 
@@ -289,7 +297,10 @@ class IgorChatEndpoint(BaseAPIView):
             )
 
         base_queryset = (
-            Issue.issue_objects.filter(workspace=workspace)
+            Issue.issue_objects.filter(
+                workspace=workspace,
+                project__in=self._accessible_projects(workspace, request.user),
+            )
             .select_related("workspace", "project", "state")
             .prefetch_related("assignees")
             .distinct()
@@ -422,7 +433,7 @@ class IgorChatEndpoint(BaseAPIView):
         return limit, offset
 
     def _resolve_query_context(self, message, workspace, user, history, request_context):
-        projects = list(Project.objects.filter(workspace=workspace, archived_at__isnull=True).order_by("name"))
+        projects = list(self._accessible_projects(workspace, user).order_by("name"))
         memberships = list(WorkspaceMember.objects.filter(workspace=workspace, is_active=True).select_related("member"))
         members = [membership.member for membership in memberships]
 
@@ -484,6 +495,22 @@ class IgorChatEndpoint(BaseAPIView):
             "project": project,
             "llm_plan": llm_plan,
         }
+
+    def _accessible_projects(self, workspace, user):
+        """Keep Igor inside the same project boundary as the requesting user."""
+        projects = Project.objects.filter(workspace=workspace, archived_at__isnull=True)
+        is_workspace_admin = WorkspaceMember.objects.filter(
+            workspace=workspace,
+            member=user,
+            is_active=True,
+            role=ROLE.ADMIN.value,
+        ).exists()
+        if is_workspace_admin:
+            return projects
+        return projects.filter(
+            project_projectmember__member=user,
+            project_projectmember__is_active=True,
+        ).distinct()
 
     def _detect_intent(self, message):
         text = message.lower()
@@ -1003,7 +1030,10 @@ class IgorChatEndpoint(BaseAPIView):
         open_groups = [StateGroup.BACKLOG.value, StateGroup.UNSTARTED.value, StateGroup.STARTED.value]
 
         project_scope = (
-            Issue.issue_objects.filter(workspace=workspace)
+            Issue.issue_objects.filter(
+                workspace=workspace,
+                project__in=self._accessible_projects(workspace, user),
+            )
             .select_related("workspace", "project", "state")
             .prefetch_related("assignees")
             .distinct()
@@ -1090,6 +1120,7 @@ class IgorChatEndpoint(BaseAPIView):
 
         blocked_issue_ids = IssueRelation.objects.filter(
             workspace=workspace,
+            issue__project__in=self._accessible_projects(workspace, user),
             relation_type="blocked_by",
             issue__state__group__in=open_groups,
         ).values("issue_id")

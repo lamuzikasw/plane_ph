@@ -8,7 +8,16 @@ import pytest
 from django.utils import timezone
 
 from plane.app.views.external.base import IgorChatEndpoint
-from plane.db.models import Issue, IssueActivity, IssueAssignee, IssueRelation, Project, State, WorkspaceMember
+from plane.db.models import (
+    Issue,
+    IssueActivity,
+    IssueAssignee,
+    IssueRelation,
+    Project,
+    ProjectMember,
+    State,
+    WorkspaceMember,
+)
 from plane.tests.factories import UserFactory, WorkspaceFactory
 
 
@@ -206,3 +215,83 @@ def test_weekly_summary_collects_facts_and_produces_copyable_report():
     assert "Срок перенесён" in result["widget"]["copy_text"]
     assert "External dependency" not in result["widget"]["copy_text"]
     assert result["widget"]["source_note"]
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_weekly_summary_does_not_expose_projects_unavailable_to_member():
+    owner = UserFactory(email="summary-admin@plane.so", username="summary-admin@plane.so")
+    member = UserFactory(email="summary-regular@plane.so", username="summary-regular@plane.so")
+    workspace = WorkspaceFactory(slug="igor-summary-access", owner=owner, timezone="UTC")
+    WorkspaceMember.objects.create(workspace=workspace, member=owner, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=member, role=15)
+
+    accessible_project = Project.objects.create(
+        workspace=workspace,
+        name="Accessible Summary Project",
+        identifier="ACC",
+        network=0,
+        project_lead=owner,
+    )
+    private_project = Project.objects.create(
+        workspace=workspace,
+        name="Restricted Summary Project",
+        identifier="SEC",
+        network=0,
+        project_lead=owner,
+    )
+    ProjectMember.objects.create(
+        workspace=workspace,
+        project=accessible_project,
+        member=member,
+        role=15,
+    )
+
+    accessible_done = State.objects.create(
+        workspace=workspace,
+        project=accessible_project,
+        name="Done",
+        color="#46A758",
+        group="completed",
+    )
+    private_done = State.objects.create(
+        workspace=workspace,
+        project=private_project,
+        name="Done",
+        color="#46A758",
+        group="completed",
+    )
+    now = timezone.now()
+    visible_issue = Issue.objects.create(
+        workspace=workspace,
+        project=accessible_project,
+        state=accessible_done,
+        name="Visible weekly result",
+    )
+    restricted_issue = Issue.objects.create(
+        workspace=workspace,
+        project=private_project,
+        state=private_done,
+        name="Restricted weekly result",
+    )
+    for issue in [visible_issue, restricted_issue]:
+        IssueAssignee.objects.create(workspace=workspace, project=issue.project, issue=issue, assignee=member)
+
+    result = IgorChatEndpoint()._build_weekly_summary(
+        workspace,
+        {
+            "intent": "weekly_summary",
+            "period_start": now - timedelta(days=1),
+            "period_end": now + timedelta(days=1),
+            "period_label": "тестовая неделя",
+            "member": member,
+            "project": None,
+        },
+        member,
+    )
+
+    metrics = {metric["key"]: metric["value"] for metric in result["widget"]["metrics"]}
+    assert metrics["completed"] == 1
+    assert "Visible weekly result" in result["widget"]["copy_text"]
+    assert "Restricted weekly result" not in result["widget"]["copy_text"]
+    assert list(IgorChatEndpoint()._accessible_projects(workspace, member)) == [accessible_project]
