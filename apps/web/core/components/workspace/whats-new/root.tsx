@@ -72,7 +72,7 @@ export function WorkspaceWhatsNewRoot() {
 
   return (
     <div className="min-h-full bg-surface-1">
-      <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-8 px-5 py-6 sm:px-8 sm:py-8">
+      <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-8 px-5 pt-6 pb-24 sm:px-8 sm:pt-8 sm:pb-24">
         <section
           className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
           aria-label="История обновлений"
