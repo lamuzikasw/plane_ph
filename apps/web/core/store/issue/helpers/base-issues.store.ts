@@ -622,8 +622,8 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
         link_count: movedIssueResponse.link_count ?? 0,
       } as TIssue;
 
-      this.rootIssueStore.issues.addIssue([movedIssue]);
       if (issueBeforeMove?.project_id === projectId) this.removeIssueFromList(issueId);
+      this.rootIssueStore.issues.addIssue([movedIssue]);
 
       this.fetchParentStats(workspaceSlug, projectId);
       this.rootIssueStore.rootStore.projectRoot.project.fetchProjectDetails(workspaceSlug, data.project_id);
