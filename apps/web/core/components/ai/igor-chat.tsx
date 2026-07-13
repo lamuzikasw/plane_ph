@@ -6,7 +6,7 @@
 
 import type { KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Loader2, MessageCircle, Send, Sparkles, X } from "lucide-react";
+import { Check, Copy, ExternalLink, Loader2, MessageCircle, Send, Sparkles, X } from "lucide-react";
 import { Link } from "react-router";
 // plane imports
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
@@ -19,6 +19,7 @@ import {
   type TIgorChatHistoryItem,
   type TIgorChatResponse,
   type TIgorChatWorkItem,
+  type TIgorWeeklySummaryWidget as TIgorWeeklySummaryWidgetData,
 } from "@/services/ai.service";
 
 type TIgorMessage = {
@@ -40,11 +41,10 @@ type Props = {
 const aiService = new AIService();
 
 const INITIAL_SUGGESTIONS = [
-  "Привет, как дела?",
+  "Собери мой summary за прошлую неделю",
+  "Что я делал на прошлой неделе?",
+  "Подготовь отчёт руководителю по моим задачам",
   "Что сделал Danila Kuzovatov за прошлую неделю?",
-  "Покажи просроченные задачи",
-  "Какие задачи сейчас заблокированы?",
-  "Что у меня на сегодня?",
 ];
 
 const stateLabels: Record<string, string> = {
@@ -73,7 +73,7 @@ export function IgorChat({ workspaceSlug }: Props) {
     {
       id: "welcome",
       role: "assistant",
-      text: "Привет, я Игорь. Могу быстро собрать задачи, дедлайны, блокеры и статус по сотрудникам.",
+      text: "Привет, я Игорь. Соберу итоги недели из задач и истории Plane: что завершено, что продвинулось, где менялись сроки и что остаётся заблокированным.",
     },
   ]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -212,19 +212,27 @@ export function IgorChat({ workspaceSlug }: Props) {
                     )}
                   >
                     <p className="whitespace-pre-wrap">{message.text}</p>
-                    {message.response?.widgets?.map((widget) => (
-                      <IgorWorkItemWidget
-                        key={`${message.id}-${widget.type}-${widget.title}`}
-                        title={widget.title}
-                        items={widget.items}
-                        total={widget.total}
-                        limit={widget.limit}
-                        hasMore={widget.has_more}
-                        nextOffset={widget.next_offset}
-                        workspaceSlug={workspaceSlug}
-                        request={message.request}
-                      />
-                    ))}
+                    {message.response?.widgets?.map((widget) =>
+                      widget.type === "weekly_summary" ? (
+                        <IgorWeeklySummaryWidget
+                          key={`${message.id}-${widget.type}-${widget.title}`}
+                          widget={widget}
+                          workspaceSlug={workspaceSlug}
+                        />
+                      ) : (
+                        <IgorWorkItemWidget
+                          key={`${message.id}-${widget.type}-${widget.title}`}
+                          title={widget.title}
+                          items={widget.items}
+                          total={widget.total}
+                          limit={widget.limit}
+                          hasMore={widget.has_more}
+                          nextOffset={widget.next_offset}
+                          workspaceSlug={workspaceSlug}
+                          request={message.request}
+                        />
+                      )
+                    )}
                   </div>
                 </div>
               ))}
@@ -232,7 +240,7 @@ export function IgorChat({ workspaceSlug }: Props) {
                 <div className="flex justify-start">
                   <div className="text-sm flex items-center gap-2 rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-secondary">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Игорь смотрит задачи...
+                    Игорь собирает факты из задач...
                   </div>
                 </div>
               )}
@@ -260,7 +268,7 @@ export function IgorChat({ workspaceSlug }: Props) {
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Спроси Игоря про задачи, сроки или сотрудника"
+                placeholder="Например: собери мой summary за прошлую неделю"
                 rows={2}
                 className="text-sm max-h-28 min-h-10 flex-1 resize-none bg-transparent px-1 py-1 text-primary outline-none placeholder:text-tertiary"
               />
@@ -278,6 +286,132 @@ export function IgorChat({ workspaceSlug }: Props) {
         </section>
       )}
     </>
+  );
+}
+
+function IgorWeeklySummaryWidget({
+  widget,
+  workspaceSlug,
+}: {
+  widget: TIgorWeeklySummaryWidgetData;
+  workspaceSlug: string;
+}) {
+  const [isCopied, setIsCopied] = useState(false);
+
+  const copySummary = async () => {
+    try {
+      await navigator.clipboard.writeText(widget.copy_text);
+      setIsCopied(true);
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: "Summary скопирован",
+        message: "Отчёт можно отправить руководителю.",
+      });
+      window.setTimeout(() => setIsCopied(false), 1800);
+    } catch {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Не удалось скопировать",
+        message: "Выдели текст отчёта и скопируй его вручную.",
+      });
+    }
+  };
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-md border border-subtle bg-surface-1">
+      <div className="border-b border-subtle px-3 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-primary">{widget.title}</div>
+            <div className="text-xs mt-0.5 text-secondary">{widget.period_range}</div>
+          </div>
+          <button
+            type="button"
+            onClick={copySummary}
+            className="text-xs hover:border-custom-primary-100/40 hover:text-custom-primary-100 flex shrink-0 items-center gap-1.5 rounded border border-subtle px-2 py-1.5 font-medium text-secondary transition"
+          >
+            {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {isCopied ? "Готово" : "Копировать"}
+          </button>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {widget.metrics.map((metric, index) => (
+            <div
+              key={metric.key}
+              className={cn(
+                "rounded border border-subtle bg-surface-2 px-2.5 py-2",
+                index === widget.metrics.length - 1 && widget.metrics.length % 2 === 1 && "col-span-2"
+              )}
+            >
+              <div className="text-base font-semibold text-primary">{metric.value}</div>
+              <div className="text-xs text-secondary">{metric.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="divide-y divide-subtle">
+        {widget.sections.map((section) => (
+          <details
+            key={section.key}
+            open={section.key === "completed" || section.key === "blocked" || section.key === "next_week"}
+            className="group"
+          >
+            <summary className="cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-primary">{section.title}</span>
+                <span className="text-xs rounded-full bg-surface-2 px-2 py-0.5 text-secondary">{section.total}</span>
+              </div>
+              <p className="text-xs mt-1 text-tertiary">{section.description}</p>
+            </summary>
+
+            <div className="border-t border-subtle bg-surface-2/40">
+              {section.items.length === 0 ? (
+                <div className="text-xs px-3 py-3 text-tertiary">{section.empty_text}</div>
+              ) : (
+                <>
+                  {section.items.map((item) => {
+                    const workItemLink = generateWorkItemLink({
+                      workspaceSlug,
+                      projectId: item.project_id,
+                      issueId: item.id,
+                      projectIdentifier: item.project_identifier,
+                      sequenceId: item.sequence_id,
+                    });
+
+                    return (
+                      <Link
+                        key={`${section.key}-${item.id}`}
+                        to={workItemLink}
+                        className="group/item flex gap-2.5 border-b border-subtle px-3 py-2.5 last:border-b-0 hover:bg-surface-2"
+                      >
+                        <div className="bg-custom-primary-100 mt-1.5 h-2 w-2 shrink-0 rounded-full" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs text-tertiary">
+                            {item.project_identifier}-{item.sequence_id} · {item.project_name}
+                          </div>
+                          <div className="text-xs mt-0.5 line-clamp-2 font-medium text-primary">{item.name}</div>
+                          {item.note && <div className="text-xs mt-1 text-secondary">{item.note}</div>}
+                        </div>
+                        <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-tertiary opacity-0 transition group-hover/item:opacity-100" />
+                      </Link>
+                    );
+                  })}
+                  {section.total > section.items.length && (
+                    <div className="text-xs px-3 py-2 text-tertiary">
+                      В отчёте показано {section.items.length} из {section.total} задач.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </details>
+        ))}
+      </div>
+
+      <div className="text-xs border-t border-subtle px-3 py-2.5 leading-4 text-tertiary">{widget.source_note}</div>
+    </div>
   );
 }
 

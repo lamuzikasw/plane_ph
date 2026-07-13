@@ -24,7 +24,7 @@ from rest_framework.response import Response
 # Module import
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers import ProjectLiteSerializer, WorkspaceLiteSerializer
-from plane.db.models import Issue, IssueRelation, Project, StateGroup, Workspace, WorkspaceMember
+from plane.db.models import Issue, IssueActivity, IssueRelation, Project, StateGroup, Workspace, WorkspaceMember
 from plane.license.utils.instance_value import get_configuration_value
 from plane.utils.exception_logger import log_exception
 
@@ -222,9 +222,20 @@ class WorkspaceGPTIntegrationEndpoint(BaseAPIView):
 
 class IgorChatEndpoint(BaseAPIView):
     assistant_name = "Игорь"
-    allowed_intents = {"conversation", "overview", "completed", "overdue", "blocked", "today", "active", "unassigned"}
+    allowed_intents = {
+        "conversation",
+        "overview",
+        "completed",
+        "overdue",
+        "blocked",
+        "today",
+        "active",
+        "unassigned",
+        "weekly_summary",
+    }
     default_limit = 12
     max_limit = 25
+    summary_item_limit = 20
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
@@ -288,6 +299,29 @@ class IgorChatEndpoint(BaseAPIView):
             base_queryset = base_queryset.filter(assignees=member)
         if project:
             base_queryset = base_queryset.filter(project=project)
+
+        if intent == "weekly_summary":
+            summary = self._build_weekly_summary(workspace, query_context, request.user)
+            return Response(
+                {
+                    "assistant": self.assistant_name,
+                    "intent": intent,
+                    "answer": summary["answer"],
+                    "period": {
+                        "label": period_label,
+                        "start": period_start.isoformat() if period_start else None,
+                        "end": period_end.isoformat() if period_end else None,
+                    },
+                    "context": self._response_context(query_context),
+                    "widgets": [summary["widget"]],
+                    "suggestions": [
+                        "Собери мой summary за текущую неделю",
+                        "Покажи завершённые задачи из отчёта",
+                        "Какие задачи сейчас заблокированы?",
+                    ],
+                },
+                status=status.HTTP_200_OK,
+            )
 
         issues_queryset = self._issues_for_intent(intent, base_queryset, workspace, period_start, period_end)
         total = issues_queryset.count()
@@ -395,12 +429,18 @@ class IgorChatEndpoint(BaseAPIView):
         last_context = request_context or self._last_context(history)
         fallback_project = self._detect_project(message, projects)
         fallback_member = self._detect_member(message, members, user)
-        should_plan = self._looks_like_work(message) or fallback_project or fallback_member or self._is_follow_up(message, history)
+        summary_requested = self._detect_weekly_summary_intent(message)
+        should_plan = (
+            self._looks_like_work(message)
+            or fallback_project
+            or fallback_member
+            or self._is_follow_up(message, history)
+        )
         llm_plan = self._get_llm_work_plan(message, history, projects, members) if should_plan else {}
 
-        intent = self._plan_intent(llm_plan) or self._detect_intent(message)
-        project = self._project_from_plan(llm_plan, projects) or fallback_project
-        member = self._member_from_plan(llm_plan, members) or fallback_member
+        intent = "weekly_summary" if summary_requested else self._plan_intent(llm_plan) or self._detect_intent(message)
+        project = fallback_project or self._project_from_plan(llm_plan, projects)
+        member = fallback_member or self._member_from_plan(llm_plan, members)
 
         if not project and self._is_follow_up(message, history):
             project = self._project_from_context(last_context, projects)
@@ -425,7 +465,12 @@ class IgorChatEndpoint(BaseAPIView):
         elif intent == "conversation":
             intent = "overview"
 
+        if intent == "weekly_summary":
+            member = None if self._summary_scope_is_team(message) else member or user
+
         period_key = self._plan_period(llm_plan)
+        if intent == "weekly_summary" and not self._has_explicit_period_direction(message):
+            period_key = "last_week"
         period_start, period_end, period_label = self._detect_period(message, user, period_key)
         if request_context and not self._period_was_requested(message) and request_context.get("period_start"):
             period_start, period_end, period_label = self._period_from_context(request_context, period_start, period_end, period_label)
@@ -444,6 +489,8 @@ class IgorChatEndpoint(BaseAPIView):
         text = message.lower()
         if not self._looks_like_work(message):
             return "conversation"
+        if self._detect_weekly_summary_intent(message):
+            return "weekly_summary"
         if any(word in text for word in ["сделал", "сделала", "закрыл", "закрыла", "завершил", "завершила", "completed", "done"]):
             return "completed"
         if any(word in text for word in ["просроч", "дедлайн прош", "overdue"]):
@@ -457,6 +504,99 @@ class IgorChatEndpoint(BaseAPIView):
         if any(word in text for word in ["без исполнителя", "без ответственного", "unassigned"]):
             return "unassigned"
         return "overview"
+
+    def _detect_weekly_summary_intent(self, message):
+        """Recognize a weekly work report without relying on an external LLM."""
+        text = self._normalize_search(message)
+        summary_markers = [
+            "summary",
+            "саммари",
+            "report",
+            "recap",
+            "отчет",
+            "итоги",
+            "резюме",
+            "сводк",
+            "дайджест",
+            "апдейт",
+            "weekly update",
+            "недельный update",
+            "статус для руковод",
+            "отчит",
+            "результат",
+        ]
+        report_context_markers = [
+            "руководител",
+            "начальств",
+            "отправить руковод",
+            "отправить началь",
+            "пятничный отчет",
+            "рабочая неделя",
+            "for my manager",
+            "for the manager",
+        ]
+        work_result_markers = [
+            "что я делал",
+            "что я делала",
+            "что я сделал",
+            "что я сделала",
+            "что сделал",
+            "что сделала",
+            "что делал",
+            "что делала",
+            "что было сделано",
+            "что успел",
+            "что успела",
+            "что мы сделали",
+            "как прошла моя",
+            "подведи итоги",
+            "собери выполненное",
+            "what did i do",
+            "what was done",
+        ]
+        week_markers = ["недел", "7 дней", "weekly", "пятнич", "last week", "this week"]
+
+        has_summary_marker = any(marker in text for marker in summary_markers)
+        has_report_context = any(marker in text for marker in report_context_markers)
+        has_work_results = any(marker in text for marker in work_result_markers)
+        has_week = any(marker in text for marker in week_markers)
+        return (has_week and (has_summary_marker or has_work_results)) or has_report_context or (
+            has_summary_marker and any(marker in text for marker in ["моей работ", "моим задач", "по задач", "команд"])
+        )
+
+    def _summary_scope_is_team(self, message):
+        text = self._normalize_search(message)
+        team_markers = [
+            "по команде",
+            "командный",
+            "всей команды",
+            "нашей команды",
+            "все сотрудники",
+            "всех сотрудников",
+            "по всем",
+            "для всех",
+            "всех разработчиков",
+            "всего отдела",
+            "по отделу",
+            "общий отчет",
+        ]
+        return any(marker in text for marker in team_markers)
+
+    def _has_explicit_period_direction(self, message):
+        text = self._normalize_search(message)
+        markers = [
+            "прошл",
+            "предыдущ",
+            "последние 7",
+            "последних 7",
+            "эта неделя",
+            "этой неделе",
+            "текущ",
+            "с понедельника",
+            "last week",
+            "this week",
+        ]
+        return any(marker in text for marker in markers)
 
     def _looks_like_work(self, message):
         text = self._normalize_search(message)
@@ -490,6 +630,22 @@ class IgorChatEndpoint(BaseAPIView):
             "timeline",
             "что по",
             "кто чем",
+            "summary",
+            "саммари",
+            "report",
+            "recap",
+            "отчет",
+            "итоги",
+            "резюме",
+            "сводк",
+            "дайджест",
+            "апдейт",
+            "weekly",
+            "рабочая неделя",
+            "пятнич",
+            "результат",
+            "руководител",
+            "начальств",
         ]
         return any(word in text for word in work_words)
 
@@ -506,6 +662,11 @@ class IgorChatEndpoint(BaseAPIView):
         now = timezone.localtime(timezone.now(), user_tz)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         current_week_start = today_start - timedelta(days=today_start.weekday())
+
+        if period_key == "last_7_days" or any(phrase in text for phrase in ["последние 7 дней", "последних 7 дней"]):
+            start = today_start - timedelta(days=6)
+            end = today_start + timedelta(days=1) - timedelta(microseconds=1)
+            return start.astimezone(pytz.UTC), end.astimezone(pytz.UTC), "последние 7 дней"
 
         if period_key == "last_week" or any(phrase in text for phrase in ["прошлую неделю", "прошлой неделе", "предыдущую неделю", "last week"]):
             start = current_week_start - timedelta(days=7)
@@ -532,7 +693,9 @@ class IgorChatEndpoint(BaseAPIView):
             end = today_start + timedelta(days=7) - timedelta(microseconds=1)
             return start.astimezone(pytz.UTC), end.astimezone(pytz.UTC), "ближайшие 7 дней"
 
-        if period_key == "current_week" or any(phrase in text for phrase in ["эта неделя", "текущая неделя", "this week"]):
+        if period_key == "current_week" or any(
+            phrase in text for phrase in ["эта неделя", "этой неделе", "текущая неделя", "с понедельника", "this week"]
+        ):
             start = current_week_start
             end = current_week_start + timedelta(days=7) - timedelta(microseconds=1)
             return start.astimezone(pytz.UTC), end.astimezone(pytz.UTC), "текущая неделя"
@@ -575,7 +738,25 @@ class IgorChatEndpoint(BaseAPIView):
 
     def _detect_member(self, message, members, user):
         text = message.lower()
-        if any(word in text for word in ["у меня", "мои ", "мною", "я сделал", "я закры"]):
+        if any(
+            word in text
+            for word in [
+                "у меня",
+                "мои ",
+                "моим ",
+                "моих ",
+                "мою ",
+                "моя ",
+                "моей ",
+                "мною",
+                "я сделал",
+                "я сделала",
+                "я делал",
+                "я делала",
+                "я закрыл",
+                "я закрыла",
+            ]
+        ):
             return user
 
         best_member = None
@@ -623,7 +804,20 @@ class IgorChatEndpoint(BaseAPIView):
         follow_up_markers = ("а ", "и ", "теперь", "только ", "ещё ", "еще ", "за ", "по ")
         if text.startswith(follow_up_markers):
             return True
-        follow_up_words = ["просроч", "блок", "актив", "заверш", "сегодня", "вчера", "недел", "срок", "дедлайн"]
+        follow_up_words = [
+            "просроч",
+            "блок",
+            "актив",
+            "заверш",
+            "сегодня",
+            "вчера",
+            "недел",
+            "срок",
+            "дедлайн",
+            "отчет",
+            "summary",
+            "саммари",
+        ]
         if len(text.split()) <= 4 and any(word in text for word in follow_up_words) and any(item.get("context") for item in history):
             return True
         return False
@@ -641,7 +835,11 @@ class IgorChatEndpoint(BaseAPIView):
         if not isinstance(plan, dict):
             return None
         period = plan.get("period")
-        return period if period in ["current_week", "last_week", "today", "yesterday", "tomorrow", "next_7_days"] else None
+        return (
+            period
+            if period in ["current_week", "last_week", "last_7_days", "today", "yesterday", "tomorrow", "next_7_days"]
+            else None
+        )
 
     def _project_from_plan(self, plan, projects):
         if not isinstance(plan, dict):
@@ -794,6 +992,325 @@ class IgorChatEndpoint(BaseAPIView):
                             score = max(score, int(ratio * 8))
                     best_score = max(best_score, score)
         return best_score
+
+    def _build_weekly_summary(self, workspace, query_context, user):
+        period_start = query_context["period_start"]
+        period_end = query_context["period_end"]
+        period_label = query_context["period_label"]
+        member = query_context["member"]
+        project = query_context["project"]
+        user_tz = self._user_timezone(user)
+        open_groups = [StateGroup.BACKLOG.value, StateGroup.UNSTARTED.value, StateGroup.STARTED.value]
+
+        project_scope = (
+            Issue.issue_objects.filter(workspace=workspace)
+            .select_related("workspace", "project", "state")
+            .prefetch_related("assignees")
+            .distinct()
+        )
+        if project:
+            project_scope = project_scope.filter(project=project)
+
+        assigned_scope = project_scope.filter(assignees=member).distinct() if member else project_scope
+        activity_scope = IssueActivity.objects.filter(
+            workspace=workspace,
+            issue__isnull=False,
+            created_at__gte=period_start,
+            created_at__lte=period_end,
+        )
+        if project:
+            activity_scope = activity_scope.filter(issue__project=project)
+        if member:
+            activity_scope = activity_scope.filter(actor=member)
+
+        meaningful_activity = activity_scope.exclude(field="sort_order")
+        touched_issue_ids = meaningful_activity.values_list("issue_id", flat=True).distinct()
+        progress_activity = activity_scope.filter(
+            Q(verb="created")
+            | Q(
+                field__in=[
+                    "state",
+                    "description",
+                    "comment",
+                    "attachment",
+                    "link",
+                    "name",
+                    "modules",
+                    "cycles",
+                    "parent",
+                    "issue",
+                ]
+            )
+            | Q(field__startswith="estimate_")
+        )
+        progressed_issue_ids = progress_activity.values_list("issue_id", flat=True).distinct()
+        report_scope = (
+            project_scope.filter(Q(assignees=member) | Q(id__in=touched_issue_ids)).distinct()
+            if member
+            else project_scope
+        )
+        completion_scope = (
+            project_scope.filter(Q(assignees=member) | Q(id__in=progressed_issue_ids)).distinct()
+            if member
+            else project_scope
+        )
+
+        completed_queryset = completion_scope.filter(
+            state__group=StateGroup.COMPLETED.value,
+            completed_at__gte=period_start,
+            completed_at__lte=period_end,
+        ).order_by("-completed_at", "-updated_at")
+        completed_ids = completed_queryset.values_list("id", flat=True)
+        progressed_queryset = (
+            report_scope.filter(id__in=progressed_issue_ids)
+            .exclude(id__in=completed_ids)
+            .order_by("-updated_at")
+            .distinct()
+        )
+
+        deadline_activity = (
+            IssueActivity.objects.filter(
+                workspace=workspace,
+                issue__in=report_scope,
+                field="target_date",
+                created_at__gte=period_start,
+                created_at__lte=period_end,
+            )
+            .select_related("issue", "issue__project", "issue__state")
+            .prefetch_related("issue__assignees")
+            .order_by("-created_at")
+        )
+        deadline_changes_total = deadline_activity.order_by().values("issue_id").distinct().count()
+        latest_deadline_change_by_issue = {}
+        for activity in deadline_activity:
+            if activity.issue_id not in latest_deadline_change_by_issue:
+                latest_deadline_change_by_issue[activity.issue_id] = activity
+            if len(latest_deadline_change_by_issue) >= self.summary_item_limit:
+                break
+
+        blocked_issue_ids = IssueRelation.objects.filter(
+            workspace=workspace,
+            relation_type="blocked_by",
+            issue__state__group__in=open_groups,
+        ).values("issue_id")
+        blocked_queryset = (
+            assigned_scope.filter(Q(id__in=blocked_issue_ids) | Q(blocked_issues__isnull=False))
+            .filter(state__group__in=open_groups)
+            .order_by("target_date", "-priority", "-updated_at")
+            .distinct()
+        )
+
+        next_period_start = period_end + timedelta(microseconds=1)
+        next_period_end = next_period_start + timedelta(days=7) - timedelta(microseconds=1)
+        next_week_queryset = assigned_scope.filter(
+            state__group__in=open_groups,
+            target_date__gte=next_period_start,
+            target_date__lte=next_period_end,
+        ).order_by("target_date", "-priority")
+
+        completed_total = completed_queryset.count()
+        progressed_total = progressed_queryset.count()
+        blocked_total = blocked_queryset.count()
+        next_week_total = next_week_queryset.count()
+
+        completed_items = [
+            self._serialize_issue(
+                issue,
+                note=f"Завершена {self._format_summary_date(issue.completed_at, user_tz)}" if issue.completed_at else "Завершена",
+            )
+            for issue in completed_queryset[: self.summary_item_limit]
+        ]
+        progressed_items = [
+            self._serialize_issue(issue, note="Была рабочая активность в выбранный период")
+            for issue in progressed_queryset[: self.summary_item_limit]
+        ]
+        deadline_items = [
+            self._serialize_issue(
+                activity.issue,
+                note=self._deadline_change_note(activity.old_value, activity.new_value, user_tz),
+            )
+            for activity in latest_deadline_change_by_issue.values()
+        ][: self.summary_item_limit]
+        blocked_items = [
+            self._serialize_issue(issue, note="Остаётся заблокированной на момент отчёта")
+            for issue in blocked_queryset[: self.summary_item_limit]
+        ]
+        next_week_items = [
+            self._serialize_issue(
+                issue,
+                note=f"Срок {self._format_summary_date(issue.target_date, user_tz)}" if issue.target_date else None,
+            )
+            for issue in next_week_queryset[: self.summary_item_limit]
+        ]
+
+        next_period_label = self._format_period_range(next_period_start, next_period_end, user_tz)
+        sections = [
+            {
+                "key": "completed",
+                "title": "Завершено",
+                "description": "Задачи, переведённые в Done за выбранный период.",
+                "empty_text": "Завершённых задач за этот период нет.",
+                "total": completed_total,
+                "items": completed_items,
+            },
+            {
+                "key": "progressed",
+                "title": "Продвинуто в работе",
+                "description": "Незавершённые задачи, в которых сотрудник оставлял рабочую активность.",
+                "empty_text": "Другой зафиксированной активности по задачам нет.",
+                "total": progressed_total,
+                "items": progressed_items,
+            },
+            {
+                "key": "deadline_changes",
+                "title": "Изменения сроков",
+                "description": "Последнее изменение дедлайна каждой затронутой задачи.",
+                "empty_text": "Сроки задач не менялись.",
+                "total": deadline_changes_total,
+                "items": deadline_items,
+            },
+            {
+                "key": "blocked",
+                "title": "Текущие блокеры",
+                "description": "Назначенные задачи, которые всё ещё заблокированы.",
+                "empty_text": "Активных блокеров нет.",
+                "total": blocked_total,
+                "items": blocked_items,
+            },
+            {
+                "key": "next_week",
+                "title": f"По плану · {next_period_label}",
+                "description": "Открытые задачи со сроком на следующую календарную неделю.",
+                "empty_text": "План не определён: открытых задач со сроком на эту неделю нет.",
+                "total": next_week_total,
+                "items": next_week_items,
+            },
+        ]
+
+        metrics = [
+            {"key": "completed", "label": "Завершено", "value": completed_total},
+            {"key": "progressed", "label": "В работе", "value": progressed_total},
+            {"key": "deadline_changes", "label": "Сроки менялись", "value": deadline_changes_total},
+            {"key": "blocked", "label": "Блокеры", "value": blocked_total},
+            {"key": "next_week", "label": "По плану", "value": next_week_total},
+        ]
+        scope_label = self._weekly_summary_scope_label(member, project)
+        period_range = self._format_period_range(period_start, period_end, user_tz)
+        title = f"Итоги недели · {scope_label}"
+        copy_text = self._weekly_summary_copy_text(title, period_range, metrics, sections)
+
+        if completed_total == 0 and progressed_total == 0:
+            answer = (
+                f"Собрал отчёт за {period_label} ({period_range}), но зафиксированной работы по задачам не нашёл. "
+                "Проверь исполнителя и период: Игорь не добавляет в summary то, чего нет в Plane."
+            )
+        else:
+            answer = (
+                f"Собрал готовый summary за {period_label}: завершено {completed_total}, "
+                f"ещё {progressed_total} задач продвигались в работе. "
+                f"Изменений сроков — {deadline_changes_total}, активных блокеров — {blocked_total}."
+            )
+
+        return {
+            "answer": answer,
+            "widget": {
+                "type": "weekly_summary",
+                "title": title,
+                "scope": scope_label,
+                "period_label": period_label,
+                "period_range": period_range,
+                "metrics": metrics,
+                "sections": sections,
+                "copy_text": copy_text,
+                "source_note": (
+                    "Отчёт собран из статусов, сроков, назначений, зависимостей и истории активности Plane. "
+                    "План включает только задачи с зафиксированным сроком."
+                ),
+            },
+        }
+
+    def _weekly_summary_scope_label(self, member, project):
+        member_name = self._member_name(member) if member else "команда"
+        return f"{member_name} · {project.name}" if project else member_name
+
+    def _weekly_summary_copy_text(self, title, period_range, metrics, sections):
+        metric_line = " · ".join(f'{metric["label"]}: {metric["value"]}' for metric in metrics)
+        lines = [title, f"Период: {period_range}", metric_line]
+
+        for section in sections:
+            lines.extend(["", f'{section["title"]} — {section["total"]}'])
+            if not section["items"]:
+                lines.append(section["empty_text"])
+                continue
+            for item in section["items"]:
+                key = f'{item["project_identifier"]}-{item["sequence_id"]}'
+                note = f' — {item["note"]}' if item.get("note") else ""
+                lines.append(f'- {key}: {item["name"]}{note}')
+            hidden_count = section["total"] - len(section["items"])
+            if hidden_count > 0:
+                lines.append(f"- Ещё задач: {hidden_count}")
+
+        return "\n".join(lines)
+
+    def _user_timezone(self, user):
+        tz_name = getattr(user, "user_timezone", None) or "Europe/Moscow"
+        if tz_name == "UTC":
+            tz_name = "Europe/Moscow"
+        try:
+            return pytz.timezone(tz_name)
+        except pytz.UnknownTimeZoneError:
+            return pytz.timezone("Europe/Moscow")
+
+    def _format_period_range(self, start, end, user_tz):
+        local_start = timezone.localtime(start, user_tz)
+        local_end = timezone.localtime(end, user_tz)
+        if local_start.year == local_end.year:
+            return f"{self._format_summary_date(local_start, user_tz, include_year=False)} — {self._format_summary_date(local_end, user_tz)}"
+        return f"{self._format_summary_date(local_start, user_tz)} — {self._format_summary_date(local_end, user_tz)}"
+
+    def _format_summary_date(self, value, user_tz, include_year=True):
+        if not value:
+            return "без даты"
+        if isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return value
+        if timezone.is_naive(value):
+            value = timezone.make_aware(value, user_tz)
+        local_value = timezone.localtime(value, user_tz)
+        months = [
+            "января",
+            "февраля",
+            "марта",
+            "апреля",
+            "мая",
+            "июня",
+            "июля",
+            "августа",
+            "сентября",
+            "октября",
+            "ноября",
+            "декабря",
+        ]
+        result = f"{local_value.day} {months[local_value.month - 1]}"
+        return f"{result} {local_value.year}" if include_year else result
+
+    def _deadline_change_note(self, old_value, new_value, user_tz):
+        old_label = self._format_summary_date(old_value, user_tz) if old_value else "без срока"
+        new_label = self._format_summary_date(new_value, user_tz) if new_value else "без срока"
+        if not old_value and new_value:
+            return f"Добавлен срок: {new_label}"
+        if old_value and not new_value:
+            return f"Срок снят: было {old_label}"
+
+        try:
+            old_date = datetime.fromisoformat(str(old_value).replace("Z", "+00:00"))
+            new_date = datetime.fromisoformat(str(new_value).replace("Z", "+00:00"))
+            action = "Срок перенесён" if new_date > old_date else "Срок приближен"
+        except (TypeError, ValueError):
+            action = "Срок изменён"
+        return f"{action}: {old_label} → {new_label}"
 
     def _issues_for_intent(self, intent, queryset, workspace, period_start, period_end):
         open_groups = [StateGroup.BACKLOG.value, StateGroup.UNSTARTED.value, StateGroup.STARTED.value]
@@ -958,11 +1475,15 @@ class IgorChatEndpoint(BaseAPIView):
                         "role": "system",
                         "content": (
                             "Ты классификатор запроса для AI-ассистента Plane. Верни только JSON. "
-                            "Поля: is_work_request boolean, intent one of conversation,overview,completed,overdue,blocked,today,active,unassigned, "
-                            "period one of none,current_week,last_week,today,yesterday,tomorrow,next_7_days, "
+                            "Поля: is_work_request boolean, intent one of conversation,overview,completed,overdue,blocked,today,active,unassigned,weekly_summary, "
+                            "period one of none,current_week,last_week,last_7_days,today,yesterday,tomorrow,next_7_days, "
                             "project_id string|null, project_hint string|null, member_id string|null, member_hint string|null. "
+                            "weekly_summary означает итоги работы, summary, сводку или отчёт руководителю за неделю: "
+                            "например 'что я делал на прошлой неделе', 'подготовь пятничный отчёт', "
+                            "'собери итоги по задачам' или 'дай weekly update'. "
                             "Проекты и сотрудники нужно выбирать только из списка. Если пользователь пишет кириллицей имя, "
-                            "например Данила, сопоставь с латиницей Danila. Не выдумывай id."
+                            "например Данила, сопоставь с латиницей Danila. Если сотрудник или проект не названы явно, "
+                            "верни для них null. Не выбирай случайный вариант и не выдумывай id."
                         ),
                     },
                     {
@@ -1115,8 +1636,8 @@ class IgorChatEndpoint(BaseAPIView):
             return ""
         return member.display_name or member.full_name or member.email or "сотрудника"
 
-    def _serialize_issue(self, issue):
-        return {
+    def _serialize_issue(self, issue, note=None):
+        payload = {
             "id": str(issue.id),
             "name": issue.name,
             "sequence_id": issue.sequence_id,
@@ -1139,6 +1660,9 @@ class IgorChatEndpoint(BaseAPIView):
                 for assignee in issue.assignees.all()
             ],
         }
+        if note:
+            payload["note"] = note
+        return payload
 
 
 class UnsplashEndpoint(BaseAPIView):

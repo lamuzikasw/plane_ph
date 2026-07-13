@@ -34,12 +34,51 @@ export type TIgorChatWorkItem = {
   start_date: string | null;
   target_date: string | null;
   completed_at: string | null;
+  note?: string;
   assignees: {
     id: string;
     name: string;
     email: string | null;
     avatar: string | null;
   }[];
+};
+
+export type TIgorWeeklySummaryMetric = {
+  key: "completed" | "progressed" | "deadline_changes" | "blocked" | "next_week";
+  label: string;
+  value: number;
+};
+
+export type TIgorWeeklySummarySection = {
+  key: TIgorWeeklySummaryMetric["key"];
+  title: string;
+  description: string;
+  empty_text: string;
+  total: number;
+  items: TIgorChatWorkItem[];
+};
+
+export type TIgorWorkItemsWidget = {
+  type: "work_items";
+  title: string;
+  items: TIgorChatWorkItem[];
+  total?: number;
+  limit?: number;
+  offset?: number;
+  has_more?: boolean;
+  next_offset?: number | null;
+};
+
+export type TIgorWeeklySummaryWidget = {
+  type: "weekly_summary";
+  title: string;
+  scope: string;
+  period_label: string;
+  period_range: string;
+  metrics: TIgorWeeklySummaryMetric[];
+  sections: TIgorWeeklySummarySection[];
+  copy_text: string;
+  source_note: string;
 };
 
 export type TIgorChatContext = {
@@ -69,16 +108,7 @@ export type TIgorChatResponse = {
     end: string | null;
   };
   context: TIgorChatContext;
-  widgets: {
-    type: "work_items";
-    title: string;
-    items: TIgorChatWorkItem[];
-    total?: number;
-    limit?: number;
-    offset?: number;
-    has_more?: boolean;
-    next_offset?: number | null;
-  }[];
+  widgets: (TIgorWorkItemsWidget | TIgorWeeklySummaryWidget)[];
   suggestions: string[];
 };
 
