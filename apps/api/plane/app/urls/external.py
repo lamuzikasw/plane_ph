@@ -6,7 +6,7 @@ from django.urls import path
 
 
 from plane.app.views import UnsplashEndpoint
-from plane.app.views import GPTIntegrationEndpoint, WorkspaceGPTIntegrationEndpoint
+from plane.app.views import GPTIntegrationEndpoint, IgorChatEndpoint, WorkspaceGPTIntegrationEndpoint
 
 
 urlpatterns = [
@@ -20,5 +20,10 @@ urlpatterns = [
         "workspaces/<str:slug>/ai-assistant/",
         WorkspaceGPTIntegrationEndpoint.as_view(),
         name="importer",
+    ),
+    path(
+        "workspaces/<str:slug>/igor-chat/",
+        IgorChatEndpoint.as_view(),
+        name="igor-chat",
     ),
 ]

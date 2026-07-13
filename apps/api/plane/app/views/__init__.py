@@ -189,6 +189,7 @@ from .analytic.management import (
 
 from .external.base import (
     GPTIntegrationEndpoint,
+    IgorChatEndpoint,
     UnsplashEndpoint,
     WorkspaceGPTIntegrationEndpoint,
 )

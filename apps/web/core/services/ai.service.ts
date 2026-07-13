@@ -21,6 +21,44 @@ export type TTaskPayload = {
   text_input: string;
 };
 
+export type TIgorChatWorkItem = {
+  id: string;
+  name: string;
+  sequence_id: number;
+  project_id: string;
+  project_name: string;
+  project_identifier: string;
+  state_name: string | null;
+  state_group: string | null;
+  priority: string;
+  start_date: string | null;
+  target_date: string | null;
+  completed_at: string | null;
+  assignees: {
+    id: string;
+    name: string;
+    email: string | null;
+    avatar: string | null;
+  }[];
+};
+
+export type TIgorChatResponse = {
+  assistant: string;
+  intent: string;
+  answer: string;
+  period: {
+    label: string;
+    start: string | null;
+    end: string | null;
+  };
+  widgets: {
+    type: "work_items";
+    title: string;
+    items: TIgorChatWorkItem[];
+  }[];
+  suggestions: string[];
+};
+
 export class AIService extends APIService {
   constructor() {
     super(API_BASE_URL);
@@ -28,6 +66,14 @@ export class AIService extends APIService {
 
   async createGptTask(workspaceSlug: string, data: { prompt: string; task: string }): Promise<any> {
     return this.post(`/api/workspaces/${workspaceSlug}/ai-assistant/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response;
+      });
+  }
+
+  async askIgor(workspaceSlug: string, data: { message: string }): Promise<TIgorChatResponse> {
+    return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, data)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response;
