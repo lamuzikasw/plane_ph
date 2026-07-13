@@ -5,7 +5,58 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { PATCH_1_0 } from "./release-data";
+import {
+  getReleaseBySlug,
+  hasUnseenRelease,
+  LATEST_RELEASE,
+  PATCH_1_0,
+  PATCH_1_1,
+  PRODUCT_RELEASES,
+  WHATS_NEW_LAST_SEEN_STORAGE_KEY,
+} from "./release-data";
+
+describe("release archive", () => {
+  it("keeps the newest release first and resolves release URLs", () => {
+    expect(PRODUCT_RELEASES.map((release) => release.slug)).toEqual(["1-1", "1-0"]);
+    expect(LATEST_RELEASE).toBe(PATCH_1_1);
+    expect(getReleaseBySlug("1-0")).toBe(PATCH_1_0);
+    expect(getReleaseBySlug("unknown")).toBe(PATCH_1_1);
+  });
+
+  it("uses one browser-wide marker for the application release", () => {
+    expect(WHATS_NEW_LAST_SEEN_STORAGE_KEY).toBe("whats-new:last-seen-release");
+  });
+
+  it("shows the indicator until the latest release has been viewed", () => {
+    expect(hasUnseenRelease(null)).toBe(true);
+    expect(hasUnseenRelease("1-0")).toBe(true);
+    expect(hasUnseenRelease("1-1")).toBe(false);
+  });
+});
+
+describe("patch 1.1 release content", () => {
+  it("covers Igor, cross-project relations, performance, and reliability", () => {
+    expect(PATCH_1_1.features.map((feature) => feature.id)).toEqual(["igor", "relations", "performance", "updates"]);
+
+    const releaseText = PATCH_1_1.features
+      .flatMap((feature) => [feature.title, feature.description, ...feature.highlights])
+      .join(" ");
+
+    expect(releaseText).toContain("Игорь");
+    expect(releaseText).toContain("всем проектам");
+    expect(releaseText).toContain("79%");
+    expect(releaseText).toContain("синий индикатор");
+    expect(releaseText).toContain("Kanban-доске");
+  });
+
+  it("gives every feature a useful action and three concise highlights", () => {
+    for (const feature of PATCH_1_1.features) {
+      expect(feature.action.href || feature.action.event).toBeTruthy();
+      expect(feature.action.label.length).toBeGreaterThan(0);
+      expect(feature.highlights).toHaveLength(3);
+    }
+  });
+});
 
 describe("patch 1.0 release content", () => {
   it("covers every user-facing area from the changelog", () => {
@@ -26,8 +77,8 @@ describe("patch 1.0 release content", () => {
 
   it("gives every feature a useful destination and concise highlights", () => {
     for (const feature of PATCH_1_0.features) {
-      expect(feature.href).toMatch(/^\//);
-      expect(feature.actionLabel.length).toBeGreaterThan(0);
+      expect(feature.action.href).toMatch(/^\//);
+      expect(feature.action.label.length).toBeGreaterThan(0);
       expect(feature.highlights).toHaveLength(3);
     }
   });

@@ -4,37 +4,134 @@
  * See the LICENSE file for details.
  */
 
+import { useEffect } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
+  Activity,
+  ArrowLeft,
   ArrowRight,
   ArrowRightLeft,
   BarChart3,
+  Bot,
   CalendarCheck,
   CalendarRange,
   Check,
+  Gauge,
+  Link2,
+  Megaphone,
+  Send,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
-import { joinUrlPath } from "@plane/utils";
-import { PATCH_1_0, type TReleaseFeature, type TReleaseFeatureIcon } from "./release-data";
+import { cn, joinUrlPath } from "@plane/utils";
+import useLocalStorage from "@/hooks/use-local-storage";
+import {
+  getReleaseBySlug,
+  LATEST_RELEASE,
+  PRODUCT_RELEASES,
+  type TReleaseAction,
+  type TReleaseFeature,
+  type TReleaseFeatureIcon,
+  WHATS_NEW_LAST_SEEN_STORAGE_KEY,
+} from "./release-data";
 
 const FEATURE_ICONS: Record<TReleaseFeatureIcon, LucideIcon> = {
+  ai: Bot,
   analytics: BarChart3,
+  performance: Gauge,
   planning: CalendarRange,
+  relations: Link2,
   tasks: ArrowRightLeft,
   today: CalendarCheck,
+  updates: Megaphone,
 };
 
 const GANTT_COLUMNS = ["monday", "tuesday", "wednesday", "thursday", "friday"] as const;
 
 export function WorkspaceWhatsNewRoot() {
-  const { workspaceSlug } = useParams();
+  const { releaseVersion, workspaceSlug } = useParams();
+  const router = useRouter();
   const workspaceSlugString = workspaceSlug?.toString() ?? "";
-  const release = PATCH_1_0;
+  const release = getReleaseBySlug(releaseVersion?.toString());
+  const releaseIndex = PRODUCT_RELEASES.findIndex((item) => item.slug === release.slug);
+  const olderRelease = PRODUCT_RELEASES[releaseIndex + 1];
+  const newerRelease = PRODUCT_RELEASES[releaseIndex - 1];
+  const { setValue: markReleaseAsSeen, storedValue: lastSeenRelease } = useLocalStorage<string | null>(
+    WHATS_NEW_LAST_SEEN_STORAGE_KEY,
+    null
+  );
+
+  useEffect(() => {
+    if (release.slug === LATEST_RELEASE.slug && lastSeenRelease !== LATEST_RELEASE.slug) {
+      markReleaseAsSeen(LATEST_RELEASE.slug);
+    }
+  }, [lastSeenRelease, markReleaseAsSeen, release.slug]);
+
+  const getReleaseHref = (releaseSlug: string) => joinUrlPath(workspaceSlugString, `/whats-new/${releaseSlug}/`);
 
   return (
     <div className="min-h-full bg-surface-1">
       <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-8 px-5 py-6 sm:px-8 sm:py-8">
+        <section
+          className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
+          aria-label="История обновлений"
+        >
+          <div>
+            <p className="text-11 font-semibold tracking-wide text-accent-primary uppercase">История обновлений</p>
+            <p className="mt-1 text-13 text-secondary">
+              Выберите патч, чтобы посмотреть изменения и новые возможности.
+            </p>
+          </div>
+
+          <div className="sm:hidden">
+            <label htmlFor="release-version" className="sr-only">
+              Выберите патч
+            </label>
+            <select
+              id="release-version"
+              value={release.slug}
+              onChange={(event) => router.push(getReleaseHref(event.target.value))}
+              className="h-9 w-full rounded-sm border border-strong bg-surface-1 px-3 text-12 font-medium text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent-strong"
+            >
+              {PRODUCT_RELEASES.map((item) => (
+                <option key={item.slug} value={item.slug}>
+                  {item.version} · {item.releasedAt}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <nav
+            className="hidden items-center gap-1 rounded-md border border-subtle bg-layer-1 p-1 sm:flex"
+            aria-label="Патчи"
+          >
+            {PRODUCT_RELEASES.map((item) => {
+              const isActive = item.slug === release.slug;
+              return (
+                <Link
+                  key={item.slug}
+                  href={getReleaseHref(item.slug)}
+                  aria-current={isActive ? "page" : undefined}
+                  className={cn(
+                    "flex h-8 items-center gap-2 rounded-sm px-3 text-12 font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent-strong",
+                    isActive
+                      ? "shadow-sm bg-surface-1 text-primary"
+                      : "text-secondary hover:bg-layer-transparent-hover hover:text-primary"
+                  )}
+                >
+                  {item.version}
+                  {item.slug === LATEST_RELEASE.slug && (
+                    <span className="rounded-sm bg-accent-primary/10 px-1.5 py-0.5 text-9 font-semibold text-accent-primary uppercase">
+                      Новый
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
+        </section>
+
         <section className="overflow-hidden rounded-lg border border-subtle bg-surface-1">
           <div className="grid lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
             <div className="flex flex-col justify-center px-6 py-8 sm:px-9 sm:py-10">
@@ -44,7 +141,7 @@ export function WorkspaceWhatsNewRoot() {
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-11 font-medium text-secondary">
                   <span className="size-1.5 rounded-full bg-accent-primary" aria-hidden="true" />
-                  {release.status}
+                  {release.status} · {release.releasedAt}
                 </span>
               </div>
 
@@ -54,21 +151,19 @@ export function WorkspaceWhatsNewRoot() {
               <p className="mt-3 max-w-2xl text-14 leading-6 text-secondary">{release.summary}</p>
 
               <div className="mt-6 flex flex-wrap gap-3">
-                <ReleaseLink
-                  href={joinUrlPath(workspaceSlugString, release.features[0].href)}
-                  label="Посмотреть план"
-                  variant="primary"
-                />
-                <ReleaseLink
-                  href={joinUrlPath(workspaceSlugString, release.features[2].href)}
-                  label="Открыть аналитику"
-                  variant="secondary"
-                />
+                {release.actions.map((action, index) => (
+                  <ReleaseAction
+                    key={action.label}
+                    action={action}
+                    workspaceSlug={workspaceSlugString}
+                    variant={index === 0 ? "primary" : "secondary"}
+                  />
+                ))}
               </div>
             </div>
 
             <div className="border-t border-subtle bg-layer-1/50 p-5 sm:p-7 lg:border-t-0 lg:border-l">
-              <GanttPreview />
+              {release.preview === "igor" ? <IgorPreview /> : <GanttPreview />}
             </div>
           </div>
         </section>
@@ -77,11 +172,9 @@ export function WorkspaceWhatsNewRoot() {
           <div className="mb-4 max-w-2xl">
             <p className="text-11 font-semibold tracking-wide text-accent-primary uppercase">Главное в обновлении</p>
             <h2 id="release-features-heading" className="text-xl mt-1.5 font-semibold text-primary">
-              Четыре изменения, которые экономят время каждый день
+              {release.featureTitle}
             </h2>
-            <p className="mt-1.5 text-13 leading-5 text-secondary">
-              Коротко о том, что появилось и как это помогает в работе.
-            </p>
+            <p className="mt-1.5 text-13 leading-5 text-secondary">{release.featureSummary}</p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -93,17 +186,44 @@ export function WorkspaceWhatsNewRoot() {
 
         <aside className="flex flex-col justify-between gap-4 rounded-lg border border-subtle bg-layer-transparent px-5 py-4 sm:flex-row sm:items-center">
           <div>
-            <p className="text-13 font-semibold text-primary">Патч 1.0 уже доступен в вашей рабочей области</p>
-            <p className="mt-0.5 text-12 leading-5 text-secondary">
-              Начните с Timeline, аналитики или личной страницы «Сегодня» — все данные уже связаны с вашими задачами.
-            </p>
+            <p className="text-13 font-semibold text-primary">{release.footer.title}</p>
+            <p className="mt-0.5 text-12 leading-5 text-secondary">{release.footer.description}</p>
           </div>
-          <ReleaseLink
-            href={joinUrlPath(workspaceSlugString, "/today/")}
-            label="Начать с Сегодня"
-            variant="secondary"
-          />
+          <ReleaseAction action={release.footer.action} workspaceSlug={workspaceSlugString} variant="secondary" />
         </aside>
+
+        {(olderRelease || newerRelease) && (
+          <nav className="flex items-center justify-between border-t border-subtle pt-5" aria-label="Соседние патчи">
+            <div>
+              {olderRelease && (
+                <Link
+                  href={getReleaseHref(olderRelease.slug)}
+                  className="group inline-flex items-center gap-2 text-12 font-medium text-secondary outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-accent-strong"
+                >
+                  <ArrowLeft
+                    className="size-3.5 transition-transform group-hover:-translate-x-0.5"
+                    aria-hidden="true"
+                  />
+                  Предыдущий: {olderRelease.version}
+                </Link>
+              )}
+            </div>
+            <div>
+              {newerRelease && (
+                <Link
+                  href={getReleaseHref(newerRelease.slug)}
+                  className="group inline-flex items-center gap-2 text-12 font-medium text-secondary outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-accent-strong"
+                >
+                  Следующий: {newerRelease.version}
+                  <ArrowRight
+                    className="size-3.5 transition-transform group-hover:translate-x-0.5"
+                    aria-hidden="true"
+                  />
+                </Link>
+              )}
+            </div>
+          </nav>
+        )}
       </div>
     </div>
   );
@@ -138,31 +258,112 @@ function ReleaseFeatureCard({ feature, workspaceSlug }: { feature: TReleaseFeatu
       </ul>
 
       <div className="mt-auto pt-5">
-        <Link
-          href={joinUrlPath(workspaceSlug, feature.href)}
-          className="inline-flex items-center gap-1.5 rounded-sm text-12 font-semibold text-accent-primary outline-none hover:text-accent-secondary focus-visible:ring-2 focus-visible:ring-accent-strong focus-visible:ring-offset-2"
-        >
-          {feature.actionLabel}
-          <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-        </Link>
+        <ReleaseAction action={feature.action} workspaceSlug={workspaceSlug} variant="text" />
       </div>
     </article>
   );
 }
 
-function ReleaseLink({ href, label, variant }: { href: string; label: string; variant: "primary" | "secondary" }) {
+function ReleaseAction({
+  action,
+  workspaceSlug,
+  variant,
+}: {
+  action: TReleaseAction;
+  workspaceSlug: string;
+  variant: "primary" | "secondary" | "text";
+}) {
+  const className = cn(
+    "inline-flex items-center justify-center gap-1.5 rounded-sm text-12 font-semibold outline-none focus-visible:ring-2 focus-visible:ring-accent-strong focus-visible:ring-offset-2",
+    variant === "primary" && "h-9 bg-accent-primary px-3.5 text-on-color hover:bg-accent-primary/90",
+    variant === "secondary" &&
+      "h-9 border border-strong bg-surface-1 px-3.5 whitespace-nowrap text-primary hover:bg-layer-transparent-hover",
+    variant === "text" && "text-accent-primary hover:text-accent-secondary"
+  );
+  const content = (
+    <>
+      {action.label}
+      <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+    </>
+  );
+
+  if (action.event === "open-igor") {
+    return (
+      <button type="button" className={className} onClick={() => window.dispatchEvent(new Event("plane:open-igor"))}>
+        {content}
+      </button>
+    );
+  }
+
+  if (!action.href) return null;
+
   return (
-    <Link
-      href={href}
-      className={
-        variant === "primary"
-          ? "inline-flex h-9 items-center justify-center gap-1.5 rounded-sm bg-accent-primary px-3.5 text-12 font-semibold text-on-color outline-none hover:bg-accent-primary/90 focus-visible:ring-2 focus-visible:ring-accent-strong focus-visible:ring-offset-2"
-          : "inline-flex h-9 items-center justify-center gap-1.5 rounded-sm border border-strong bg-surface-1 px-3.5 text-12 font-semibold whitespace-nowrap text-primary outline-none hover:bg-layer-transparent-hover focus-visible:ring-2 focus-visible:ring-accent-strong focus-visible:ring-offset-2"
-      }
-    >
-      {label}
-      <ArrowRight className="size-3.5" aria-hidden="true" />
+    <Link href={joinUrlPath(workspaceSlug, action.href)} className={className}>
+      {content}
     </Link>
+  );
+}
+
+function IgorPreview() {
+  return (
+    <div className="flex h-full flex-col justify-center" role="img" aria-label="Пример диалога с Игорем о задачах">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="border-accent-primary/20 grid size-8 place-items-center rounded-full border bg-accent-primary/10 text-accent-primary">
+            <Sparkles className="size-4" aria-hidden="true" />
+          </div>
+          <div>
+            <p className="text-12 font-semibold text-primary">Игорь</p>
+            <p className="mt-0.5 text-10 text-tertiary">Ассистент по задачам и срокам</p>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-1.5 text-10 font-medium text-secondary">
+          <span className="size-1.5 rounded-full bg-success-primary" aria-hidden="true" />
+          Готов помочь
+        </span>
+      </div>
+
+      <div className="shadow-sm overflow-hidden rounded-md border border-subtle bg-surface-1 p-3.5">
+        <div className="border-accent-primary/20 ml-auto max-w-[82%] rounded-md border bg-accent-primary/10 px-3 py-2 text-11 leading-4 text-primary">
+          Что сейчас заблокировано?
+        </div>
+        <div className="mt-3 max-w-[92%] rounded-md bg-layer-1 px-3 py-2 text-11 leading-4 text-secondary">
+          Нашёл две заблокированные задачи. Сначала стоит проверить задачу с ближайшим сроком.
+        </div>
+
+        <div className="mt-3 overflow-hidden rounded-md border border-subtle">
+          <div className="flex items-center justify-between border-b border-subtle bg-layer-1/60 px-3 py-2">
+            <span className="text-10 font-semibold text-secondary">Заблокированные задачи</span>
+            <span className="text-9 text-tertiary">2 задачи</span>
+          </div>
+          <PreviewWorkItem code="DEV-128" title="Подготовить данные для отчёта" meta="До 15 июля · В работе" />
+          <PreviewWorkItem code="OPS-42" title="Проверить доступ к окружению" meta="Без срока · Блокер" />
+        </div>
+
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-subtle bg-layer-1/50 px-3 py-2 text-10 text-tertiary">
+          Спросите про задачи, сроки или сотрудника
+          <Send className="ml-auto size-3.5 text-accent-primary" aria-hidden="true" />
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-1.5 text-10 text-tertiary">
+        <Activity className="size-3" aria-hidden="true" />
+        Ответ собран из актуальных данных рабочего пространства
+      </div>
+    </div>
+  );
+}
+
+function PreviewWorkItem({ code, title, meta }: { code: string; title: string; meta: string }) {
+  return (
+    <div className="flex items-start gap-2.5 border-b border-subtle px-3 py-2 last:border-b-0">
+      <span className="mt-1 size-2 flex-none rounded-full bg-accent-primary" aria-hidden="true" />
+      <div className="min-w-0">
+        <p className="text-9 font-medium text-tertiary">{code}</p>
+        <p className="mt-0.5 truncate text-11 font-medium text-primary">{title}</p>
+        <p className="mt-0.5 text-9 text-secondary">{meta}</p>
+      </div>
+    </div>
   );
 }
 

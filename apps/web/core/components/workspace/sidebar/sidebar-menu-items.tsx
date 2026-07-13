@@ -22,6 +22,11 @@ import { ChevronRightIcon } from "@plane/propel/icons";
 import { cn, joinUrlPath } from "@plane/utils";
 // components
 import { SidebarNavItem } from "@/components/sidebar/sidebar-navigation";
+import {
+  hasUnseenRelease,
+  LATEST_RELEASE,
+  WHATS_NEW_LAST_SEEN_STORAGE_KEY,
+} from "@/components/workspace/whats-new/release-data";
 // store hooks
 import { useAppTheme } from "@/hooks/store/use-app-theme";
 import useLocalStorage from "@/hooks/use-local-storage";
@@ -55,7 +60,10 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
   };
   const workspaceSlugString = workspaceSlug?.toString() ?? "";
   const todayHref = joinUrlPath(workspaceSlugString, "/today");
-  const whatsNewHref = joinUrlPath(workspaceSlugString, "/whats-new");
+  const whatsNewBaseHref = joinUrlPath(workspaceSlugString, "/whats-new");
+  const whatsNewHref = joinUrlPath(workspaceSlugString, `/whats-new/${LATEST_RELEASE.slug}/`);
+  const { storedValue: lastSeenRelease } = useLocalStorage<string | null>(WHATS_NEW_LAST_SEEN_STORAGE_KEY, null);
+  const shouldShowReleaseIndicator = hasUnseenRelease(lastSeenRelease);
 
   // Filter static navigation items based on personal preferences
   const filteredStaticNavigationItems = useMemo(() => {
@@ -114,10 +122,19 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
           </SidebarNavItem>
         </Link>
         <Link href={whatsNewHref}>
-          <SidebarNavItem isActive={pathname === whatsNewHref}>
+          <SidebarNavItem isActive={pathname.startsWith(whatsNewBaseHref)}>
             <div className="flex items-center gap-1.5 py-[1px]">
               <Megaphone className="size-4 flex-shrink-0 stroke-[1.5]" />
               <p className="text-13 leading-5 font-medium">Что нового?</p>
+              {shouldShowReleaseIndicator && (
+                <>
+                  <span className="relative ml-0.5 flex size-2" aria-hidden="true">
+                    <span className="absolute inline-flex size-full rounded-full bg-accent-primary opacity-40 motion-safe:animate-ping" />
+                    <span className="relative inline-flex size-2 rounded-full bg-accent-primary" />
+                  </span>
+                  <span className="sr-only">Доступен {LATEST_RELEASE.version}</span>
+                </>
+              )}
             </div>
           </SidebarNavItem>
         </Link>

@@ -5,12 +5,17 @@
  */
 
 import { Megaphone } from "lucide-react";
+import { useParams } from "next/navigation";
 import { AppHeader } from "@/components/core/app-header";
 import { ContentWrapper } from "@/components/core/content-wrapper";
 import { PageHead } from "@/components/core/page-title";
 import { WorkspaceWhatsNewRoot } from "@/components/workspace/whats-new";
+import { getReleaseBySlug } from "@/components/workspace/whats-new/release-data";
 
 export default function WorkspaceWhatsNewPage() {
+  const { releaseVersion } = useParams();
+  const release = getReleaseBySlug(releaseVersion?.toString());
+
   return (
     <>
       <AppHeader
@@ -22,7 +27,7 @@ export default function WorkspaceWhatsNewPage() {
         }
       />
       <ContentWrapper>
-        <PageHead title="Что нового — Патч 1.0" />
+        <PageHead title={`Что нового — ${release.version}`} />
         <WorkspaceWhatsNewRoot />
       </ContentWrapper>
     </>

@@ -66,7 +66,7 @@ export const coreRoutes: RouteConfigEntry[] = [
         route(":workspaceSlug/today", "./(all)/[workspaceSlug]/(projects)/today/page.tsx"),
 
         // What's new
-        route(":workspaceSlug/whats-new", "./(all)/[workspaceSlug]/(projects)/whats-new/page.tsx"),
+        route(":workspaceSlug/whats-new/:releaseVersion?", "./(all)/[workspaceSlug]/(projects)/whats-new/page.tsx"),
 
         // Active Cycles
         layout("./(all)/[workspaceSlug]/(projects)/active-cycles/layout.tsx", [

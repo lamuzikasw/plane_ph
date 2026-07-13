@@ -79,6 +79,12 @@ export function IgorChat({ workspaceSlug }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  useEffect(() => {
+    const handleOpenIgor = () => setIsOpen(true);
+    window.addEventListener("plane:open-igor", handleOpenIgor);
+    return () => window.removeEventListener("plane:open-igor", handleOpenIgor);
+  }, []);
+
   const suggestions = useMemo(() => {
     let lastAssistantMessage: TIgorMessage | undefined;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
