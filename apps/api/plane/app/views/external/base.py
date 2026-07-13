@@ -447,7 +447,11 @@ class IgorChatEndpoint(BaseAPIView):
             or fallback_member
             or self._is_follow_up(message, history)
         )
-        llm_plan = self._get_llm_work_plan(message, history, projects, members) if should_plan else {}
+        llm_plan = (
+            self._get_llm_work_plan(message, history, projects, members)
+            if should_plan and not summary_requested
+            else {}
+        )
 
         intent = "weekly_summary" if summary_requested else self._plan_intent(llm_plan) or self._detect_intent(message)
         project = fallback_project or self._project_from_plan(llm_plan, projects)

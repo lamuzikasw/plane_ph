@@ -70,7 +70,11 @@ def test_weekly_summary_defaults_to_requesting_member_and_previous_week(monkeypa
     workspace = WorkspaceFactory(slug="igor-summary-context", owner=user, timezone="UTC")
     WorkspaceMember.objects.create(workspace=workspace, member=user, role=20)
     endpoint = IgorChatEndpoint()
-    monkeypatch.setattr(endpoint, "_get_llm_work_plan", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        endpoint,
+        "_get_llm_work_plan",
+        lambda *args, **kwargs: pytest.fail("Weekly summaries must not depend on an external LLM"),
+    )
 
     context = endpoint._resolve_query_context("Собери недельный отчёт", workspace, user, [], {})
 
