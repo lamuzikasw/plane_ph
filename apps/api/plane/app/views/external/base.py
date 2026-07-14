@@ -2213,10 +2213,15 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
                 continue
             if len(value) > 300 or self._contains_secret_material(value) or re.search(r"https?://", value):
                 return None
-            fragments[key] = self._lowercase_summary_fragment(value)
+            fragments[key] = self._normalize_summary_fragment(key, value)
 
         if not any(fragments.values()):
             return None
+
+        fragments["risks"] = self._remove_duplicate_summary_sentences(
+            fragments["risks"],
+            [fragments["completed"], fragments["progressed"]],
+        )
 
         period = self._summary_period_phrase(period_label)
         sentences = []
@@ -2237,6 +2242,44 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         if len(value) > 1 and value[0].isupper() and not value[1].isupper():
             return value[0].lower() + value[1:]
         return value
+
+    def _normalize_summary_fragment(self, key, value):
+        prefixes = {
+            "completed": ("удалось ",),
+            "progressed": ("удалось продвинуть ", "продвинуть "),
+            "risks": ("из того, что требует внимания:", "из того, что требует внимания,"),
+            "plan": ("на следующую неделю запланировано:", "на следующую неделю запланировано"),
+        }
+        normalized = value.strip()
+        for prefix in prefixes[key]:
+            if normalized.casefold().startswith(prefix.casefold()):
+                normalized = normalized[len(prefix) :].lstrip(" :,-")
+                break
+        return self._lowercase_summary_fragment(normalized)
+
+    def _remove_duplicate_summary_sentences(self, risks, source_fragments):
+        if not risks:
+            return risks
+        source_tokens = set()
+        for fragment in source_fragments:
+            source_tokens.update(self._summary_fragment_tokens(fragment))
+        if not source_tokens:
+            return risks
+
+        unique_sentences = []
+        for sentence in re.split(r"(?<=[.!?])\s+", risks):
+            sentence_tokens = self._summary_fragment_tokens(sentence)
+            if len(sentence_tokens) >= 2 and sentence_tokens.issubset(source_tokens):
+                continue
+            unique_sentences.append(sentence)
+        return " ".join(unique_sentences).strip(" .;") or risks.strip(" .;")
+
+    def _summary_fragment_tokens(self, value):
+        return {
+            token[:6] if len(token) > 6 else token
+            for token in re.findall(r"[a-zа-яё0-9]+", str(value or "").lower())
+            if len(token) > 2
+        }
 
     def _summary_period_phrase(self, period_label):
         period = str(period_label or "выбранный период").strip().lower()

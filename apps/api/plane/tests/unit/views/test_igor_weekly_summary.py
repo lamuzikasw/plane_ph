@@ -348,9 +348,12 @@ def test_weekly_summary_llm_turns_structured_facts_into_short_human_copy(monkeyp
             captured["request"] = kwargs
             response = {
                 "completed": "Ускорить VPN и настроить ключи VLESS",
-                "progressed": "Доработку ботов оплаты и тестирование Telegram-бота",
-                "risks": "Аудит безопасности серверов нужно закрыть до 18 июля",
-                "plan": "Завершение мониторинга оплаты сервисов до 19 июля",
+                "progressed": "Удалось продвинуть доработку ботов оплаты и тестирование Telegram-бота",
+                "risks": (
+                    "Из того, что требует внимания: аудит безопасности серверов нужно закрыть до 18 июля. "
+                    "Доработка ботов оплаты."
+                ),
+                "plan": "На следующую неделю запланировано: завершение мониторинга оплаты сервисов до 19 июля",
             }
             return SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(response, ensure_ascii=False)))]
