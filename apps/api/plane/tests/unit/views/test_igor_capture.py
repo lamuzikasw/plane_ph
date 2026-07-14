@@ -193,6 +193,99 @@ def test_fallback_capture_plan_classifies_all_units_without_external_llm():
     assert plan["tasks"][0]["source_ids"] == ["S1"]
 
 
+B2B_MEETING_NOTES = """Саммари встречи по запуску B2B-направления
+
+1. Страница B2B
+Для B2B-направления необходимо создать отдельную страницу на Tilda.
+Н
+а основном сайте будет добавлена отдельная вкладка «Для бизнеса».
+Формат домена или поддомена необходимо уточнить у Паши.
+
+2. Каналы связи с B2B-клиентами
+На странице необходимо указать следующие каналы связи:
+сайт;
+электронная почта;
+мобильный телефон;
+Telegram;
+WhatsApp;
+MAX.
+
+3. Дизайн и форма заявки
+Паша:
+самостоятельно занимается отрисовкой макета B2B-страницы;
+уточняет формат домена или поддомена.
+Эльвира:
+разрабатывает форму заявки;
+создаёт отдельную B2B-воронку в Bitrix24.
+
+4. Личный кабинет
+Срок выполнения: 3 дня. (16.07 ДД)
+С нашей стороны необходимо:
+адаптировать форму заявки под B2B-направление;
+изменить цветовую палитру личного кабинета;
+подключить личный кабинет к B2B-воронке.
+
+5. Почтовые уведомления
+Необходимо:
+передать Паше формы и шаблоны почтовых сообщений;
+определить адреса электронной почты;
+продумать логику отправки писем в зависимости от этапа воронки;
+определить события для автоматических писем.
+
+6. Документооборот
+Необходимо определить, где будут храниться документы B2B-клиентов.
+После запуска перенести документооборот в собственное хранилище.
+Также необходимо продумать три варианта хранения документов.
+
+7. Распределение ответственности
+Паша
+отрисовка макета B2B-страницы;
+уточнение формата домена.
+Эльвира
+разработка формы заявки;
+создание отдельной B2B-воронки в Bitrix24.
+Наша команда
+доработка личного кабинета в течение двух дней;
+адаптация формы заявки;
+изменение цветовой палитры;
+интеграция личного кабинета с воронкой Bitrix24;
+подготовка почтовых шаблонов;
+проектирование логики почтовых уведомлений;
+выбор решения для хранения документов."""
+
+
+def test_capture_b2b_notes_preserve_actor_context_and_recover_actions():
+    endpoint = IgorChatEndpoint()
+    units = endpoint._capture_units(B2B_MEETING_NOTES)
+    plan = endpoint._fallback_capture_plan(units)
+    user = SimpleNamespace(id="requester", display_name="Сева", first_name="", email="seva@example.com")
+    review = endpoint._sanitize_capture_plan(units, plan, [], user)
+
+    assert all(unit["text"] != "Н" for unit in units)
+    assert any(unit["text"].startswith("На основном сайте") for unit in units)
+    assert not any(unit["text"] in {"Паша", "Эльвира", "Наша команда"} for unit in units)
+    assert any(unit["owner_hint"] == "Паша" and "отрисов" in unit["text"] for unit in units)
+    assert any(unit["owner_hint"] == "Эльвира" and "воронку" in unit["text"] for unit in units)
+    assert len(review["tasks"]) >= 15
+    assert all(task["assignee_id"] is None for task in review["tasks"])
+
+
+def test_capture_assignee_is_resolved_from_heading_and_never_defaults_to_requester():
+    endpoint = IgorChatEndpoint()
+    units = [{"id": "S1", "text": "отрисовка макета", "section": "Дизайн", "owner_hint": "Паша"}]
+    plan = endpoint._fallback_capture_plan(units)
+    requester = SimpleNamespace(id="requester", display_name="Сева", first_name="", email="seva@example.com")
+    members = [
+        {"id": "pavel", "name": "Павел Смирнов", "email": "pavel@example.com", "project_ids": []},
+        {"id": "requester", "name": "Сева", "email": "seva@example.com", "project_ids": []},
+    ]
+
+    task = endpoint._sanitize_capture_plan(units, plan, [], requester, members)["tasks"][0]
+
+    assert task["assignee_id"] == "pavel"
+    assert task["assignee_name"] == "Павел Смирнов"
+
+
 def test_capture_llm_receives_api_key_only_as_transport_and_output_is_json(monkeypatch):
     captured = {}
 
@@ -481,6 +574,56 @@ def test_capture_creation_recovers_after_commit_without_creating_duplicate(monke
     assert response.status_code == 201
     assert Issue.issue_objects.filter(external_source="igor_capture", external_id=f"{token}:T1").count() == 1
     assert response.data["widgets"][0]["items"][0]["id"] == str(existing.id)
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_capture_creation_uses_confirmed_project_member_instead_of_requester(monkeypatch):
+    cache.clear()
+    user, workspace, project = _capture_workspace("capture-assignee")
+    pavel = UserFactory(email="pavel-capture@plane.so", username="pavel-capture@plane.so")
+    WorkspaceMember.objects.create(workspace=workspace, member=pavel, role=15)
+    ProjectMember.objects.create(workspace=workspace, project=project, member=pavel, role=15)
+    endpoint = IgorChatEndpoint()
+    token = "safe_capture_assignee_123456"
+    cache.set(
+        endpoint._capture_cache_key(workspace, user, token),
+        {
+            "status": "review",
+            "units": [{"id": "S1", "text": "Паша готовит макет"}],
+            "tasks": [
+                {
+                    "id": "T1",
+                    "title": "Подготовить макет",
+                    "description": "",
+                    "source_ids": ["S1"],
+                    "project_id": str(project.id),
+                    "assignee_id": None,
+                    "priority": "none",
+                    "target_date": None,
+                }
+            ],
+        },
+        timeout=60,
+    )
+    monkeypatch.setattr(IgorChatEndpoint, "_schedule_capture_issue_events", lambda *_args: None)
+
+    response = _post_igor(
+        user,
+        workspace,
+        {
+            "action": "create_capture_tasks",
+            "capture_token": token,
+            "task_ids": ["T1"],
+            "project_assignments": {"T1": str(project.id)},
+            "assignee_assignments": {"T1": str(pavel.id)},
+        },
+    )
+
+    assert response.status_code == 201
+    issue = Issue.issue_objects.get(workspace=workspace, external_source="igor_capture")
+    assert issue.assignees.filter(id=pavel.id).exists()
+    assert not issue.assignees.filter(id=user.id).exists()
 
 
 @pytest.mark.unit

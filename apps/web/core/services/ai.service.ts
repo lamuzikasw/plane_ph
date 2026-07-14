@@ -104,11 +104,12 @@ export type TIgorCaptureTask = {
   source_ids: string[];
   project_id: string | null;
   project_name: string | null;
-  assignee_id: string;
-  assignee_name: string;
+  assignee_id: string | null;
+  assignee_name: string | null;
+  assignee_hint: string | null;
   target_date: string | null;
   priority: "none" | "urgent" | "high" | "medium" | "low";
-  missing_fields: ("project" | "target_date" | "priority")[];
+  missing_fields: ("project" | "assignee" | "target_date" | "priority")[];
   duplicate_issue: {
     id: string;
     name: string;
@@ -128,6 +129,11 @@ export type TIgorCaptureWidget = {
     id: string;
     name: string;
     identifier: string;
+  }[];
+  members: {
+    id: string;
+    name: string;
+    project_ids: string[];
   }[];
   source_note: string;
 };
@@ -181,6 +187,7 @@ export type TIgorCaptureCreatePayload = {
   capture_token: string;
   task_ids: string[];
   project_assignments: Record<string, string>;
+  assignee_assignments: Record<string, string>;
   task_overrides: Record<
     string,
     {

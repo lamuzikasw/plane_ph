@@ -17,7 +17,7 @@ from plane.app.serializers import IssueCreateSerializer
 from plane.bgtasks.issue_activities_task import issue_activity
 from plane.bgtasks.issue_description_version_task import issue_description_version_task
 from plane.bgtasks.webhook_task import model_activity
-from plane.db.models import Issue, ProjectMember
+from plane.db.models import Issue, ProjectMember, WorkspaceMember
 from plane.utils.host import base_host
 
 
@@ -92,10 +92,41 @@ class IgorCaptureMixin:
 
     def _capture_units(self, source):
         units = []
-        lines = str(source or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        raw_lines = str(source or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        lines = []
+        for line in raw_lines:
+            stripped = line.strip()
+            if lines and len(lines[-1].strip()) == 1 and re.fullmatch(r"[A-Za-zА-Яа-яЁё]", lines[-1].strip()):
+                lines[-1] = f"{lines[-1].strip()}{stripped}"
+            else:
+                lines.append(line)
+
+        section = None
+        owner_hint = None
         for line in lines:
+            numbered_heading = re.match(r"^\s*\d+[.)]\s+(.+?)\s*$", line)
+            if (
+                numbered_heading
+                and len(numbered_heading.group(1)) <= 100
+                and not self._is_explicit_capture_action({"text": numbered_heading.group(1)})
+            ):
+                section = numbered_heading.group(1).rstrip(".:")
+                owner_hint = None
+                continue
+
+            raw_clean = line.strip().rstrip(":")
+            normalized_heading = self._normalize_search(raw_clean)
+            if normalized_heading in {"наша команда", "с нашей стороны необходимо"}:
+                owner_hint = "Наша команда"
+                continue
+            if re.fullmatch(r"[А-ЯЁ][а-яё]{2,24}", raw_clean) and not raw_clean.lower().endswith("ть"):
+                owner_hint = raw_clean
+                continue
+
             clean_line = re.sub(r"^\s*(?:[-*•–—]|\d+[.)])\s*", "", line).strip()
             if not clean_line:
+                continue
+            if self._normalize_search(clean_line.rstrip(":")) in {"необходимо", "также необходимо"}:
                 continue
             chunks = re.split(r";\s+|,\s+(?=(?:а|но|при этом|также)\b)", clean_line, flags=re.IGNORECASE)
             if len(chunks) == 1 and (len(clean_line) > 360 or (len(lines) == 1 and len(clean_line) > 180)):
@@ -107,14 +138,14 @@ class IgorCaptureMixin:
                 while len(chunk) > 600:
                     split_at = chunk.rfind(" ", 0, 600)
                     split_at = split_at if split_at >= 200 else 600
-                    units.append(chunk[:split_at].strip())
+                    units.append({"text": chunk[:split_at].strip(), "section": section, "owner_hint": owner_hint})
                     chunk = chunk[split_at:].strip()
                 if chunk:
-                    units.append(chunk)
+                    units.append({"text": chunk, "section": section, "owner_hint": owner_hint})
 
         if len(units) > self.capture_unit_limit:
             raise ValueError("too_many_capture_units")
-        return [{"id": f"S{index}", "text": text} for index, text in enumerate(units, start=1)]
+        return [{"id": f"S{index}", **unit} for index, unit in enumerate(units, start=1)]
 
     def _build_capture_review(self, message, workspace, user):
         source = self._extract_capture_source(message)
@@ -138,12 +169,17 @@ class IgorCaptureMixin:
             }
 
         writable_projects = list(self._capture_writable_projects(workspace, user))
-        raw_plan = self._get_llm_capture_plan(units, writable_projects, user)
-        review = self._sanitize_capture_plan(units, raw_plan, writable_projects, user)
+        members = self._capture_members(workspace, writable_projects)
+        raw_plan = self._get_llm_capture_plan(units, writable_projects, user, members)
+        review = self._sanitize_capture_plan(units, raw_plan, writable_projects, user, members)
         self._mark_capture_duplicates(review["tasks"], workspace)
         review["projects"] = [
             {"id": str(project.id), "name": project.name, "identifier": project.identifier}
             for project in writable_projects
+        ]
+        review["members"] = [
+            {"id": member["id"], "name": member["name"], "project_ids": member["project_ids"]}
+            for member in members
         ]
 
         token = None
@@ -173,16 +209,18 @@ class IgorCaptureMixin:
         )
 
         task_count = len(review["tasks"])
-        unresolved_count = sum(1 for task in review["tasks"] if task["missing_fields"])
+        open_question_count = sum(
+            category["count"] for category in review["categories"] if category["key"] in {"question", "unclassified"}
+        )
         return {
             "answer": (
                 f"Разобрал {len(units)} исходных пунктов и предложил {task_count} задач. "
-                f"Неоднозначных предложений — {unresolved_count}. Проверь их перед созданием."
+                f"Открытых вопросов — {open_question_count}. Проверь результат перед созданием."
             ),
             "widget": review,
         }
 
-    def _get_llm_capture_plan(self, units, projects, user):
+    def _get_llm_capture_plan(self, units, projects, user, members=None):
         api_key, model, base_url, timeout_seconds = self._get_igor_llm_config()
         if not api_key:
             return self._fallback_capture_plan(units)
@@ -195,7 +233,7 @@ class IgorCaptureMixin:
             response = client.chat.completions.create(
                 model=model,
                 temperature=0,
-                max_tokens=2600,
+                max_tokens=6000,
                 response_format={"type": "json_object"},
                 messages=[
                     {
@@ -207,6 +245,12 @@ class IgorCaptureMixin:
                             "Категории: action — явное поручение, "
                             "decision — принятое решение, risk — риск/блокер, question — открытый вопрос, "
                             "context — факт или справочная информация, unclassified — неясно. "
+                            "Заголовки разделов переданы в section, а ответственный из ближайшего заголовка — в "
+                            "owner_hint. Списки под именами являются поручениями этим людям. Повтор в разделе "
+                            "ответственности не является новой задачей: объедини повторные source_ids. Не объединяй "
+                            "разные результаты в одну крупную задачу; детали одного результата помести в description. "
+                            "Если сроки одного поручения конфликтуют, оставь target_date null и явно классифицируй "
+                            "противоречие как question или unclassified. "
                             "Формат: {items:[{source_id,category,summary}],tasks:[{title,description,source_ids,"
                             "project_hint,assignee_hint,target_date,priority}]}. Для каждого action создай задачу. "
                             "Не превращай решения, факты и вопросы в задачи без явного действия. Не придумывай проект, "
@@ -222,6 +266,10 @@ class IgorCaptureMixin:
                                 "requesting_user": self._member_name(user),
                                 "available_projects": [
                                     {"name": project.name, "identifier": project.identifier} for project in projects
+                                ],
+                                "available_members": [
+                                    {"name": member["name"], "email": member["email"]}
+                                    for member in (members or [])
                                 ],
                                 "source_units": units,
                             },
@@ -245,8 +293,10 @@ class IgorCaptureMixin:
                 category = "decision"
             elif any(word in normalized for word in ["риск", "блок", "проблем", "зависим", "не успе"]):
                 category = "risk"
-            elif "?" in text or any(word in normalized for word in ["вопрос", "уточнить", "непонятно"]):
+            elif "?" in text or any(word in normalized for word in ["вопрос", "непонятно"]):
                 category = "question"
+            elif self._is_explicit_capture_action(unit):
+                category = "action"
             elif any(
                 word in normalized
                 for word in [
@@ -275,14 +325,14 @@ class IgorCaptureMixin:
                         "description": "",
                         "source_ids": [unit["id"]],
                         "project_hint": None,
-                        "assignee_hint": None,
+                        "assignee_hint": unit.get("owner_hint"),
                         "target_date": None,
                         "priority": "none",
                     }
                 )
         return {"items": items, "tasks": tasks}
 
-    def _sanitize_capture_plan(self, units, plan, projects, user):
+    def _sanitize_capture_plan(self, units, plan, projects, user, members=None):
         unit_by_id = {unit["id"]: unit for unit in units}
         allowed_categories = {key for key, _ in self.capture_categories}
         classified = {}
@@ -295,6 +345,8 @@ class IgorCaptureMixin:
                 if source_id not in unit_by_id or source_id in classified:
                     continue
                 category = item.get("category") if item.get("category") in allowed_categories else "unclassified"
+                if category in {"context", "unclassified"} and self._is_explicit_capture_action(unit_by_id[source_id]):
+                    category = "action"
                 summary = self._clean_capture_text(item.get("summary"), 300) or unit_by_id[source_id]["text"]
                 classified[source_id] = {"category": category, "summary": summary}
 
@@ -309,7 +361,7 @@ class IgorCaptureMixin:
                 }
             )
 
-        tasks = self._sanitize_capture_tasks(plan, unit_by_id, categories["action"], projects, user)
+        tasks = self._sanitize_capture_tasks(plan, unit_by_id, categories["action"], projects, user, members or [])
         return {
             "categories": [
                 {"key": key, "title": title, "count": len(categories[key]), "items": categories[key]}
@@ -319,7 +371,7 @@ class IgorCaptureMixin:
             "tasks": tasks,
         }
 
-    def _sanitize_capture_tasks(self, plan, unit_by_id, action_items, projects, user):
+    def _sanitize_capture_tasks(self, plan, unit_by_id, action_items, projects, user, members):
         raw_tasks = plan.get("tasks", []) if isinstance(plan, dict) else []
         raw_tasks = raw_tasks if isinstance(raw_tasks, list) else []
         tasks = []
@@ -343,7 +395,7 @@ class IgorCaptureMixin:
             title = self._clean_capture_text(raw_task.get("title"), 255)
             if not title:
                 title = self._clean_capture_text(unit_by_id[source_ids[0]]["text"], 255)
-            normalized_title = self._normalize_search(title)
+            normalized_title = self._capture_task_key(title)
             if not normalized_title:
                 continue
             if normalized_title in task_by_title:
@@ -351,7 +403,7 @@ class IgorCaptureMixin:
                 existing["source_ids"] = list(dict.fromkeys(existing["source_ids"] + source_ids))
                 continue
 
-            task = self._capture_task_from_raw(raw_task, title, source_ids, unit_by_id, projects, user)
+            task = self._capture_task_from_raw(raw_task, title, source_ids, unit_by_id, projects, user, members)
             tasks.append(task)
             task_by_title[normalized_title] = task
             if len(tasks) >= self.capture_task_limit:
@@ -363,7 +415,14 @@ class IgorCaptureMixin:
                 continue
             source_id = item["source_id"]
             title = self._clean_capture_text(item["summary"], 255) or unit_by_id[source_id]["text"][:255]
-            tasks.append(self._capture_task_from_raw({}, title, [source_id], unit_by_id, projects, user))
+            task_key = self._capture_task_key(title)
+            if task_key in task_by_title:
+                existing = task_by_title[task_key]
+                existing["source_ids"] = list(dict.fromkeys(existing["source_ids"] + [source_id]))
+                continue
+            task = self._capture_task_from_raw({}, title, [source_id], unit_by_id, projects, user, members)
+            tasks.append(task)
+            task_by_title[task_key] = task
 
         for index, task in enumerate(tasks, start=1):
             task["id"] = f"T{index}"
@@ -392,13 +451,22 @@ class IgorCaptureMixin:
                     "identifier": f"{duplicate.project.identifier}-{duplicate.sequence_id}",
                 }
 
-    def _capture_task_from_raw(self, raw_task, title, source_ids, unit_by_id, projects, user):
+    def _capture_task_from_raw(self, raw_task, title, source_ids, unit_by_id, projects, user, members):
         description = self._clean_capture_text(raw_task.get("description"), 2000)
         project_hint = self._clean_capture_text(raw_task.get("project_hint"), 255)
         source_text = " ".join(unit_by_id[source_id]["text"] for source_id in source_ids)
         project = self._resolve_capture_project(project_hint, source_text, projects)
         target_date = self._sanitize_capture_date(raw_task.get("target_date"))
         priority = raw_task.get("priority") if raw_task.get("priority") in self.capture_priorities else "none"
+        assignee_hint = self._clean_capture_text(raw_task.get("assignee_hint"), 255)
+        if not assignee_hint:
+            owner_hints = {
+                unit_by_id[source_id].get("owner_hint")
+                for source_id in source_ids
+                if unit_by_id[source_id].get("owner_hint") not in {None, "Наша команда"}
+            }
+            assignee_hint = owner_hints.pop() if len(owner_hints) == 1 else ""
+        assignee = self._resolve_capture_assignee(assignee_hint, members)
         missing_fields = []
         if not project:
             missing_fields.append("project")
@@ -406,6 +474,8 @@ class IgorCaptureMixin:
             missing_fields.append("target_date")
         if priority == "none":
             missing_fields.append("priority")
+        if not assignee:
+            missing_fields.append("assignee")
         return {
             "id": "",
             "title": title,
@@ -413,8 +483,9 @@ class IgorCaptureMixin:
             "source_ids": source_ids,
             "project_id": str(project.id) if project else None,
             "project_name": project.name if project else None,
-            "assignee_id": str(user.id),
-            "assignee_name": self._member_name(user),
+            "assignee_id": assignee["id"] if assignee else None,
+            "assignee_name": assignee["name"] if assignee else None,
+            "assignee_hint": assignee_hint or None,
             "target_date": target_date,
             "priority": priority,
             "missing_fields": missing_fields,
@@ -454,6 +525,91 @@ class IgorCaptureMixin:
         value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
         return re.sub(r"\s+", " ", value).strip()[:limit]
 
+    def _is_explicit_capture_action(self, unit):
+        text = self._normalize_search(unit.get("text", ""))
+        action_markers = (
+            "необходимо ",
+            "нужно ",
+            "надо ",
+            "должен ",
+            "должна ",
+            "создать",
+            "разработ",
+            "отрисов",
+            "уточн",
+            "доработ",
+            "адапт",
+            "измен",
+            "интеграц",
+            "подключ",
+            "подготов",
+            "проектир",
+            "продум",
+            "определ",
+            "передать",
+            "перенести",
+            "будет добав",
+            "выбор решен",
+        )
+        return bool(unit.get("owner_hint")) or any(marker in text for marker in action_markers)
+
+    def _capture_task_key(self, title):
+        normalized = self._normalize_search(title)
+        replacements = {
+            r"\bотрисов\w*": "отрисовать",
+            r"\bуточн\w*": "уточнить",
+            r"\bразработ\w*": "разработать",
+            r"\bсозда\w*": "создать",
+            r"\bдоработ\w*": "доработать",
+            r"\bадапт\w*": "адаптировать",
+            r"\bизмен\w*": "изменить",
+            r"\b(?:интеграц\w*|подключ\w*)": "интегрировать",
+            r"\bподготов\w*": "подготовить",
+            r"\b(?:проектир\w*|продум\w*)": "спроектировать",
+            r"\b(?:выбор|выбрать)\w*": "выбрать",
+            r"\bопредел\w*": "определить",
+        }
+        for pattern, replacement in replacements.items():
+            normalized = re.sub(pattern, replacement, normalized)
+        normalized = re.sub(
+            r"\b(?:для|необходимо|нужно|надо|самостоятельно|занимается|наша|команда)\b", " ", normalized
+        )
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    def _capture_members(self, workspace, projects):
+        project_ids = [project.id for project in projects]
+        projects_by_member = {}
+        for member_id, project_id in ProjectMember.objects.filter(
+            workspace=workspace, project_id__in=project_ids, is_active=True
+        ).values_list("member_id", "project_id"):
+            projects_by_member.setdefault(str(member_id), []).append(str(project_id))
+        memberships = WorkspaceMember.objects.filter(
+            workspace=workspace, is_active=True, member__is_bot=False
+        ).select_related("member")
+        return [
+            {
+                "id": str(membership.member_id),
+                "name": self._member_name(membership.member),
+                "email": membership.member.email or "",
+                "project_ids": projects_by_member.get(str(membership.member_id), []),
+            }
+            for membership in memberships
+        ]
+
+    def _resolve_capture_assignee(self, hint, members):
+        if not hint:
+            return None
+        aliases = {"паша": "павел", "сева": "всеволод"}
+        hint_normalized = self._normalize_search(hint)
+        raw_hint_tokens = set(hint_normalized.split())
+        hint_tokens = raw_hint_tokens | {aliases.get(token, token) for token in raw_hint_tokens}
+        matches = []
+        for member in members:
+            member_tokens = set(self._normalize_search(f"{member['name']} {member['email']}").split())
+            if hint_normalized == self._normalize_search(member["email"]) or hint_tokens.intersection(member_tokens):
+                matches.append(member)
+        return matches[0] if len(matches) == 1 else None
+
     def _capture_writable_projects(self, workspace, user):
         writable_ids = ProjectMember.objects.filter(
             workspace=workspace,
@@ -470,6 +626,7 @@ class IgorCaptureMixin:
         token = request.data.get("capture_token")
         task_ids = request.data.get("task_ids")
         project_assignments = request.data.get("project_assignments") or {}
+        assignee_assignments = request.data.get("assignee_assignments") or {}
         task_overrides = request.data.get("task_overrides") or {}
         if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{20,80}", token):
             return {
@@ -483,6 +640,8 @@ class IgorCaptureMixin:
             }, 400
         if not isinstance(project_assignments, dict):
             return {"error": "invalid_project_assignments", "answer": "Не удалось проверить выбранные проекты."}, 400
+        if not isinstance(assignee_assignments, dict):
+            return {"error": "invalid_assignee_assignments", "answer": "Не удалось проверить исполнителей."}, 400
         if not isinstance(task_overrides, dict):
             return {"error": "invalid_task_overrides", "answer": "Не удалось проверить изменения задач."}, 400
 
@@ -555,6 +714,20 @@ class IgorCaptureMixin:
                         "error": "project_required",
                         "answer": f"Выбери доступный проект для задачи «{task['title']}».",
                     }, 400
+                assignee_id = str(assignee_assignments.get(task["id"]) or task.get("assignee_id") or "")
+                if assignee_id:
+                    is_project_member = ProjectMember.objects.filter(
+                        workspace=workspace,
+                        project=project,
+                        member_id=assignee_id,
+                        is_active=True,
+                    ).exists()
+                    if not is_project_member:
+                        return {
+                            "error": "invalid_assignee",
+                            "answer": f"Выбери участника проекта для задачи «{task['title']}».",
+                        }, 400
+                task["assignee_id"] = assignee_id or None
                 duplicate = (
                     Issue.issue_objects.filter(project=project, name__iexact=task["title"])
                     .exclude(state__group__in=["completed", "cancelled"])
@@ -616,7 +789,7 @@ class IgorCaptureMixin:
             "description_html": "".join(description_parts) or "<p></p>",
             "priority": task.get("priority") or "none",
             "target_date": task.get("target_date"),
-            "assignee_ids": [str(request.user.id)],
+            "assignee_ids": [task["assignee_id"]] if task.get("assignee_id") else [],
             "external_source": "igor_capture",
             "external_id": external_id,
         }

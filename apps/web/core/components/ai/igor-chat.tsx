@@ -482,6 +482,7 @@ export function IgorChat({ workspaceSlug }: Props) {
     widget: TIgorCaptureWidgetData,
     taskIds: string[],
     projectAssignments: Record<string, string>,
+    assigneeAssignments: Record<string, string>,
     taskOverrides: Record<
       string,
       {
@@ -500,6 +501,7 @@ export function IgorChat({ workspaceSlug }: Props) {
         capture_token: widget.token,
         task_ids: taskIds,
         project_assignments: projectAssignments,
+        assignee_assignments: assigneeAssignments,
         task_overrides: taskOverrides,
       });
       if (activeWorkspaceRef.current !== requestWorkspaceSlug) return false;
@@ -1099,6 +1101,7 @@ function IgorCaptureWidget({
     widget: TIgorCaptureWidgetData,
     taskIds: string[],
     projectAssignments: Record<string, string>,
+    assigneeAssignments: Record<string, string>,
     taskOverrides: Record<
       string,
       {
@@ -1115,6 +1118,11 @@ function IgorCaptureWidget({
   const [projectAssignments, setProjectAssignments] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       widget.tasks.filter((task) => task.project_id).map((task) => [task.id, task.project_id as string])
+    )
+  );
+  const [assigneeAssignments, setAssigneeAssignments] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      widget.tasks.filter((task) => task.assignee_id).map((task) => [task.id, task.assignee_id as string])
     )
   );
   const [taskOverrides, setTaskOverrides] = useState<
@@ -1135,15 +1143,18 @@ function IgorCaptureWidget({
     )
   );
   const [isCreated, setIsCreated] = useState(false);
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(
-    () => widget.tasks.find((task) => !task.duplicate_issue)?.id ?? null
-  );
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     setSelectedTaskIds(new Set(widget.tasks.filter((task) => !task.duplicate_issue).map((task) => task.id)));
     setProjectAssignments(
       Object.fromEntries(
         widget.tasks.filter((task) => task.project_id).map((task) => [task.id, task.project_id as string])
+      )
+    );
+    setAssigneeAssignments(
+      Object.fromEntries(
+        widget.tasks.filter((task) => task.assignee_id).map((task) => [task.id, task.assignee_id as string])
       )
     );
     setTaskOverrides(
@@ -1155,7 +1166,7 @@ function IgorCaptureWidget({
       )
     );
     setIsCreated(false);
-    setExpandedTaskId(widget.tasks.find((task) => !task.duplicate_issue)?.id ?? null);
+    setExpandedTaskId(null);
   }, [widget]);
 
   const selectedTasks = widget.tasks.filter((task) => selectedTaskIds.has(task.id));
@@ -1177,86 +1188,117 @@ function IgorCaptureWidget({
   };
 
   const toggleAllTasks = () => {
+    const selectableTaskIds = widget.tasks.filter((task) => !task.duplicate_issue).map((task) => task.id);
     setSelectedTaskIds((current) =>
-      current.size === widget.tasks.length ? new Set() : new Set(widget.tasks.map((task) => task.id))
+      selectableTaskIds.every((taskId) => current.has(taskId)) ? new Set() : new Set(selectableTaskIds)
     );
   };
 
+  const categoryCount = (key: TIgorCaptureWidgetData["categories"][number]["key"]) =>
+    widget.categories.find((category) => category.key === key)?.count ?? 0;
+
   return (
     <div className="shadow-xs mt-3 overflow-hidden rounded-xl border border-subtle bg-surface-1">
-      <div className="border-b border-subtle px-3 py-3">
+      <div className="border-b border-subtle px-3 py-2.5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-primary">{widget.title}</div>
-            <div className="text-xs mt-0.5 text-secondary">
+            <div className="text-[13px] font-semibold text-primary">{widget.title}</div>
+            <div className="mt-0.5 text-[11px] text-secondary">
               Разобрано {widget.covered_count} из {widget.source_count} исходных пунктов
             </div>
           </div>
           <div
             className={cn(
-              "text-xs shrink-0 rounded-full px-2 py-1 font-medium",
+              "shrink-0 rounded-full px-2 py-1 text-[11px] font-medium",
               widget.covered_count === widget.source_count
                 ? "bg-green-500/10 text-green-600"
                 : "bg-amber-500/10 text-amber-600"
             )}
           >
-            {widget.covered_count === widget.source_count ? "Ничего не потеряно" : "Нужна проверка"}
+            {widget.covered_count === widget.source_count ? "Все пункты учтены" : "Нужна проверка"}
           </div>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+          <span className="rounded bg-[#0b6ea8]/10 px-2 py-1 font-medium text-[#0b6ea8]">
+            {widget.tasks.length} задач
+          </span>
+          {categoryCount("question") > 0 && (
+            <span className="bg-amber-500/10 text-amber-700 rounded px-2 py-1">
+              {categoryCount("question")} вопросов
+            </span>
+          )}
+          {categoryCount("risk") > 0 && (
+            <span className="bg-red-500/10 text-red-600 rounded px-2 py-1">{categoryCount("risk")} рисков</span>
+          )}
+          {categoryCount("decision") > 0 && (
+            <span className="rounded bg-surface-2 px-2 py-1 text-secondary">{categoryCount("decision")} решений</span>
+          )}
         </div>
       </div>
 
-      <div className="divide-y divide-subtle">
-        {widget.categories.map((category) => (
-          <details
-            key={category.key}
-            open={["action", "risk", "question", "unclassified"].includes(category.key)}
-            className="group"
-          >
-            <summary className="cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30 focus-visible:ring-inset">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-primary">{category.title}</span>
-                <span className="flex shrink-0 items-center gap-1.5">
-                  <span className="text-xs rounded-full bg-surface-2 px-2 py-0.5 text-secondary">{category.count}</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-tertiary transition-transform group-open:rotate-180" />
-                </span>
-              </div>
-            </summary>
-            <div className="space-y-2 border-t border-subtle bg-surface-2/40 px-3 py-2.5">
-              {category.items.map((item) => (
-                <div key={item.source_id} className="rounded border border-subtle bg-surface-1 px-2.5 py-2">
-                  <div className="text-xs flex items-start gap-2">
-                    <span className="shrink-0 font-medium text-[#0b6ea8]">{item.source_id}</span>
-                    <span className="font-medium text-primary">{item.summary}</span>
-                  </div>
-                  {item.summary.trim() !== item.source_text.trim() && (
-                    <div className="text-xs mt-1 border-l border-subtle pl-2 leading-4 text-tertiary">
-                      Исходник: {item.source_text}
-                    </div>
-                  )}
+      <details className="group border-b border-subtle">
+        <summary className="cursor-pointer list-none px-3 py-2 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30 focus-visible:ring-inset">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold text-primary">Материалы встречи</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-tertiary">
+              {widget.source_count} пунктов
+              <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+            </span>
+          </div>
+        </summary>
+        <div className="divide-y divide-subtle border-t border-subtle">
+          {widget.categories.map((category) => (
+            <details key={category.key}>
+              <summary className="cursor-pointer list-none px-3 py-2 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30 focus-visible:ring-inset">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-primary">{category.title}</span>
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-secondary">
+                      {category.count}
+                    </span>
+                    <ChevronDown className="h-3.5 w-3.5 text-tertiary" />
+                  </span>
                 </div>
-              ))}
-            </div>
-          </details>
-        ))}
-      </div>
+              </summary>
+              <div className="space-y-1 border-t border-subtle bg-surface-2/40 px-3 py-2">
+                {category.items.map((item) => (
+                  <div key={item.source_id} className="rounded border border-subtle bg-surface-1 px-2 py-1.5">
+                    <div className="flex items-start gap-2 text-[11px] leading-4">
+                      <span className="shrink-0 font-medium text-[#0b6ea8]">{item.source_id}</span>
+                      <span className="font-medium text-primary">{item.summary}</span>
+                    </div>
+                    {item.summary.trim() !== item.source_text.trim() && (
+                      <div className="mt-1 border-l border-subtle pl-2 text-[11px] leading-4 text-tertiary">
+                        Исходник: {item.source_text}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+          ))}
+        </div>
+      </details>
 
-      <div className="border-t border-subtle px-3 py-3">
+      <div className="border-t border-subtle px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs flex items-center gap-1.5 font-semibold text-primary">
+            <div className="flex items-center gap-1.5 text-[12px] font-semibold text-primary">
               <ListChecks className="h-3.5 w-3.5" />
               Предложенные задачи
             </div>
-            <div className="text-xs mt-0.5 text-tertiary">Проверь поля и выбери, что действительно создать.</div>
+            <div className="mt-0.5 text-[11px] text-tertiary">Раскрой только те задачи, которые нужно поправить.</div>
           </div>
           {widget.tasks.length > 0 && (
             <button
               type="button"
               onClick={toggleAllTasks}
               disabled={isSubmitting}
-              className="text-xs shrink-0 text-secondary hover:text-primary disabled:opacity-50"
+              className="shrink-0 text-[11px] text-secondary hover:text-primary disabled:opacity-50"
             >
-              {selectedTaskIds.size === widget.tasks.length ? "Снять все" : "Выбрать все"}
+              {widget.tasks.filter((task) => !task.duplicate_issue).every((task) => selectedTaskIds.has(task.id))
+                ? "Снять все"
+                : "Выбрать все"}
             </button>
           )}
         </div>
@@ -1267,11 +1309,18 @@ function IgorCaptureWidget({
             Игорь не стал.
           </div>
         ) : (
-          <div className="mt-3 space-y-2">
+          <div className="mt-2 space-y-1.5">
             {widget.tasks.map((task) => {
               const isSelected = selectedTaskIds.has(task.id);
               const missingDeadline = task.missing_fields.includes("target_date");
               const missingPriority = task.missing_fields.includes("priority");
+              const missingAssignee = !assigneeAssignments[task.id];
+              const selectedProjectId = projectAssignments[task.id];
+              const selectedProject = widget.projects.find((project) => project.id === selectedProjectId);
+              const selectedAssignee = widget.members.find((member) => member.id === assigneeAssignments[task.id]);
+              const assignableMembers = widget.members.filter(
+                (member) => !selectedProjectId || member.project_ids.includes(selectedProjectId)
+              );
               const override = taskOverrides[task.id] ?? {
                 title: task.title,
                 target_date: task.target_date,
@@ -1281,11 +1330,11 @@ function IgorCaptureWidget({
                 <div
                   key={task.id}
                   className={cn(
-                    "rounded border px-2.5 py-2.5 transition",
+                    "rounded border px-2 py-2 transition",
                     isSelected ? "border-[#0b6ea8]/30 bg-[#0b6ea8]/5" : "border-subtle bg-surface-2/50"
                   )}
                 >
-                  <label className="flex cursor-pointer items-start gap-2.5">
+                  <label className="flex cursor-pointer items-start gap-2">
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -1294,23 +1343,28 @@ function IgorCaptureWidget({
                       className="mt-0.5 h-4 w-4 shrink-0 accent-[#0b6ea8]"
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="text-xs block font-medium text-primary">{override.title}</span>
+                      <span className="block text-[12px] leading-4 font-medium text-primary" title={override.title}>
+                        {override.title}
+                      </span>
                       {task.description && (
-                        <span className="text-xs mt-1 line-clamp-3 block leading-4 text-secondary">
+                        <span className="mt-0.5 line-clamp-2 block text-[11px] leading-4 text-secondary">
                           {task.description}
                         </span>
                       )}
-                      <span className="text-xs mt-1 block text-tertiary">
-                        Источник: {task.source_ids.join(", ")} · Исполнитель: {task.assignee_name}
+                      <span className="mt-0.5 block text-[11px] leading-4 text-tertiary">
+                        {selectedProject?.name ?? "Проект не выбран"} ·{" "}
+                        {selectedAssignee?.name ?? task.assignee_hint ?? "Исполнитель не найден"}
+                        {" · "}
+                        {task.source_ids.join(", ")}
                       </span>
                     </span>
                   </label>
 
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-6">
-                    <span className="text-xs rounded bg-surface-2 px-1.5 py-0.5 text-tertiary">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-6">
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-tertiary">
                       {override.target_date ? `Срок: ${formatShortDate(override.target_date)}` : "Срок не найден"}
                     </span>
-                    <span className="text-xs rounded bg-surface-2 px-1.5 py-0.5 text-tertiary">
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-tertiary">
                       {override.priority === "none"
                         ? "Приоритет не найден"
                         : `Приоритет: ${priorityLabel(override.priority)}`}
@@ -1320,7 +1374,7 @@ function IgorCaptureWidget({
                         type="button"
                         onClick={() => setExpandedTaskId((current) => (current === task.id ? null : task.id))}
                         disabled={isSubmitting}
-                        className="text-xs ml-auto text-[#0b6ea8] hover:underline disabled:opacity-50"
+                        className="ml-auto text-[11px] text-[#0b6ea8] hover:underline disabled:opacity-50"
                       >
                         {expandedTaskId === task.id ? "Свернуть" : "Настроить"}
                       </button>
@@ -1358,9 +1412,16 @@ function IgorCaptureWidget({
                         Проект <span className="text-red-500">обязательно</span>
                         <select
                           value={projectAssignments[task.id] ?? ""}
-                          onChange={(event) =>
-                            setProjectAssignments((current) => ({ ...current, [task.id]: event.target.value }))
-                          }
+                          onChange={(event) => {
+                            const nextProjectId = event.target.value;
+                            setProjectAssignments((current) => ({ ...current, [task.id]: nextProjectId }));
+                            const currentAssigneeId = assigneeAssignments[task.id];
+                            const remainsAssignable = widget.members.some(
+                              (member) => member.id === currentAssigneeId && member.project_ids.includes(nextProjectId)
+                            );
+                            if (!remainsAssignable)
+                              setAssigneeAssignments((current) => ({ ...current, [task.id]: "" }));
+                          }}
                           disabled={isSubmitting}
                           className="h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none focus:border-[#0b6ea8]"
                         >
@@ -1368,6 +1429,24 @@ function IgorCaptureWidget({
                           {widget.projects.map((project) => (
                             <option key={project.id} value={project.id}>
                               {project.identifier} · {project.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs grid gap-1 text-secondary">
+                        Исполнитель
+                        <select
+                          value={assigneeAssignments[task.id] ?? ""}
+                          onChange={(event) =>
+                            setAssigneeAssignments((current) => ({ ...current, [task.id]: event.target.value }))
+                          }
+                          disabled={isSubmitting || !selectedProjectId}
+                          className="h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none focus:border-[#0b6ea8]"
+                        >
+                          <option value="">Не назначен</option>
+                          {assignableMembers.map((member) => (
+                            <option key={member.id} value={member.id}>
+                              {member.name}
                             </option>
                           ))}
                         </select>
@@ -1412,15 +1491,19 @@ function IgorCaptureWidget({
                           </select>
                         </label>
                       </div>
-                      {(missingDeadline || missingPriority) && (
+                      {(missingDeadline || missingPriority || missingAssignee) && (
                         <div className="text-xs text-amber-600 flex items-start gap-1.5">
                           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                           <span>
-                            {missingDeadline && missingPriority
-                              ? "В исходнике нет срока и приоритета — Игорь не стал их придумывать."
-                              : missingDeadline
-                                ? "В исходнике нет срока — Игорь не стал его придумывать."
-                                : "В исходнике нет приоритета — Игорь не стал его придумывать."}
+                            Не найдено:{" "}
+                            {[
+                              missingAssignee && "исполнитель",
+                              missingDeadline && "срок",
+                              missingPriority && "приоритет",
+                            ]
+                              .filter(Boolean)
+                              .join(", ")}
+                            . Игорь не стал придумывать данные.
                           </span>
                         </div>
                       )}
@@ -1433,7 +1516,7 @@ function IgorCaptureWidget({
         )}
 
         {widget.tasks.length > 0 && (
-          <div className="mt-3">
+          <div className="sticky bottom-0 z-10 mt-3 border-t border-subtle bg-surface-1/95 pt-2 backdrop-blur-sm">
             {tasksWithoutProject.length > 0 && (
               <div className="text-xs text-amber-600 mb-2">
                 Выбери проект ещё для {tasksWithoutProject.length} задач.
@@ -1446,6 +1529,7 @@ function IgorCaptureWidget({
                   widget,
                   selectedTasks.map((task) => task.id),
                   projectAssignments,
+                  assigneeAssignments,
                   taskOverrides
                 );
                 if (created) setIsCreated(true);
