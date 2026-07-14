@@ -3,8 +3,24 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-COMPOSE_FILE=${PLANE_COMPOSE_FILE:-"$SCRIPT_DIR/docker-compose.yml"}
 ENV_FILE=${PLANE_ENV_FILE:-"$SCRIPT_DIR/plane.env"}
+
+if [[ -n "${PLANE_COMPOSE_FILE:-}" ]]; then
+  COMPOSE_FILE=$PLANE_COMPOSE_FILE
+elif [[ -f "$SCRIPT_DIR/docker-compose.yaml" ]]; then
+  COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yaml"
+else
+  COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+fi
+
+COMPOSE_ARGS=(-f "$COMPOSE_FILE")
+if [[ -n "${PLANE_COMPOSE_OVERRIDE:-}" ]]; then
+  COMPOSE_ARGS+=(-f "$PLANE_COMPOSE_OVERRIDE")
+elif [[ -f "$SCRIPT_DIR/docker-compose.override.yaml" ]]; then
+  COMPOSE_ARGS+=(-f "$SCRIPT_DIR/docker-compose.override.yaml")
+elif [[ -f "$SCRIPT_DIR/docker-compose.override.yml" ]]; then
+  COMPOSE_ARGS+=(-f "$SCRIPT_DIR/docker-compose.override.yml")
+fi
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "Plane deployment stopped: environment file not found: $ENV_FILE" >&2
@@ -35,4 +51,4 @@ if [[ -z "$CORS_VALUE" ]]; then
   exit 1
 fi
 
-exec docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+exec docker compose --env-file "$ENV_FILE" "${COMPOSE_ARGS[@]}" "$@"
