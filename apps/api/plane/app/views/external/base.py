@@ -476,7 +476,13 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
                 "widgets": [
                     {
                         "type": "work_items",
-                        "title": self._widget_title(intent, member, projects, period_label),
+                        "title": self._widget_title(
+                            intent,
+                            member,
+                            projects,
+                            period_label,
+                            query_context.get("scope"),
+                        ),
                         "items": [self._serialize_issue(issue) for issue in issues],
                         "total": total,
                         "limit": limit,
@@ -653,11 +659,11 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             access_denied = "У тебя нет доступа к одному или нескольким указанным проектам."
 
         if intent == "task_search":
-            # Task search is deliberately personal even for Igor managers. A broad
-            # manager report must never be inferred from a short title fragment.
-            member = user
+            # Leaders use task search as a workspace-wide navigation tool. Everyone
+            # else stays restricted to issues currently assigned to them.
+            member = None if is_manager else user
             projects = []
-            scope = "personal"
+            scope = "all_projects" if is_manager else "personal"
         elif not is_manager:
             requested_other_member = member is not None and member.id != user.id
             if requested_all_projects or team_requested or requested_other_member or intent == "unassigned":
@@ -2203,17 +2209,16 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
 
         if intent == "task_search":
             safe_query = str(search_query or "").strip()
+            is_workspace_search = member is None
+            search_scope = "во всех проектах" if is_workspace_search else "среди назначенных тебе задач"
             if count == 0:
-                return f"Не нашёл среди назначенных тебе задач совпадений по «{safe_query}»."
+                return f"Не нашёл {search_scope} совпадений по «{safe_query}»."
             if count == 1 and issues:
                 issue = issues[0]
                 identifier = f"{issue.project.identifier}-{issue.sequence_id}"
-                return (
-                    f"Нашёл среди твоих задач: {identifier} «{issue.name}» находится "
-                    f"в проекте «{issue.project.name}»."
-                )
+                return f"Нашёл {search_scope}: {identifier} «{issue.name}» находится в проекте «{issue.project.name}»."
             return (
-                f"Нашёл среди твоих задач {count} совпадений по «{safe_query}». "
+                f"Нашёл {search_scope} {count} совпадений по «{safe_query}». "
                 f"Показываю полные названия и проекты, чтобы выбрать нужную задачу.{more}"
             )
 
@@ -2532,8 +2537,9 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             return None, None, safe_base_url, timeout_seconds
         return api_key.strip(), model.strip(), safe_base_url, timeout_seconds
 
-    def _widget_title(self, intent, member, projects, period_label):
+    def _widget_title(self, intent, member, projects, period_label, context_scope=None):
         scope = self._scope_label(member, projects)
+        task_search_scope = "Все проекты" if context_scope == "all_projects" else "Мои задачи"
         titles = {
             "completed": f"Завершённые задачи · {scope} · {period_label}",
             "overdue": f"Просроченные задачи · {scope}",
@@ -2542,7 +2548,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             "active": f"Задачи в работе · {scope}",
             "unassigned": f"Задачи без исполнителя · {scope}",
             "overview": f"Актуальные задачи · {scope}",
-            "task_search": "Результаты поиска · Мои задачи",
+            "task_search": f"Результаты поиска · {task_search_scope}",
         }
         return titles.get(intent, "Задачи")
 

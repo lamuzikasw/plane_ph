@@ -6,7 +6,7 @@ import pytest
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from plane.app.views.external.base import IgorChatEndpoint
-from plane.db.models import Issue, IssueAssignee, Project, State, WorkspaceMember
+from plane.db.models import Issue, IssueAssignee, Project, ProjectMember, State, WorkspaceMember
 from plane.tests.factories import UserFactory, WorkspaceFactory
 
 
@@ -34,7 +34,7 @@ def test_generic_task_questions_are_not_mistaken_for_title_search(message):
 
 @pytest.mark.unit
 @pytest.mark.django_db
-def test_task_search_finds_partial_title_and_stays_personal_even_for_manager(monkeypatch):
+def test_task_search_finds_partial_title_across_all_projects_for_manager(monkeypatch):
     manager = UserFactory(email="propandamen@gmail.com", username="propandamen@gmail.com")
     teammate = UserFactory(email="task-search-teammate@plane.so", username="task-search-teammate@plane.so")
     workspace = WorkspaceFactory(slug="igor-task-search", owner=manager)
@@ -109,15 +109,105 @@ def test_task_search_finds_partial_title_and_stays_personal_even_for_manager(mon
 
     assert response.status_code == 200
     assert response.data["intent"] == "task_search"
-    assert response.data["context"]["scope"] == "personal"
-    assert response.data["context"]["member_id"] == str(manager.id)
+    assert response.data["context"]["scope"] == "all_projects"
+    assert response.data["context"]["member_id"] is None
     assert response.data["context"]["project_ids"] == []
     assert response.data["context"]["search_query"] == "crm_url"
+    assert response.data["widgets"][0]["title"] == "Результаты поиска · Все проекты"
+    assert response.data["widgets"][0]["total"] == 2
+    assert {item["id"] for item in response.data["widgets"][0]["items"]} == {
+        str(own_issue.id),
+        str(teammate_issue.id),
+    }
+    assert {item["project_name"] for item in response.data["widgets"][0]["items"]} == {
+        "Личный кабинет PH",
+        "Скрытый проект коллеги",
+    }
+    assert "во всех проектах" in response.data["answer"]
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_task_search_stays_assignee_scoped_for_unlisted_workspace_admin(monkeypatch):
+    user = UserFactory(email="workspace-admin@plane.so", username="workspace-admin@plane.so")
+    teammate = UserFactory(email="regular-teammate@plane.so", username="regular-teammate@plane.so")
+    workspace = WorkspaceFactory(slug="igor-personal-task-search", owner=user)
+    WorkspaceMember.objects.create(workspace=workspace, member=user, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=teammate, role=15)
+
+    projects = []
+    for identifier, name in [("OWN", "Мой проект"), ("TEAM", "Проект коллеги")]:
+        project = Project.objects.create(
+            workspace=workspace,
+            name=name,
+            identifier=identifier,
+            project_lead=user,
+        )
+        ProjectMember.objects.create(workspace=workspace, project=project, member=user, role=20)
+        projects.append(project)
+
+    own_state = State.objects.create(
+        workspace=workspace,
+        project=projects[0],
+        name="Todo",
+        color="#60646C",
+        group="unstarted",
+    )
+    teammate_state = State.objects.create(
+        workspace=workspace,
+        project=projects[1],
+        name="In Progress",
+        color="#F59E0B",
+        group="started",
+    )
+    own_issue = Issue.objects.create(
+        workspace=workspace,
+        project=projects[0],
+        state=own_state,
+        name="Проверить crm_url в кабинете",
+        sequence_id=1,
+    )
+    teammate_issue = Issue.objects.create(
+        workspace=workspace,
+        project=projects[1],
+        state=teammate_state,
+        name="Исправить crm_url в API",
+        sequence_id=2,
+    )
+    IssueAssignee.objects.create(
+        workspace=workspace,
+        project=projects[0],
+        issue=own_issue,
+        assignee=user,
+    )
+    IssueAssignee.objects.create(
+        workspace=workspace,
+        project=projects[1],
+        issue=teammate_issue,
+        assignee=teammate,
+    )
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("Deterministic task search must not call an external LLM")
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_work_plan", fail_if_called)
+    request = APIRequestFactory().post(
+        f"/api/workspaces/{workspace.slug}/igor-chat/",
+        {"message": "Найди задачу crm_url"},
+        format="json",
+    )
+    force_authenticate(request, user=user)
+
+    response = IgorChatEndpoint.as_view()(request, slug=workspace.slug)
+
+    assert response.status_code == 200
+    assert response.data["context"]["scope"] == "personal"
+    assert response.data["context"]["member_id"] == str(user.id)
+    assert response.data["widgets"][0]["title"] == "Результаты поиска · Мои задачи"
     assert response.data["widgets"][0]["total"] == 1
     assert [item["id"] for item in response.data["widgets"][0]["items"]] == [str(own_issue.id)]
-    assert "Личный кабинет PH" in response.data["answer"]
-    assert "Автоответы: crm_url при создании custom payment" in response.data["answer"]
-    assert "Скрытый проект коллеги" not in response.data["answer"]
+    assert str(teammate_issue.id) not in {item["id"] for item in response.data["widgets"][0]["items"]}
+    assert "среди назначенных тебе задач" in response.data["answer"]
 
 
 @pytest.mark.unit
