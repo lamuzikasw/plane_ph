@@ -4,7 +4,9 @@
  * See the LICENSE file for details.
  */
 
-import React, { useEffect, useRef, useState } from "react";
+/* eslint-disable jsx-a11y/no-static-element-interactions -- ComboDropDown owns the keyboard interaction contract. */
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { createPortal } from "react-dom";
 import { usePopper } from "react-popper";
@@ -15,13 +17,14 @@ import type { Matcher } from "@plane/propel/calendar";
 import { Calendar } from "@plane/propel/calendar";
 import { CloseIcon } from "@plane/propel/icons";
 import { ComboDropDown } from "@plane/ui";
-import { cn, renderFormattedDate, getDate, getDateTime, renderFormattedTime } from "@plane/utils";
+import { cn, renderFormattedDate, getDate, getDateTime } from "@plane/utils";
 // helpers
 // hooks
 import { useUserProfile } from "@/hooks/store/user";
 import { useDropdown } from "@/hooks/use-dropdown";
 // components
 import { DropdownButton } from "./buttons";
+import { applyTimeInputToDate, getTimeInputValue, isValidTimeInput, mergeDateAndTime } from "./date-time-input.utils";
 // constants
 import { BUTTON_VARIANTS_WITH_TEXT } from "./constants";
 // types
@@ -45,43 +48,13 @@ type Props = TDropdownProps & {
   includeTime?: boolean;
 };
 
-const mergeDateAndTime = (date: Date, timeSource?: Date): Date => {
-  const updatedDate = new Date(date);
-  updatedDate.setHours(timeSource?.getHours() ?? 0);
-  updatedDate.setMinutes(timeSource?.getMinutes() ?? 0);
-  updatedDate.setSeconds(0);
-  updatedDate.setMilliseconds(0);
-  return updatedDate;
-};
-
-const getTimeValue = (date?: Date): string => (date ? renderFormattedTime(date) : "");
-
-const isValidTimeValue = (time: string): boolean => {
-  const [hours, minutes] = time.split(":").map(Number);
-
-  return (
-    /^\d{2}:\d{2}$/.test(time) &&
-    Number.isInteger(hours) &&
-    Number.isInteger(minutes) &&
-    hours >= 0 &&
-    hours <= 23 &&
-    minutes >= 0 &&
-    minutes <= 59
-  );
-};
-
-const applyTimeToDate = (date: Date, time: string): Date => {
-  const [hours, minutes] = time.split(":").map(Number);
-  const updatedDate = new Date(date);
-  updatedDate.setHours(hours);
-  updatedDate.setMinutes(minutes);
-  updatedDate.setSeconds(0);
-  updatedDate.setMilliseconds(0);
-  return updatedDate;
-};
-
 const stopInputEventPropagation = (e: React.SyntheticEvent<HTMLInputElement>) => {
   e.stopPropagation();
+};
+
+const handleTimeInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  e.stopPropagation();
+  if (e.key === "Enter") e.currentTarget.blur();
 };
 
 export const DateDropdown = observer(function DateDropdown(props: Props) {
@@ -149,9 +122,8 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
     setIsOpen,
   });
 
-  const selectedDate = includeTime ? getDateTime(value) : getDate(value);
-  const selectedTimestamp = selectedDate?.getTime();
-  const [timeInput, setTimeInput] = useState(getTimeValue(selectedDate));
+  const selectedDate = useMemo(() => (includeTime ? getDateTime(value) : getDate(value)), [includeTime, value]);
+  const [timeInput, setTimeInput] = useState(getTimeInputValue(selectedDate));
 
   const getLabel = (date: Date | string | null | undefined) => {
     if (!date) return undefined;
@@ -174,16 +146,22 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
 
   const handleTimeChange = (time: string) => {
     setTimeInput(time);
+  };
 
+  const commitTimeChange = (time: string) => {
     if (!selectedDate) return;
-    if (!isValidTimeValue(time)) return;
+    const updatedDate = applyTimeInputToDate(selectedDate, time);
+    if (!updatedDate) {
+      setTimeInput(getTimeInputValue(selectedDate));
+      return;
+    }
 
-    dropdownOnChange(applyTimeToDate(selectedDate, time), false);
+    dropdownOnChange(updatedDate, false);
   };
 
   useEffect(() => {
-    setTimeInput(getTimeValue(selectedDate));
-  }, [selectedTimestamp]);
+    setTimeInput(getTimeInputValue(selectedDate));
+  }, [selectedDate]);
 
   const disabledDays: Matcher[] = [];
   if (minDate) disabledDays.push({ before: minDate });
@@ -269,8 +247,8 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
                   dropdownOnChange(
                     date
                       ? includeTime
-                        ? isValidTimeValue(timeInput)
-                          ? applyTimeToDate(date, timeInput)
+                        ? isValidTimeInput(timeInput)
+                          ? (applyTimeInputToDate(date, timeInput) ?? mergeDateAndTime(date, selectedDate))
                           : mergeDateAndTime(date, selectedDate)
                         : date
                       : null
@@ -290,9 +268,10 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
                     type="time"
                     value={timeInput}
                     onChange={(e) => handleTimeChange(e.target.value)}
+                    onBlur={(e) => commitTimeChange(e.currentTarget.value)}
                     onClick={stopInputEventPropagation}
                     onFocus={stopInputEventPropagation}
-                    onKeyDown={stopInputEventPropagation}
+                    onKeyDown={handleTimeInputKeyDown}
                     disabled={!selectedDate}
                     className="focus:border-custom-primary-100 h-7 rounded border-[0.5px] border-strong bg-transparent px-2 text-body-xs-regular outline-none disabled:cursor-not-allowed disabled:text-placeholder"
                   />

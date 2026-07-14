@@ -4,6 +4,8 @@
  * See the LICENSE file for details.
  */
 
+/* eslint-disable jsx-a11y/no-static-element-interactions -- ComboDropDown owns the keyboard interaction contract. */
+
 import React, { useEffect, useRef, useState } from "react";
 import type { Placement } from "@popperjs/core";
 import { observer } from "mobx-react";
@@ -18,7 +20,7 @@ import type { DateRange, Matcher } from "@plane/propel/calendar";
 import { Calendar } from "@plane/propel/calendar";
 import { CloseIcon, DueDatePropertyIcon } from "@plane/propel/icons";
 import { ComboDropDown } from "@plane/ui";
-import { cn, renderFormattedDate, renderFormattedTime } from "@plane/utils";
+import { cn, renderFormattedDate } from "@plane/utils";
 // helpers
 // hooks
 import { useUserProfile } from "@/hooks/store/user";
@@ -26,6 +28,7 @@ import { useDropdown } from "@/hooks/use-dropdown";
 // components
 import { DropdownButton } from "./buttons";
 import { MergedDateDisplay } from "./merged-date";
+import { applyTimeInputToDate, getTimeInputValue, mergeDateAndTime } from "./date-time-input.utils";
 // types
 import type { TButtonVariants } from "./types";
 
@@ -71,33 +74,13 @@ type Props = {
   includeTime?: boolean;
 };
 
-const mergeDateAndTime = (date: Date, timeSource?: Date): Date => {
-  const updatedDate = new Date(date);
-  updatedDate.setHours(timeSource?.getHours() ?? 0);
-  updatedDate.setMinutes(timeSource?.getMinutes() ?? 0);
-  updatedDate.setSeconds(0);
-  updatedDate.setMilliseconds(0);
-  return updatedDate;
-};
-
-const getTimeValue = (date?: Date): string => (date ? renderFormattedTime(date) : "");
-
-const isValidTimeValue = (time: string): boolean => {
-  const [hours, minutes] = time.split(":").map(Number);
-
-  return (
-    /^\d{2}:\d{2}$/.test(time) &&
-    Number.isInteger(hours) &&
-    Number.isInteger(minutes) &&
-    hours >= 0 &&
-    hours <= 23 &&
-    minutes >= 0 &&
-    minutes <= 59
-  );
-};
-
 const stopInputEventPropagation = (e: React.SyntheticEvent<HTMLInputElement>) => {
   e.stopPropagation();
+};
+
+const handleTimeInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  e.stopPropagation();
+  if (e.key === "Enter") e.currentTarget.blur();
 };
 
 export const DateRangeDropdown = observer(function DateRangeDropdown(props: Props) {
@@ -140,8 +123,8 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [dateRange, setDateRange] = useState<DateRange>(value);
   const [timeInput, setTimeInput] = useState({
-    from: getTimeValue(value.from),
-    to: getTimeValue(value.to),
+    from: getTimeInputValue(value.from),
+    to: getTimeInputValue(value.to),
   });
   const fromTimestamp = value.from?.getTime();
   const toTimestamp = value.to?.getTime();
@@ -198,25 +181,24 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
 
     setDateRange(updatedRange);
     setTimeInput({
-      from: getTimeValue(updatedRange.from),
-      to: getTimeValue(updatedRange.to),
+      from: getTimeInputValue(updatedRange.from),
+      to: getTimeInputValue(updatedRange.to),
     });
     onSelect?.(updatedRange);
   };
 
   const handleTimeChange = (key: "from" | "to", time: string) => {
     setTimeInput((prev) => ({ ...prev, [key]: time }));
+  };
 
+  const commitTimeChange = (key: "from" | "to", time: string) => {
     const currentDate = dateRange[key];
     if (!currentDate) return;
-    if (!isValidTimeValue(time)) return;
-
-    const [hours, minutes] = time.split(":").map(Number);
-    const updatedDate = new Date(currentDate);
-    updatedDate.setHours(hours);
-    updatedDate.setMinutes(minutes);
-    updatedDate.setSeconds(0);
-    updatedDate.setMilliseconds(0);
+    const updatedDate = applyTimeInputToDate(currentDate, time);
+    if (!updatedDate) {
+      setTimeInput((prev) => ({ ...prev, [key]: getTimeInputValue(currentDate) }));
+      return;
+    }
 
     const updatedRange = { ...dateRange, [key]: updatedDate };
     setDateRange(updatedRange);
@@ -224,13 +206,15 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
   };
 
   useEffect(() => {
+    const nextFromDate = fromTimestamp === undefined ? undefined : new Date(fromTimestamp);
+    const nextToDate = toTimestamp === undefined ? undefined : new Date(toTimestamp);
     setDateRange({
-      from: value.from,
-      to: value.to,
+      from: nextFromDate,
+      to: nextToDate,
     });
     setTimeInput({
-      from: getTimeValue(value.from),
-      to: getTimeValue(value.to),
+      from: getTimeInputValue(nextFromDate),
+      to: getTimeInputValue(nextToDate),
     });
   }, [fromTimestamp, toTimestamp]);
 
@@ -377,9 +361,10 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
                 type="time"
                 value={timeInput.from}
                 onChange={(e) => handleTimeChange("from", e.target.value)}
+                onBlur={(e) => commitTimeChange("from", e.currentTarget.value)}
                 onClick={stopInputEventPropagation}
                 onFocus={stopInputEventPropagation}
-                onKeyDown={stopInputEventPropagation}
+                onKeyDown={handleTimeInputKeyDown}
                 disabled={!dateRange.from}
                 className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
               />
@@ -390,9 +375,10 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
                 type="time"
                 value={timeInput.to}
                 onChange={(e) => handleTimeChange("to", e.target.value)}
+                onBlur={(e) => commitTimeChange("to", e.currentTarget.value)}
                 onClick={stopInputEventPropagation}
                 onFocus={stopInputEventPropagation}
-                onKeyDown={stopInputEventPropagation}
+                onKeyDown={handleTimeInputKeyDown}
                 disabled={!dateRange.to}
                 className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
               />
