@@ -347,12 +347,10 @@ def test_weekly_summary_llm_turns_structured_facts_into_short_human_copy(monkeyp
         def create(self, **kwargs):
             captured["request"] = kwargs
             response = {
-                "summary": (
-                    "За прошлую неделю удалось ускорить VPN и настроить ключи VLESS. "
-                    "Также в работе были боты оплаты и тестирование Telegram-бота. "
-                    "Из того, что требует внимания: аудит безопасности серверов нужно закрыть до 18 июля. "
-                    "На следующую неделю запланировано завершение мониторинга оплаты сервисов до 19 июля."
-                )
+                "completed": "Ускорить VPN и настроить ключи VLESS",
+                "progressed": "Доработку ботов оплаты и тестирование Telegram-бота",
+                "risks": "Аудит безопасности серверов нужно закрыть до 18 июля",
+                "plan": "Завершение мониторинга оплаты сервисов до 19 июля",
             }
             return SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(response, ensure_ascii=False)))]
@@ -394,9 +392,9 @@ def test_weekly_summary_llm_turns_structured_facts_into_short_human_copy(monkeyp
 
     assert result == (
         "За прошлую неделю удалось ускорить VPN и настроить ключи VLESS. "
-        "Также в работе были боты оплаты и тестирование Telegram-бота. "
+        "Также удалось продвинуть доработку ботов оплаты и тестирование Telegram-бота. "
         "Из того, что требует внимания: аудит безопасности серверов нужно закрыть до 18 июля. "
-        "На следующую неделю запланировано завершение мониторинга оплаты сервисов до 19 июля."
+        "На следующую неделю запланировано: завершение мониторинга оплаты сервисов до 19 июля."
     )
     assert "Итоги недели" not in result
     assert "Сделано:" not in result
@@ -413,7 +411,7 @@ def test_weekly_summary_llm_turns_structured_facts_into_short_human_copy(monkeyp
 def test_weekly_summary_llm_rejects_unsafe_or_oversized_copy(monkeypatch):
     class FakeCompletions:
         def create(self, **_kwargs):
-            response = {"summary": "Подробнее: https://unsafe.example/report"}
+            response = {"completed": None, "progressed": None, "risks": "Подробнее: https://unsafe.example/report"}
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(response)))])
 
     class FakeOpenAI:
