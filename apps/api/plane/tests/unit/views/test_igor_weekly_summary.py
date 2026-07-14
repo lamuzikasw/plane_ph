@@ -326,7 +326,7 @@ def test_weekly_summary_collects_facts_and_produces_concise_copyable_report(monk
         "overdue": 1,
         "next_week": 1,
     }
-    assert "Сделано: Release completed" in result["widget"]["copy_text"]
+    assert "За неделю удалось завершить: Release completed" in result["widget"]["copy_text"]
     assert "срок перенесён" in result["widget"]["copy_text"]
     assert "External dependency" not in result["widget"]["copy_text"]
     assert "Overdue attention item" in result["widget"]["copy_text"]
@@ -347,10 +347,12 @@ def test_weekly_summary_llm_turns_structured_facts_into_short_human_copy(monkeyp
         def create(self, **kwargs):
             captured["request"] = kwargs
             response = {
-                "completed": "Ускорил VPN и настроил ключи VLESS",
-                "in_progress": "Дорабатывал ботов оплаты и тестировал Telegram-бота",
-                "risks": "До 18 июля нужно закрыть аудит безопасности серверов",
-                "plan": "Завершить мониторинг оплаты сервисов до 19 июля",
+                "summary": (
+                    "За прошлую неделю удалось ускорить VPN и настроить ключи VLESS. "
+                    "Также в работе были боты оплаты и тестирование Telegram-бота. "
+                    "Из того, что требует внимания: аудит безопасности серверов нужно закрыть до 18 июля. "
+                    "На следующую неделю запланировано завершение мониторинга оплаты сервисов до 19 июля."
+                )
             }
             return SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(response, ensure_ascii=False)))]
@@ -369,6 +371,7 @@ def test_weekly_summary_llm_turns_structured_facts_into_short_human_copy(monkeyp
     facts = {
         "subject": "Сева",
         "subject_type": "person",
+        "period_label": "прошлая неделя",
         "period": "6 июля — 12 июля 2026",
         "categories": [
             {
@@ -390,25 +393,27 @@ def test_weekly_summary_llm_turns_structured_facts_into_short_human_copy(monkeyp
     )
 
     assert result == (
-        "Итоги недели · Сева · 6 июля — 12 июля 2026\n\n"
-        "Сделано: Ускорил VPN и настроил ключи VLESS.\n\n"
-        "В работе: Дорабатывал ботов оплаты и тестировал Telegram-бота.\n\n"
-        "Сроки и риски: До 18 июля нужно закрыть аудит безопасности серверов.\n\n"
-        "План: Завершить мониторинг оплаты сервисов до 19 июля."
+        "За прошлую неделю удалось ускорить VPN и настроить ключи VLESS. "
+        "Также в работе были боты оплаты и тестирование Telegram-бота. "
+        "Из того, что требует внимания: аудит безопасности серверов нужно закрыть до 18 июля. "
+        "На следующую неделю запланировано завершение мониторинга оплаты сервисов до 19 июля."
     )
+    assert "Итоги недели" not in result
+    assert "Сделано:" not in result
     assert captured["client"]["api_key"] == "transport-key"
     assert captured["request"]["response_format"] == {"type": "json_object"}
     prompt = json.dumps(captured["request"]["messages"], ensure_ascii=False)
     assert "transport-key" not in prompt
     assert "https://" not in captured["request"]["messages"][1]["content"]
     assert "SUM-1" not in captured["request"]["messages"][1]["content"]
+    assert '"period_label": "прошлая неделя"' in captured["request"]["messages"][1]["content"]
 
 
 @pytest.mark.unit
 def test_weekly_summary_llm_rejects_unsafe_or_oversized_copy(monkeypatch):
     class FakeCompletions:
         def create(self, **_kwargs):
-            response = {"completed": "Подробнее: https://unsafe.example/report", "in_progress": None}
+            response = {"summary": "Подробнее: https://unsafe.example/report"}
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(response)))])
 
     class FakeOpenAI:
