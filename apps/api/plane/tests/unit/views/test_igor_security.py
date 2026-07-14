@@ -43,7 +43,10 @@ def test_direct_api_rejects_non_string_long_and_forbidden_scope_requests():
         return IgorChatEndpoint.as_view()(request, slug=workspace.slug)
 
     assert post({"message": {"nested": "value"}}).status_code == 400
-    assert post({"message": "x" * 1201}).status_code == 400
+    assert post({"message": "x" * 5000}).status_code == 200
+    too_long = post({"message": "x" * 5001})
+    assert too_long.status_code == 400
+    assert "5000" in too_long.data["answer"]
     forbidden = post({"message": "Собери summary по всем проектам за прошлую неделю"})
     assert forbidden.status_code == 403
     assert "только руководителям" in forbidden.data["answer"]

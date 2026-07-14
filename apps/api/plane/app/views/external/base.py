@@ -249,7 +249,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
     default_limit = 12
     max_limit = 25
     max_offset = 1000
-    max_message_length = 1200
+    max_message_length = 5000
     summary_item_limit = 20
     manager_emails = frozenset(
         {
