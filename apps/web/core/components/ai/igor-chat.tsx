@@ -807,7 +807,7 @@ function IgorMark({ size = "md", className }: { size?: "xs" | "sm" | "md" | "lg"
   return (
     <span
       className={cn(
-        "shadow-sm relative grid shrink-0 place-items-center overflow-hidden bg-[#0b6ea8] text-white ring-1 ring-[#075985]/25 ring-inset",
+        "shadow-xs relative grid shrink-0 place-items-center overflow-hidden border border-[#0b6ea8]/20 bg-white ring-1 ring-black/5 ring-inset",
         size === "xs" && "h-7 w-7 rounded-lg",
         size === "sm" && "h-9 w-9 rounded-xl",
         size === "md" && "h-10 w-10 rounded-xl",
@@ -816,24 +816,23 @@ function IgorMark({ size = "md", className }: { size?: "xs" | "sm" | "md" | "lg"
       )}
       aria-hidden="true"
     >
-      <span className="absolute inset-x-0 top-0 h-px bg-white/35" />
       <svg
-        viewBox="0 0 32 32"
+        viewBox="-3 -3 70 70"
         fill="none"
-        className={cn(size === "xs" ? "h-4.5 w-4.5" : size === "lg" ? "h-8 w-8" : "h-6 w-6")}
+        className={cn(size === "xs" ? "h-5 w-5" : size === "lg" ? "h-10 w-10" : "h-7 w-7")}
       >
         <path
-          d="M8.5 8.5v15M23 8.5v15M8.5 23.5 23 8.5"
-          stroke="currentColor"
-          strokeWidth="2.7"
+          d="M27 14.5h16.5A12.5 12.5 0 0 1 56 27v16A12.5 12.5 0 0 1 43.5 55.5H37l-9 8v-8h-7.5A12.5 12.5 0 0 1 8 43V28"
+          stroke="#20242c"
+          strokeWidth="5"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
         <path
-          d="M25.5 3.75c0 1.52 1.23 2.75 2.75 2.75-1.52 0-2.75 1.23-2.75 2.75 0-1.52-1.23-2.75-2.75-2.75 1.52 0 2.75-1.23 2.75-2.75Z"
-          fill="currentColor"
-          opacity="0.8"
+          d="M13.5 1.5c.75 6.5 4.5 10.25 11 11-6.5.75-10.25 4.5-11 11-.75-6.5-4.5-10.25-11-11 6.5-.75 10.25-4.5 11-11Z"
+          fill="#0b6ea8"
         />
+        <path d="M26 31v7M39 31v7" stroke="#0b6ea8" strokeWidth="5" strokeLinecap="round" />
       </svg>
     </span>
   );
