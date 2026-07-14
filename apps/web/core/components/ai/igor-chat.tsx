@@ -40,7 +40,13 @@ import {
   type TIgorWeeklySummaryWidget as TIgorWeeklySummaryWidgetData,
 } from "@/services/ai.service";
 
-import { getIgorContextSegments } from "./igor-chat.utils";
+import {
+  clampIgorComposerHeight,
+  getIgorContextSegments,
+  IGOR_COMPOSER_DEFAULT_HEIGHT,
+  IGOR_COMPOSER_MAX_HEIGHT,
+  IGOR_COMPOSER_MIN_HEIGHT,
+} from "./igor-chat.utils";
 
 type TIgorMessage = {
   id: string;
@@ -62,6 +68,7 @@ const aiService = new AIService();
 const REGULAR_MESSAGE_LENGTH = 5000;
 const CAPTURE_MESSAGE_LENGTH = 8000;
 const PANEL_STORAGE_KEY = "plane:igor:panel-size";
+const COMPOSER_STORAGE_KEY = "plane:igor:composer-height";
 const DEFAULT_PANEL_SIZE = { width: 480, height: 720 };
 const MIN_PANEL_SIZE = { width: 380, height: 480 };
 const PANEL_VIEWPORT_GAP = 40;
@@ -125,6 +132,12 @@ type TIgorResizeSession = {
   startHeight: number;
 };
 
+type TIgorComposerResizeSession = {
+  pointerId: number;
+  startY: number;
+  startHeight: number;
+};
+
 const clampPanelSize = ({ width, height }: TIgorPanelSize): TIgorPanelSize => {
   if (typeof window === "undefined") return { width, height };
   const maxWidth = Math.max(280, window.innerWidth - PANEL_VIEWPORT_GAP);
@@ -163,16 +176,21 @@ export function IgorChat({ workspaceSlug }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [messages, setMessages] = useState<TIgorMessage[]>(initialMessages);
   const [panelSize, setPanelSize] = useState<TIgorPanelSize>(DEFAULT_PANEL_SIZE);
+  const [composerHeight, setComposerHeight] = useState(IGOR_COMPOSER_DEFAULT_HEIGHT);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [isComposerResizing, setIsComposerResizing] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const resizeSessionRef = useRef<TIgorResizeSession | null>(null);
+  const composerResizeSessionRef = useRef<TIgorComposerResizeSession | null>(null);
   const panelSizeRef = useRef<TIgorPanelSize>(panelSize);
+  const composerHeightRef = useRef(composerHeight);
   const activeWorkspaceRef = useRef(workspaceSlug);
   const currentMessageLimit = getMessageLimit(input);
 
   panelSizeRef.current = panelSize;
+  composerHeightRef.current = composerHeight;
 
   useEffect(() => {
     try {
@@ -187,11 +205,28 @@ export function IgorChat({ workspaceSlug }: Props) {
   }, []);
 
   useEffect(() => {
+    try {
+      const savedHeight = Number(window.localStorage.getItem(COMPOSER_STORAGE_KEY));
+      if (!Number.isFinite(savedHeight) || savedHeight <= 0) return;
+      setComposerHeight(clampIgorComposerHeight(savedHeight, panelSizeRef.current.height));
+    } catch {
+      // Keep the default editor height when browser storage is unavailable.
+    }
+  }, []);
+
+  useEffect(() => {
     const handleViewportResize = () => setPanelSize((currentSize) => clampPanelSize(currentSize));
     handleViewportResize();
     window.addEventListener("resize", handleViewportResize);
     return () => window.removeEventListener("resize", handleViewportResize);
   }, []);
+
+  useEffect(() => {
+    const effectivePanelHeight = isMaximized
+      ? Math.max(MIN_PANEL_SIZE.height, window.innerHeight - PANEL_VIEWPORT_GAP)
+      : panelSize.height;
+    setComposerHeight((currentHeight) => clampIgorComposerHeight(currentHeight, effectivePanelHeight));
+  }, [isMaximized, panelSize.height]);
 
   useEffect(
     () => () => {
@@ -254,6 +289,19 @@ export function IgorChat({ workspaceSlug }: Props) {
     }
   };
 
+  const getEffectivePanelHeight = () =>
+    isMaximized
+      ? Math.max(MIN_PANEL_SIZE.height, window.innerHeight - PANEL_VIEWPORT_GAP)
+      : panelSizeRef.current.height;
+
+  const persistComposerHeight = (height: number) => {
+    try {
+      window.localStorage.setItem(COMPOSER_STORAGE_KEY, String(height));
+    } catch {
+      // Resizing still works for the current session when browser storage is unavailable.
+    }
+  };
+
   const handleResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (isMaximized) return;
     event.preventDefault();
@@ -304,6 +352,62 @@ export function IgorChat({ workspaceSlug }: Props) {
     panelSizeRef.current = nextSize;
     setPanelSize(nextSize);
     persistPanelSize(nextSize);
+  };
+
+  const handleComposerResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    composerResizeSessionRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startHeight: composerHeight,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+    setIsComposerResizing(true);
+  };
+
+  const handleComposerResizePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const session = composerResizeSessionRef.current;
+    if (!session || session.pointerId !== event.pointerId) return;
+    const nextHeight = clampIgorComposerHeight(
+      session.startHeight + session.startY - event.clientY,
+      getEffectivePanelHeight()
+    );
+    composerHeightRef.current = nextHeight;
+    setComposerHeight(nextHeight);
+  };
+
+  const finishComposerResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const session = composerResizeSessionRef.current;
+    if (!session || session.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    composerResizeSessionRef.current = null;
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+    setIsComposerResizing(false);
+    persistComposerHeight(composerHeightRef.current);
+  };
+
+  const handleComposerResizeKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 48 : 16;
+    const nextHeight = clampIgorComposerHeight(
+      composerHeight + (event.key === "ArrowUp" ? step : -step),
+      getEffectivePanelHeight()
+    );
+    composerHeightRef.current = nextHeight;
+    setComposerHeight(nextHeight);
+    persistComposerHeight(nextHeight);
+  };
+
+  const resetComposerHeight = () => {
+    const nextHeight = clampIgorComposerHeight(IGOR_COMPOSER_DEFAULT_HEIGHT, getEffectivePanelHeight());
+    composerHeightRef.current = nextHeight;
+    setComposerHeight(nextHeight);
+    persistComposerHeight(nextHeight);
   };
 
   const askIgor = async (messageText: string) => {
@@ -629,6 +733,31 @@ export function IgorChat({ workspaceSlug }: Props) {
             )}
             {activeContext && <IgorContextStrip context={activeContext} compact className="mb-2.5" />}
             <div className="shadow-sm overflow-hidden rounded-2xl border border-subtle bg-surface-1 transition focus-within:border-[#0b6ea8]/60 focus-within:ring-2 focus-within:ring-[#0b6ea8]/10">
+              <button
+                type="button"
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Изменить высоту поля ввода"
+                aria-valuemin={IGOR_COMPOSER_MIN_HEIGHT}
+                aria-valuemax={IGOR_COMPOSER_MAX_HEIGHT}
+                aria-valuenow={Math.round(composerHeight)}
+                title="Потяните вверх или вниз. Двойной клик вернёт обычную высоту."
+                onPointerDown={handleComposerResizePointerDown}
+                onPointerMove={handleComposerResizePointerMove}
+                onPointerUp={finishComposerResize}
+                onPointerCancel={finishComposerResize}
+                onKeyDown={handleComposerResizeKeyDown}
+                onDoubleClick={resetComposerHeight}
+                className="group grid h-4 w-full cursor-ns-resize touch-none place-items-center border-b border-subtle bg-surface-2/50 focus:ring-2 focus:ring-[#0b6ea8]/30 focus:outline-none focus:ring-inset"
+              >
+                <span
+                  className={cn(
+                    "bg-tertiary/45 h-1 w-10 rounded-full transition group-hover:bg-[#0b6ea8]",
+                    isComposerResizing && "bg-[#0b6ea8]"
+                  )}
+                  aria-hidden="true"
+                />
+              </button>
               <textarea
                 ref={inputRef}
                 value={input}
@@ -638,7 +767,8 @@ export function IgorChat({ workspaceSlug }: Props) {
                 maxLength={CAPTURE_MESSAGE_LENGTH}
                 rows={2}
                 aria-describedby="igor-input-hint"
-                className="text-sm max-h-52 min-h-18 w-full resize-y bg-transparent px-3.5 py-3 leading-5 text-primary outline-none placeholder:text-tertiary"
+                style={{ height: composerHeight }}
+                className="text-sm w-full resize-none bg-transparent px-3.5 py-3 leading-5 text-primary outline-none placeholder:text-tertiary"
               />
               <div className="flex items-center justify-between gap-2 border-t border-subtle px-2 py-1.5">
                 <div id="igor-input-hint" className="min-w-0 truncate text-[11px] text-tertiary">

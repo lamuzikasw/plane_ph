@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { TIgorChatContext } from "@/services/ai.service";
 
-import { getIgorContextSegments } from "./igor-chat.utils";
+import {
+  clampIgorComposerHeight,
+  getIgorContextSegments,
+  IGOR_COMPOSER_MAX_HEIGHT,
+  IGOR_COMPOSER_MIN_HEIGHT,
+} from "./igor-chat.utils";
 
 const createContext = (overrides: Partial<TIgorChatContext> = {}): TIgorChatContext => ({
   intent: "weekly_summary",
@@ -44,5 +49,19 @@ describe("getIgorContextSegments", () => {
     expect(getIgorContextSegments(createContext({ scope: "all_projects", period_label: null }))).toEqual([
       "Все проекты",
     ]);
+  });
+});
+
+describe("clampIgorComposerHeight", () => {
+  it("does not shrink the editor below its usable minimum", () => {
+    expect(clampIgorComposerHeight(20, 720)).toBe(IGOR_COMPOSER_MIN_HEIGHT);
+  });
+
+  it("limits the editor so the conversation remains visible", () => {
+    expect(clampIgorComposerHeight(500, 480)).toBe(220);
+  });
+
+  it("uses the full editor maximum in a tall panel", () => {
+    expect(clampIgorComposerHeight(500, 900)).toBe(IGOR_COMPOSER_MAX_HEIGHT);
   });
 });
