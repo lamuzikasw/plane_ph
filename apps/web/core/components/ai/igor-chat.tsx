@@ -453,7 +453,7 @@ export function IgorChat({ workspaceSlug }: Props) {
           <button
             type="button"
             onClick={() => setIsOpen(true)}
-            className="text-sm shadow-md hover:border-custom-primary-100/40 focus:ring-custom-primary-100/30 fixed right-5 bottom-5 z-40 flex h-12 items-center gap-2.5 rounded-full border border-subtle bg-surface-1 py-1.5 pr-4 pl-1.5 font-semibold text-primary transition hover:-translate-y-0.5 hover:bg-surface-2 focus:ring-2 focus:ring-offset-2 focus:outline-none motion-reduce:transform-none"
+            className="text-sm shadow-md fixed right-5 bottom-5 z-40 flex h-12 items-center gap-2.5 rounded-full border border-subtle bg-surface-1 py-1.5 pr-4 pl-1.5 font-semibold text-primary transition hover:-translate-y-0.5 hover:border-[#0b6ea8]/40 hover:bg-surface-2 focus:ring-2 focus:ring-[#0b6ea8]/30 focus:ring-offset-2 focus:outline-none motion-reduce:transform-none"
           >
             <IgorMark size="sm" />
             Игорь
@@ -483,7 +483,7 @@ export function IgorChat({ workspaceSlug }: Props) {
               onPointerUp={finishPanelResize}
               onPointerCancel={finishPanelResize}
               onKeyDown={handleResizeKeyDown}
-              className="hover:text-custom-primary-100 focus:ring-custom-primary-100 absolute top-1 left-1 z-10 hidden h-7 w-7 cursor-nwse-resize touch-none place-items-center rounded text-tertiary hover:bg-surface-2 focus:ring-2 focus:outline-none sm:grid"
+              className="absolute top-1 left-1 z-10 hidden h-7 w-7 cursor-nwse-resize touch-none place-items-center rounded text-tertiary hover:bg-surface-2 hover:text-[#0b6ea8] focus:ring-2 focus:ring-[#0b6ea8] focus:outline-none sm:grid"
               aria-label="Изменить размер окна Игоря"
               title="Потяните, чтобы изменить размер. Стрелки изменяют размер с клавиатуры."
             >
@@ -511,7 +511,7 @@ export function IgorChat({ workspaceSlug }: Props) {
               <button
                 type="button"
                 onClick={() => setIsMaximized((current) => !current)}
-                className="focus:ring-custom-primary-100 grid h-8 w-8 place-items-center rounded-md text-secondary hover:bg-surface-2 hover:text-primary focus:ring-2 focus:outline-none"
+                className="grid h-8 w-8 place-items-center rounded-md text-secondary hover:bg-surface-2 hover:text-primary focus:ring-2 focus:ring-[#0b6ea8] focus:outline-none"
                 aria-label={isMaximized ? "Вернуть размер окна Игоря" : "Развернуть окно Игоря"}
                 title={isMaximized ? "Вернуть размер" : "Развернуть"}
               >
@@ -520,7 +520,7 @@ export function IgorChat({ workspaceSlug }: Props) {
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="focus:ring-custom-primary-100 grid h-8 w-8 place-items-center rounded-md text-secondary hover:bg-surface-2 hover:text-primary focus:ring-2 focus:outline-none"
+                className="grid h-8 w-8 place-items-center rounded-md text-secondary hover:bg-surface-2 hover:text-primary focus:ring-2 focus:ring-[#0b6ea8] focus:outline-none"
                 aria-label="Закрыть Игоря"
               >
                 <X className="h-4 w-4" />
@@ -546,7 +546,7 @@ export function IgorChat({ workspaceSlug }: Props) {
                       className={cn(
                         "text-sm min-w-0 leading-5",
                         message.role === "user"
-                          ? "border-custom-primary-100/20 bg-custom-primary-100/10 max-w-[86%] rounded-2xl rounded-br-sm border px-3.5 py-2.5 text-primary"
+                          ? "max-w-[86%] rounded-2xl rounded-br-sm border border-[#0b6ea8]/20 bg-[#0b6ea8]/10 px-3.5 py-2.5 text-primary"
                           : "w-full text-primary"
                       )}
                     >
@@ -596,7 +596,7 @@ export function IgorChat({ workspaceSlug }: Props) {
                         Игорь
                       </div>
                       <div className="text-sm flex items-center gap-2 text-secondary">
-                        <Loader2 className="text-custom-primary-100 h-4 w-4 animate-spin" />
+                        <Loader2 className="h-4 w-4 animate-spin text-[#0b6ea8]" />
                         Изучаю задачи и собираю факты
                         <span className="flex gap-0.5" aria-hidden="true">
                           <span className="bg-tertiary h-1 w-1 animate-pulse rounded-full" />
@@ -620,7 +620,7 @@ export function IgorChat({ workspaceSlug }: Props) {
                     type="button"
                     onClick={() => askIgor(suggestion)}
                     disabled={isSubmitting}
-                    className="text-xs hover:border-custom-primary-200 shrink-0 rounded-full border border-subtle bg-surface-2 px-3 py-1.5 text-secondary transition hover:bg-surface-1 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                    className="text-xs shrink-0 rounded-full border border-subtle bg-surface-2 px-3 py-1.5 text-secondary transition hover:border-[#0b6ea8]/40 hover:bg-surface-1 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {suggestion}
                   </button>
@@ -628,7 +628,7 @@ export function IgorChat({ workspaceSlug }: Props) {
               </div>
             )}
             {activeContext && <IgorContextStrip context={activeContext} compact className="mb-2.5" />}
-            <div className="focus-within:border-custom-primary-100/60 focus-within:ring-custom-primary-100/10 shadow-sm overflow-hidden rounded-2xl border border-subtle bg-surface-1 transition focus-within:ring-2">
+            <div className="shadow-sm overflow-hidden rounded-2xl border border-subtle bg-surface-1 transition focus-within:border-[#0b6ea8]/60 focus-within:ring-2 focus-within:ring-[#0b6ea8]/10">
               <textarea
                 ref={inputRef}
                 value={input}
@@ -657,7 +657,7 @@ export function IgorChat({ workspaceSlug }: Props) {
                     type="button"
                     onClick={() => askIgor(input)}
                     disabled={isSubmitting || !input.trim() || input.trim().length > currentMessageLimit}
-                    className="bg-custom-primary-100 hover:bg-custom-primary-200 flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-8 items-center justify-center gap-1.5 rounded-lg bg-[#0b6ea8] px-2.5 text-white transition hover:bg-[#095d91] disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label="Отправить сообщение Игорю"
                   >
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -677,7 +677,7 @@ function IgorMark({ size = "md", className }: { size?: "xs" | "sm" | "md" | "lg"
   return (
     <span
       className={cn(
-        "bg-custom-primary-100 shadow-sm relative grid shrink-0 place-items-center overflow-hidden text-white ring-1 ring-white/15 ring-inset",
+        "shadow-sm relative grid shrink-0 place-items-center overflow-hidden bg-[#0b6ea8] text-white ring-1 ring-[#075985]/25 ring-inset",
         size === "xs" && "h-7 w-7 rounded-lg",
         size === "sm" && "h-9 w-9 rounded-xl",
         size === "md" && "h-10 w-10 rounded-xl",
@@ -735,9 +735,9 @@ function IgorWelcome({
             type="button"
             onClick={() => onAction(action)}
             disabled={isSubmitting}
-            className="group hover:border-custom-primary-100/35 focus:border-custom-primary-100 focus:ring-custom-primary-100/15 shadow-xs hover:shadow-sm flex min-h-20 items-start gap-3 rounded-xl border border-subtle bg-surface-1 p-3 text-left transition hover:-translate-y-0.5 focus:ring-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transform-none"
+            className="group shadow-xs hover:shadow-sm flex min-h-20 items-start gap-3 rounded-xl border border-subtle bg-surface-1 p-3 text-left transition hover:-translate-y-0.5 hover:border-[#0b6ea8]/35 focus:border-[#0b6ea8] focus:ring-2 focus:ring-[#0b6ea8]/15 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transform-none"
           >
-            <span className="bg-custom-primary-100/10 text-custom-primary-100 group-hover:bg-custom-primary-100 grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-colors group-hover:text-white">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#0b6ea8]/10 text-[#0b6ea8] transition-colors group-hover:bg-[#0b6ea8] group-hover:text-white">
               <IgorQuickActionIcon actionId={action.id} />
             </span>
             <span className="min-w-0 pt-0.5">
@@ -843,7 +843,7 @@ function IgorWeeklySummaryWidget({
           <button
             type="button"
             onClick={copySummary}
-            className="text-xs hover:border-custom-primary-100/40 hover:text-custom-primary-100 flex shrink-0 items-center gap-1.5 rounded border border-subtle px-2 py-1.5 font-medium text-secondary transition"
+            className="text-xs flex shrink-0 items-center gap-1.5 rounded border border-subtle px-2 py-1.5 font-medium text-secondary transition hover:border-[#0b6ea8]/40 hover:text-[#0b6ea8]"
           >
             {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             {isCopied ? "Готово" : "Копировать отчёт"}
@@ -899,7 +899,7 @@ function IgorWeeklySummaryWidget({
             }
             className="group"
           >
-            <summary className="focus-visible:ring-custom-primary-100/30 cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset">
+            <summary className="cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30 focus-visible:ring-inset">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-primary">{section.title}</span>
                 <span className="flex shrink-0 items-center gap-1.5">
@@ -930,7 +930,7 @@ function IgorWeeklySummaryWidget({
                         to={workItemLink}
                         className="group/item flex gap-2.5 border-b border-subtle px-3 py-2.5 last:border-b-0 hover:bg-surface-2"
                       >
-                        <div className="bg-custom-primary-100 mt-1.5 h-2 w-2 shrink-0 rounded-full" />
+                        <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#0b6ea8]" />
                         <div className="min-w-0 flex-1">
                           <div className="text-xs text-tertiary">
                             {item.project_identifier}-{item.sequence_id} · {item.project_name}
@@ -1083,7 +1083,7 @@ function IgorCaptureWidget({
             open={["action", "risk", "question", "unclassified"].includes(category.key)}
             className="group"
           >
-            <summary className="focus-visible:ring-custom-primary-100/30 cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset">
+            <summary className="cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30 focus-visible:ring-inset">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-primary">{category.title}</span>
                 <span className="flex shrink-0 items-center gap-1.5">
@@ -1096,7 +1096,7 @@ function IgorCaptureWidget({
               {category.items.map((item) => (
                 <div key={item.source_id} className="rounded border border-subtle bg-surface-1 px-2.5 py-2">
                   <div className="text-xs flex items-start gap-2">
-                    <span className="text-custom-primary-100 shrink-0 font-medium">{item.source_id}</span>
+                    <span className="shrink-0 font-medium text-[#0b6ea8]">{item.source_id}</span>
                     <span className="font-medium text-primary">{item.summary}</span>
                   </div>
                   {item.summary.trim() !== item.source_text.trim() && (
@@ -1153,9 +1153,7 @@ function IgorCaptureWidget({
                   key={task.id}
                   className={cn(
                     "rounded border px-2.5 py-2.5 transition",
-                    isSelected
-                      ? "border-custom-primary-100/30 bg-custom-primary-100/5"
-                      : "border-subtle bg-surface-2/50"
+                    isSelected ? "border-[#0b6ea8]/30 bg-[#0b6ea8]/5" : "border-subtle bg-surface-2/50"
                   )}
                 >
                   <label className="flex cursor-pointer items-start gap-2.5">
@@ -1164,7 +1162,7 @@ function IgorCaptureWidget({
                       checked={isSelected}
                       onChange={() => toggleTask(task.id)}
                       disabled={isSubmitting}
-                      className="accent-custom-primary-100 mt-0.5 h-4 w-4 shrink-0"
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-[#0b6ea8]"
                     />
                     <span className="min-w-0 flex-1">
                       <span className="text-xs block font-medium text-primary">{override.title}</span>
@@ -1193,7 +1191,7 @@ function IgorCaptureWidget({
                         type="button"
                         onClick={() => setExpandedTaskId((current) => (current === task.id ? null : task.id))}
                         disabled={isSubmitting}
-                        className="text-xs text-custom-primary-100 ml-auto hover:underline disabled:opacity-50"
+                        className="text-xs ml-auto text-[#0b6ea8] hover:underline disabled:opacity-50"
                       >
                         {expandedTaskId === task.id ? "Свернуть" : "Настроить"}
                       </button>
@@ -1224,7 +1222,7 @@ function IgorCaptureWidget({
                             }))
                           }
                           disabled={isSubmitting}
-                          className="focus:border-custom-primary-100 h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none"
+                          className="h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none focus:border-[#0b6ea8]"
                         />
                       </label>
                       <label className="text-xs grid gap-1 text-secondary">
@@ -1235,7 +1233,7 @@ function IgorCaptureWidget({
                             setProjectAssignments((current) => ({ ...current, [task.id]: event.target.value }))
                           }
                           disabled={isSubmitting}
-                          className="focus:border-custom-primary-100 h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none"
+                          className="h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none focus:border-[#0b6ea8]"
                         >
                           <option value="">Выбрать проект</option>
                           {widget.projects.map((project) => (
@@ -1258,7 +1256,7 @@ function IgorCaptureWidget({
                               }))
                             }
                             disabled={isSubmitting}
-                            className="focus:border-custom-primary-100 h-8 min-w-0 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none"
+                            className="h-8 min-w-0 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none focus:border-[#0b6ea8]"
                           />
                         </label>
                         <label className="text-xs grid gap-1 text-secondary">
@@ -1275,7 +1273,7 @@ function IgorCaptureWidget({
                               }))
                             }
                             disabled={isSubmitting}
-                            className="focus:border-custom-primary-100 h-8 min-w-0 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none"
+                            className="h-8 min-w-0 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none focus:border-[#0b6ea8]"
                           >
                             <option value="none">Не указан</option>
                             <option value="urgent">Срочный</option>
@@ -1324,7 +1322,7 @@ function IgorCaptureWidget({
                 if (created) setIsCreated(true);
               }}
               disabled={!canCreate || isSubmitting}
-              className="bg-custom-primary-100 hover:bg-custom-primary-200 text-xs flex w-full items-center justify-center gap-2 rounded px-3 py-2 font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              className="text-xs flex w-full items-center justify-center gap-2 rounded bg-[#0b6ea8] px-3 py-2 font-medium text-white transition hover:bg-[#095d91] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {isCreated ? "Задачи уже созданы" : `Создать выбранные задачи · ${selectedTasks.length}`}
@@ -1433,7 +1431,7 @@ function IgorWorkItemWidget({
                   to={workItemLink}
                   className="group flex gap-3 border-b border-subtle px-3 py-2 last:border-b-0 hover:bg-surface-2"
                 >
-                  <div className="bg-custom-primary-100 mt-1 h-2 w-2 shrink-0 rounded-full" />
+                  <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#0b6ea8]" />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs flex items-center gap-2 text-tertiary">
                       <span>
@@ -1462,7 +1460,7 @@ function IgorWorkItemWidget({
               type="button"
               onClick={loadMore}
               disabled={isLoadingMore}
-              className="text-xs text-custom-primary-100 flex w-full items-center justify-center gap-2 border-t border-subtle px-3 py-2 font-medium transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+              className="text-xs flex w-full items-center justify-center gap-2 border-t border-subtle px-3 py-2 font-medium text-[#0b6ea8] transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isLoadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Показать ещё
