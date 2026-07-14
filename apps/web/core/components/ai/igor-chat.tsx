@@ -6,7 +6,18 @@
 
 import type { KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, ExternalLink, Loader2, MessageCircle, Send, Sparkles, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  ExternalLink,
+  ListChecks,
+  Loader2,
+  MessageCircle,
+  Send,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { Link } from "react-router";
 // plane imports
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
@@ -15,6 +26,7 @@ import { cn, generateWorkItemLink } from "@plane/utils";
 // services
 import {
   AIService,
+  type TIgorCaptureWidget as TIgorCaptureWidgetData,
   type TIgorChatContext,
   type TIgorChatHistoryItem,
   type TIgorChatResponse,
@@ -39,14 +51,15 @@ type Props = {
 };
 
 const aiService = new AIService();
-const MAX_MESSAGE_LENGTH = 1200;
+const MAX_MESSAGE_LENGTH = 8000;
 const WELCOME_MESSAGE =
-  "Привет, я Игорь. Соберу готовые итоги недели по фактам из Plane: результат, работу в процессе, переносы, риски и следующий план. Личный отчёт включает только назначенные тебе задачи.";
+  "Привет, я Игорь. Соберу итоги недели или разберу заметки со встречи: сохраню каждую мысль, разложу решения, риски и вопросы по категориям и предложу задачи для подтверждения.";
 
 const INITIAL_SUGGESTIONS = [
   "Собери мой summary за прошлую неделю",
   "Подготовь короткий отчёт руководителю за прошлую неделю",
   "Собери подробные итоги за текущую неделю",
+  "Разбери заметки встречи и предложи задачи",
   "Покажи мои просроченные задачи",
 ];
 
@@ -186,6 +199,60 @@ export function IgorChat({ workspaceSlug }: Props) {
     }
   };
 
+  const createCaptureTasks = async (
+    widget: TIgorCaptureWidgetData,
+    taskIds: string[],
+    projectAssignments: Record<string, string>,
+    taskOverrides: Record<
+      string,
+      {
+        title: string;
+        target_date: string | null;
+        priority: TIgorCaptureWidgetData["tasks"][number]["priority"];
+      }
+    >
+  ): Promise<boolean> => {
+    if (!widget.token || isSubmitting) return false;
+    const requestWorkspaceSlug = workspaceSlug;
+    setIsSubmitting(true);
+    try {
+      const response = await aiService.createIgorCaptureTasks(workspaceSlug, {
+        action: "create_capture_tasks",
+        capture_token: widget.token,
+        task_ids: taskIds,
+        project_assignments: projectAssignments,
+        task_overrides: taskOverrides,
+      });
+      if (activeWorkspaceRef.current !== requestWorkspaceSlug) return false;
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        {
+          id: `assistant-created-${Date.now()}`,
+          role: "assistant",
+          text: response.answer,
+          response,
+        },
+      ]);
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: "Задачи созданы",
+        message: `Создано задач: ${taskIds.length}.`,
+      });
+      return true;
+    } catch (error) {
+      if (activeWorkspaceRef.current !== requestWorkspaceSlug) return false;
+      const serverAnswer = (error as { data?: { answer?: unknown } } | undefined)?.data?.answer;
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Не удалось создать задачи",
+        message: typeof serverAnswer === "string" ? serverAnswer : "Проверь проекты и повтори попытку.",
+      });
+      return false;
+    } finally {
+      if (activeWorkspaceRef.current === requestWorkspaceSlug) setIsSubmitting(false);
+    }
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
@@ -249,6 +316,13 @@ export function IgorChat({ workspaceSlug }: Props) {
                           widget={widget}
                           workspaceSlug={workspaceSlug}
                         />
+                      ) : widget.type === "capture_review" ? (
+                        <IgorCaptureWidget
+                          key={`${message.id}-${widget.type}-${widget.title}`}
+                          widget={widget}
+                          isSubmitting={isSubmitting}
+                          onCreate={createCaptureTasks}
+                        />
                       ) : (
                         <IgorWorkItemWidget
                           key={`${message.id}-${widget.type}-${widget.title}`}
@@ -298,7 +372,7 @@ export function IgorChat({ workspaceSlug }: Props) {
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Например: собери мой summary за прошлую неделю"
+                placeholder="Summary или заметки встречи для разбора"
                 maxLength={MAX_MESSAGE_LENGTH}
                 rows={2}
                 className="text-sm max-h-28 min-h-10 flex-1 resize-none bg-transparent px-1 py-1 text-primary outline-none placeholder:text-tertiary"
@@ -482,6 +556,382 @@ function IgorWeeklySummaryWidget({
   );
 }
 
+function IgorCaptureWidget({
+  widget,
+  isSubmitting,
+  onCreate,
+}: {
+  widget: TIgorCaptureWidgetData;
+  isSubmitting: boolean;
+  onCreate: (
+    widget: TIgorCaptureWidgetData,
+    taskIds: string[],
+    projectAssignments: Record<string, string>,
+    taskOverrides: Record<
+      string,
+      {
+        title: string;
+        target_date: string | null;
+        priority: TIgorCaptureWidgetData["tasks"][number]["priority"];
+      }
+    >
+  ) => Promise<boolean>;
+}) {
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(
+    () => new Set(widget.tasks.filter((task) => !task.duplicate_issue).map((task) => task.id))
+  );
+  const [projectAssignments, setProjectAssignments] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      widget.tasks.filter((task) => task.project_id).map((task) => [task.id, task.project_id as string])
+    )
+  );
+  const [taskOverrides, setTaskOverrides] = useState<
+    Record<
+      string,
+      {
+        title: string;
+        target_date: string | null;
+        priority: TIgorCaptureWidgetData["tasks"][number]["priority"];
+      }
+    >
+  >(() =>
+    Object.fromEntries(
+      widget.tasks.map((task) => [
+        task.id,
+        { title: task.title, target_date: task.target_date, priority: task.priority },
+      ])
+    )
+  );
+  const [isCreated, setIsCreated] = useState(false);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(
+    () => widget.tasks.find((task) => !task.duplicate_issue)?.id ?? null
+  );
+
+  useEffect(() => {
+    setSelectedTaskIds(new Set(widget.tasks.filter((task) => !task.duplicate_issue).map((task) => task.id)));
+    setProjectAssignments(
+      Object.fromEntries(
+        widget.tasks.filter((task) => task.project_id).map((task) => [task.id, task.project_id as string])
+      )
+    );
+    setTaskOverrides(
+      Object.fromEntries(
+        widget.tasks.map((task) => [
+          task.id,
+          { title: task.title, target_date: task.target_date, priority: task.priority },
+        ])
+      )
+    );
+    setIsCreated(false);
+    setExpandedTaskId(widget.tasks.find((task) => !task.duplicate_issue)?.id ?? null);
+  }, [widget]);
+
+  const selectedTasks = widget.tasks.filter((task) => selectedTaskIds.has(task.id));
+  const tasksWithoutProject = selectedTasks.filter((task) => !projectAssignments[task.id]);
+  const canCreate =
+    Boolean(widget.token) &&
+    !isCreated &&
+    selectedTasks.length > 0 &&
+    tasksWithoutProject.length === 0 &&
+    selectedTasks.every((task) => taskOverrides[task.id]?.title.trim());
+
+  const toggleTask = (taskId: string) => {
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const toggleAllTasks = () => {
+    setSelectedTaskIds((current) =>
+      current.size === widget.tasks.length ? new Set() : new Set(widget.tasks.map((task) => task.id))
+    );
+  };
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-md border border-subtle bg-surface-1">
+      <div className="border-b border-subtle px-3 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-primary">{widget.title}</div>
+            <div className="text-xs mt-0.5 text-secondary">
+              Разобрано {widget.covered_count} из {widget.source_count} исходных пунктов
+            </div>
+          </div>
+          <div
+            className={cn(
+              "text-xs shrink-0 rounded-full px-2 py-1 font-medium",
+              widget.covered_count === widget.source_count
+                ? "bg-green-500/10 text-green-600"
+                : "bg-amber-500/10 text-amber-600"
+            )}
+          >
+            {widget.covered_count === widget.source_count ? "Ничего не потеряно" : "Нужна проверка"}
+          </div>
+        </div>
+      </div>
+
+      <div className="divide-y divide-subtle">
+        {widget.categories.map((category) => (
+          <details
+            key={category.key}
+            open={["action", "risk", "question", "unclassified"].includes(category.key)}
+            className="group"
+          >
+            <summary className="cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-primary">{category.title}</span>
+                <span className="text-xs rounded-full bg-surface-2 px-2 py-0.5 text-secondary">{category.count}</span>
+              </div>
+            </summary>
+            <div className="space-y-2 border-t border-subtle bg-surface-2/40 px-3 py-2.5">
+              {category.items.map((item) => (
+                <div key={item.source_id} className="rounded border border-subtle bg-surface-1 px-2.5 py-2">
+                  <div className="text-xs flex items-start gap-2">
+                    <span className="text-custom-primary-100 shrink-0 font-medium">{item.source_id}</span>
+                    <span className="font-medium text-primary">{item.summary}</span>
+                  </div>
+                  {item.summary.trim() !== item.source_text.trim() && (
+                    <div className="text-xs mt-1 border-l border-subtle pl-2 leading-4 text-tertiary">
+                      Исходник: {item.source_text}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        ))}
+      </div>
+
+      <div className="border-t border-subtle px-3 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs flex items-center gap-1.5 font-semibold text-primary">
+              <ListChecks className="h-3.5 w-3.5" />
+              Предложенные задачи
+            </div>
+            <div className="text-xs mt-0.5 text-tertiary">Проверь поля и выбери, что действительно создать.</div>
+          </div>
+          {widget.tasks.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleAllTasks}
+              disabled={isSubmitting}
+              className="text-xs shrink-0 text-secondary hover:text-primary disabled:opacity-50"
+            >
+              {selectedTaskIds.size === widget.tasks.length ? "Снять все" : "Выбрать все"}
+            </button>
+          )}
+        </div>
+
+        {widget.tasks.length === 0 ? (
+          <div className="text-xs mt-3 rounded border border-subtle bg-surface-2 px-3 py-2.5 text-secondary">
+            Явных поручений нет. Решения, вопросы и контекст сохранены выше, но превращать их в задачи без основания
+            Игорь не стал.
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {widget.tasks.map((task) => {
+              const isSelected = selectedTaskIds.has(task.id);
+              const missingDeadline = task.missing_fields.includes("target_date");
+              const missingPriority = task.missing_fields.includes("priority");
+              const override = taskOverrides[task.id] ?? {
+                title: task.title,
+                target_date: task.target_date,
+                priority: task.priority,
+              };
+              return (
+                <div
+                  key={task.id}
+                  className={cn(
+                    "rounded border px-2.5 py-2.5 transition",
+                    isSelected
+                      ? "border-custom-primary-100/30 bg-custom-primary-100/5"
+                      : "border-subtle bg-surface-2/50"
+                  )}
+                >
+                  <label className="flex cursor-pointer items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleTask(task.id)}
+                      disabled={isSubmitting}
+                      className="accent-custom-primary-100 mt-0.5 h-4 w-4 shrink-0"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="text-xs block font-medium text-primary">{override.title}</span>
+                      {task.description && (
+                        <span className="text-xs mt-1 line-clamp-3 block leading-4 text-secondary">
+                          {task.description}
+                        </span>
+                      )}
+                      <span className="text-xs mt-1 block text-tertiary">
+                        Источник: {task.source_ids.join(", ")} · Исполнитель: {task.assignee_name}
+                      </span>
+                    </span>
+                  </label>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-6">
+                    <span className="text-xs rounded bg-surface-2 px-1.5 py-0.5 text-tertiary">
+                      {override.target_date ? `Срок: ${formatShortDate(override.target_date)}` : "Срок не найден"}
+                    </span>
+                    <span className="text-xs rounded bg-surface-2 px-1.5 py-0.5 text-tertiary">
+                      {override.priority === "none"
+                        ? "Приоритет не найден"
+                        : `Приоритет: ${priorityLabel(override.priority)}`}
+                    </span>
+                    {isSelected && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedTaskId((current) => (current === task.id ? null : task.id))}
+                        disabled={isSubmitting}
+                        className="text-xs text-custom-primary-100 ml-auto hover:underline disabled:opacity-50"
+                      >
+                        {expandedTaskId === task.id ? "Свернуть" : "Настроить"}
+                      </button>
+                    )}
+                  </div>
+
+                  {task.duplicate_issue && (
+                    <div className="text-xs text-amber-600 mt-2 flex items-start gap-1.5 pl-6">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        Уже есть похожая задача: {task.duplicate_issue.identifier}. Она снята с выбора по умолчанию.
+                      </span>
+                    </div>
+                  )}
+
+                  {isSelected && expandedTaskId === task.id && (
+                    <div className="mt-2 grid gap-2 border-t border-subtle pt-2">
+                      <label className="text-xs grid gap-1 text-secondary">
+                        Название
+                        <input
+                          type="text"
+                          value={override.title}
+                          maxLength={255}
+                          onChange={(event) =>
+                            setTaskOverrides((current) => ({
+                              ...current,
+                              [task.id]: { ...override, title: event.target.value },
+                            }))
+                          }
+                          disabled={isSubmitting}
+                          className="focus:border-custom-primary-100 h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none"
+                        />
+                      </label>
+                      <label className="text-xs grid gap-1 text-secondary">
+                        Проект <span className="text-red-500">обязательно</span>
+                        <select
+                          value={projectAssignments[task.id] ?? ""}
+                          onChange={(event) =>
+                            setProjectAssignments((current) => ({ ...current, [task.id]: event.target.value }))
+                          }
+                          disabled={isSubmitting}
+                          className="focus:border-custom-primary-100 h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none"
+                        >
+                          <option value="">Выбрать проект</option>
+                          {widget.projects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {project.identifier} · {project.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="text-xs grid gap-1 text-secondary">
+                          Срок
+                          <input
+                            type="date"
+                            value={override.target_date ?? ""}
+                            onChange={(event) =>
+                              setTaskOverrides((current) => ({
+                                ...current,
+                                [task.id]: { ...override, target_date: event.target.value || null },
+                              }))
+                            }
+                            disabled={isSubmitting}
+                            className="focus:border-custom-primary-100 h-8 min-w-0 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none"
+                          />
+                        </label>
+                        <label className="text-xs grid gap-1 text-secondary">
+                          Приоритет
+                          <select
+                            value={override.priority}
+                            onChange={(event) =>
+                              setTaskOverrides((current) => ({
+                                ...current,
+                                [task.id]: {
+                                  ...override,
+                                  priority: event.target.value as TIgorCaptureWidgetData["tasks"][number]["priority"],
+                                },
+                              }))
+                            }
+                            disabled={isSubmitting}
+                            className="focus:border-custom-primary-100 h-8 min-w-0 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none"
+                          >
+                            <option value="none">Не указан</option>
+                            <option value="urgent">Срочный</option>
+                            <option value="high">Высокий</option>
+                            <option value="medium">Средний</option>
+                            <option value="low">Низкий</option>
+                          </select>
+                        </label>
+                      </div>
+                      {(missingDeadline || missingPriority) && (
+                        <div className="text-xs text-amber-600 flex items-start gap-1.5">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <span>
+                            {missingDeadline && missingPriority
+                              ? "В исходнике нет срока и приоритета — Игорь не стал их придумывать."
+                              : missingDeadline
+                                ? "В исходнике нет срока — Игорь не стал его придумывать."
+                                : "В исходнике нет приоритета — Игорь не стал его придумывать."}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {widget.tasks.length > 0 && (
+          <div className="mt-3">
+            {tasksWithoutProject.length > 0 && (
+              <div className="text-xs text-amber-600 mb-2">
+                Выбери проект ещё для {tasksWithoutProject.length} задач.
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={async () => {
+                const created = await onCreate(
+                  widget,
+                  selectedTasks.map((task) => task.id),
+                  projectAssignments,
+                  taskOverrides
+                );
+                if (created) setIsCreated(true);
+              }}
+              disabled={!canCreate || isSubmitting}
+              className="bg-custom-primary-100 hover:bg-custom-primary-200 text-xs flex w-full items-center justify-center gap-2 rounded px-3 py-2 font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {isCreated ? "Задачи уже созданы" : `Создать выбранные задачи · ${selectedTasks.length}`}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="text-xs border-t border-subtle px-3 py-2.5 leading-4 text-tertiary">{widget.source_note}</div>
+    </div>
+  );
+}
+
 type TIgorWorkItemWidgetProps = {
   title: string;
   items: TIgorChatWorkItem[];
@@ -628,4 +1078,20 @@ function formatDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatShortDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function priorityLabel(priority: "none" | "urgent" | "high" | "medium" | "low") {
+  return {
+    none: "Нет",
+    urgent: "Срочный",
+    high: "Высокий",
+    medium: "Средний",
+    low: "Низкий",
+  }[priority];
 }

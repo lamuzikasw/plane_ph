@@ -39,6 +39,7 @@ from plane.license.utils.instance_value import get_configuration_value
 from plane.utils.exception_logger import log_exception
 
 from ..base import BaseAPIView
+from .igor_capture import IgorCaptureMixin
 
 
 class LLMProvider:
@@ -230,7 +231,7 @@ class WorkspaceGPTIntegrationEndpoint(BaseAPIView):
         )
 
 
-class IgorChatEndpoint(BaseAPIView):
+class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
     assistant_name = "Игорь"
     allowed_intents = {
         "conversation",
@@ -242,6 +243,8 @@ class IgorChatEndpoint(BaseAPIView):
         "active",
         "unassigned",
         "weekly_summary",
+        "capture_review",
+        "capture_create",
     }
     default_limit = 12
     max_limit = 25
@@ -257,21 +260,11 @@ class IgorChatEndpoint(BaseAPIView):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
+        action = request.data.get("action")
         raw_message = request.data.get("message")
         if raw_message is not None and not isinstance(raw_message, str):
             return Response({"error": "Message must be a string"}, status=status.HTTP_400_BAD_REQUEST)
         message = (raw_message or "").strip()
-        if not message:
-            return Response({"error": "Message is required"}, status=status.HTTP_400_BAD_REQUEST)
-        if len(message) > self.max_message_length:
-            return Response(
-                {
-                    "error": "Message is too long",
-                    "answer": f"Сократи вопрос до {self.max_message_length} символов.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         workspace = Workspace.objects.get(slug=slug)
         if self._is_rate_limited(workspace, request.user):
             return Response(
@@ -280,6 +273,25 @@ class IgorChatEndpoint(BaseAPIView):
                     "answer": "Я чуть приторможу, чтобы не перегружать систему. Попробуй ещё раз через минуту.",
                 },
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        if action:
+            if action != "create_capture_tasks":
+                return Response({"error": "Unsupported Igor action"}, status=status.HTTP_400_BAD_REQUEST)
+            payload, response_status = self._create_capture_tasks(request, workspace)
+            return Response(payload, status=response_status)
+
+        if not message:
+            return Response({"error": "Message is required"}, status=status.HTTP_400_BAD_REQUEST)
+        is_capture_request = self._detect_capture_intent(message)
+        message_limit = self.capture_message_limit if is_capture_request else self.max_message_length
+        if len(message) > message_limit:
+            return Response(
+                {
+                    "error": "Message is too long",
+                    "answer": f"Сократи сообщение до {message_limit} символов.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         history = self._clean_history(request.data.get("history"))
@@ -311,6 +323,37 @@ class IgorChatEndpoint(BaseAPIView):
                     },
                     "widgets": [],
                     "suggestions": ["Собери мой summary за прошлую неделю", "Что у меня на сегодня?"],
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if is_capture_request:
+            capture = self._build_capture_review(message, workspace, request.user)
+            if capture.get("error"):
+                return Response(capture, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    "assistant": self.assistant_name,
+                    "intent": "capture_review",
+                    "answer": capture["answer"],
+                    "period": {"label": "", "start": None, "end": None},
+                    "context": {
+                        "intent": "capture_review",
+                        "project_id": None,
+                        "project_name": None,
+                        "project_ids": [],
+                        "project_names": [],
+                        "member_id": str(request.user.id),
+                        "member_name": self._member_name(request.user),
+                        "period_label": "",
+                        "period_start": None,
+                        "period_end": None,
+                        "scope": "personal",
+                        "summary_format": "standard",
+                        "summary_audience": "self",
+                    },
+                    "widgets": [capture["widget"]],
+                    "suggestions": ["Разбери ещё одни заметки", "Собери мой summary за прошлую неделю"],
                 },
                 status=status.HTTP_200_OK,
             )
@@ -2273,6 +2316,7 @@ class IgorChatEndpoint(BaseAPIView):
             r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b",
             r"\bAKIA[A-Z0-9]{16}\b",
             r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+            r"\b(?:password|passwd|secret|token|api[_ -]?key)\s*[:=]\s*[^\s,;]{8,}",
         ]
         return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in secret_patterns)
 

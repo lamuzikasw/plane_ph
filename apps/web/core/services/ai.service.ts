@@ -84,6 +84,54 @@ export type TIgorWeeklySummaryWidget = {
   source_note: string;
 };
 
+export type TIgorCaptureCategoryItem = {
+  source_id: string;
+  summary: string;
+  source_text: string;
+};
+
+export type TIgorCaptureCategory = {
+  key: "action" | "decision" | "risk" | "question" | "context" | "unclassified";
+  title: string;
+  count: number;
+  items: TIgorCaptureCategoryItem[];
+};
+
+export type TIgorCaptureTask = {
+  id: string;
+  title: string;
+  description: string;
+  source_ids: string[];
+  project_id: string | null;
+  project_name: string | null;
+  assignee_id: string;
+  assignee_name: string;
+  target_date: string | null;
+  priority: "none" | "urgent" | "high" | "medium" | "low";
+  missing_fields: ("project" | "target_date" | "priority")[];
+  duplicate_issue: {
+    id: string;
+    name: string;
+    identifier: string;
+  } | null;
+};
+
+export type TIgorCaptureWidget = {
+  type: "capture_review";
+  title: string;
+  token: string | null;
+  source_count: number;
+  covered_count: number;
+  categories: TIgorCaptureCategory[];
+  tasks: TIgorCaptureTask[];
+  projects: {
+    id: string;
+    name: string;
+    identifier: string;
+  }[];
+  source_note: string;
+};
+
 export type TIgorChatContext = {
   intent: string;
   project_id: string | null;
@@ -116,7 +164,7 @@ export type TIgorChatResponse = {
     end: string | null;
   };
   context: TIgorChatContext;
-  widgets: (TIgorWorkItemsWidget | TIgorWeeklySummaryWidget)[];
+  widgets: (TIgorWorkItemsWidget | TIgorWeeklySummaryWidget | TIgorCaptureWidget)[];
   suggestions: string[];
 };
 
@@ -126,6 +174,21 @@ export type TIgorChatPayload = {
   context?: Partial<TIgorChatContext> | null;
   limit?: number;
   offset?: number;
+};
+
+export type TIgorCaptureCreatePayload = {
+  action: "create_capture_tasks";
+  capture_token: string;
+  task_ids: string[];
+  project_assignments: Record<string, string>;
+  task_overrides: Record<
+    string,
+    {
+      title: string;
+      target_date: string | null;
+      priority: TIgorCaptureTask["priority"];
+    }
+  >;
 };
 
 export class AIService extends APIService {
@@ -142,6 +205,14 @@ export class AIService extends APIService {
   }
 
   async askIgor(workspaceSlug: string, data: TIgorChatPayload): Promise<TIgorChatResponse> {
+    return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response;
+      });
+  }
+
+  async createIgorCaptureTasks(workspaceSlug: string, data: TIgorCaptureCreatePayload): Promise<TIgorChatResponse> {
     return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, data)
       .then((response) => response?.data)
       .catch((error) => {
