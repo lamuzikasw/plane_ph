@@ -8,17 +8,20 @@ import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  CalendarRange,
   Check,
+  ChevronDown,
+  ClipboardList,
   Copy,
   ExternalLink,
   ListChecks,
+  ListTodo,
   Loader2,
   Maximize2,
-  MessageCircle,
   Minimize2,
   MoveDiagonal2,
   Send,
-  Sparkles,
+  ShieldAlert,
   X,
 } from "lucide-react";
 import { Link } from "react-router";
@@ -36,6 +39,8 @@ import {
   type TIgorChatWorkItem,
   type TIgorWeeklySummaryWidget as TIgorWeeklySummaryWidgetData,
 } from "@/services/ai.service";
+
+import { getIgorContextSegments } from "./igor-chat.utils";
 
 type TIgorMessage = {
   id: string;
@@ -60,8 +65,6 @@ const PANEL_STORAGE_KEY = "plane:igor:panel-size";
 const DEFAULT_PANEL_SIZE = { width: 480, height: 720 };
 const MIN_PANEL_SIZE = { width: 380, height: 480 };
 const PANEL_VIEWPORT_GAP = 40;
-const WELCOME_MESSAGE =
-  "Привет, я Игорь. Соберу итоги недели или разберу заметки со встречи: сохраню каждую мысль, разложу решения, риски и вопросы по категориям и предложу задачи для подтверждения.";
 
 const INITIAL_SUGGESTIONS = [
   "Собери мой summary за прошлую неделю",
@@ -71,13 +74,46 @@ const INITIAL_SUGGESTIONS = [
   "Покажи мои просроченные задачи",
 ];
 
-const initialMessages = (): TIgorMessage[] => [
+type TIgorQuickAction = {
+  id: "weekly" | "meeting" | "risks" | "tasks";
+  title: string;
+  description: string;
+  prompt: string;
+  mode: "ask" | "draft";
+};
+
+const QUICK_ACTIONS: TIgorQuickAction[] = [
   {
-    id: "welcome",
-    role: "assistant",
-    text: WELCOME_MESSAGE,
+    id: "weekly",
+    title: "Итоги недели",
+    description: "Собрать готовый summary",
+    prompt: "Собери мой summary за прошлую неделю",
+    mode: "ask",
+  },
+  {
+    id: "meeting",
+    title: "Разобрать встречу",
+    description: "Решения, риски и задачи",
+    prompt: "Разбери заметки встречи и предложи задачи:\n\n",
+    mode: "draft",
+  },
+  {
+    id: "risks",
+    title: "Найти риски",
+    description: "Просрочки и блокеры",
+    prompt: "Покажи мои просроченные и заблокированные задачи",
+    mode: "ask",
+  },
+  {
+    id: "tasks",
+    title: "Мои задачи",
+    description: "Что сейчас в работе",
+    prompt: "Покажи мои активные задачи",
+    mode: "ask",
   },
 ];
+
+const initialMessages = (): TIgorMessage[] => [];
 
 type TIgorPanelSize = typeof DEFAULT_PANEL_SIZE;
 
@@ -115,14 +151,11 @@ const stateLabels: Record<string, string> = {
 };
 
 const buildHistoryPayload = (messages: TIgorMessage[]): TIgorChatHistoryItem[] =>
-  messages
-    .filter((message) => message.id !== "welcome")
-    .slice(-8)
-    .map((message) => ({
-      role: message.role,
-      text: message.text,
-      context: message.response?.context ?? null,
-    }));
+  messages.slice(-8).map((message) => ({
+    role: message.role,
+    text: message.text,
+    context: message.response?.context ?? null,
+  }));
 
 export function IgorChat({ workspaceSlug }: Props) {
   const [isOpen, setIsOpen] = useState(false);
@@ -194,6 +227,14 @@ export function IgorChat({ workspaceSlug }: Props) {
     return lastAssistantMessage?.response?.suggestions?.length
       ? lastAssistantMessage.response.suggestions
       : INITIAL_SUGGESTIONS;
+  }, [messages]);
+
+  const activeContext = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const context = messages[index].response?.context;
+      if (context) return context;
+    }
+    return null;
   }, [messages]);
 
   useEffect(() => {
@@ -393,6 +434,18 @@ export function IgorChat({ workspaceSlug }: Props) {
     askIgor(input);
   };
 
+  const handleQuickAction = (action: TIgorQuickAction) => {
+    if (action.mode === "ask") {
+      askIgor(action.prompt);
+      return;
+    }
+    setInput(action.prompt);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(action.prompt.length, action.prompt.length);
+    });
+  };
+
   return (
     <>
       {!isOpen && (
@@ -400,9 +453,9 @@ export function IgorChat({ workspaceSlug }: Props) {
           <button
             type="button"
             onClick={() => setIsOpen(true)}
-            className="text-sm shadow-sm hover:border-custom-primary-100/40 focus:ring-custom-primary-100/30 fixed right-5 bottom-5 z-40 flex h-11 items-center gap-2 rounded-full border border-subtle bg-surface-1 px-4 font-medium text-primary transition hover:bg-surface-2 focus:ring-2 focus:ring-offset-2 focus:outline-none"
+            className="text-sm shadow-md hover:border-custom-primary-100/40 focus:ring-custom-primary-100/30 fixed right-5 bottom-5 z-40 flex h-12 items-center gap-2.5 rounded-full border border-subtle bg-surface-1 py-1.5 pr-4 pl-1.5 font-semibold text-primary transition hover:-translate-y-0.5 hover:bg-surface-2 focus:ring-2 focus:ring-offset-2 focus:outline-none motion-reduce:transform-none"
           >
-            <Sparkles className="text-custom-primary-100 h-4 w-4" />
+            <IgorMark size="sm" />
             Игорь
           </button>
         </Tooltip>
@@ -418,7 +471,7 @@ export function IgorChat({ workspaceSlug }: Props) {
             height: isMaximized ? "calc(100vh - 40px)" : panelSize.height,
           }}
           className={cn(
-            "shadow-lg fixed right-5 bottom-5 z-40 flex max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] flex-col overflow-hidden rounded-xl border border-subtle bg-surface-1",
+            "shadow-2xl @container fixed right-5 bottom-5 z-40 flex max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] flex-col overflow-hidden rounded-2xl border border-subtle bg-surface-1 ring-1 ring-black/5",
             !isResizing && "transition-[width,height] duration-200"
           )}
         >
@@ -438,18 +491,19 @@ export function IgorChat({ workspaceSlug }: Props) {
             </button>
           )}
 
-          <header className="flex items-center justify-between border-b border-subtle py-3 pr-3 pl-10">
+          <header className="flex min-h-16 items-center justify-between border-b border-subtle bg-surface-1 py-2.5 pr-3 pl-10">
             <div className="flex items-center gap-3">
-              <div className="border-custom-primary-100/20 bg-custom-primary-100/10 text-custom-primary-100 flex h-9 w-9 items-center justify-center rounded-lg border">
-                <MessageCircle className="h-4 w-4" />
-              </div>
+              <IgorMark size="md" />
               <div className="min-w-0">
-                <h2 id="igor-title" className="text-sm truncate font-semibold text-primary">
+                <h2 id="igor-title" className="truncate text-[15px] leading-5 font-semibold text-primary">
                   Игорь
                 </h2>
                 <p className="text-xs flex items-center gap-1.5 truncate text-secondary">
-                  <span className="bg-green-500 h-1.5 w-1.5 shrink-0 rounded-full" aria-hidden="true" />
-                  Задачи, отчёты и встречи
+                  <span className="relative flex h-2 w-2 shrink-0" aria-hidden="true">
+                    <span className="bg-green-400 absolute inline-flex h-full w-full animate-ping rounded-full opacity-50 motion-reduce:hidden" />
+                    <span className="bg-green-500 relative inline-flex h-2 w-2 rounded-full" />
+                  </span>
+                  Помощник по работе
                 </p>
               </div>
             </div>
@@ -474,113 +528,126 @@ export function IgorChat({ workspaceSlug }: Props) {
             </div>
           </header>
 
-          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-            <div className="space-y-4">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn("flex items-start gap-2.5", message.role === "user" ? "justify-end" : "justify-start")}
-                >
-                  {message.role === "assistant" && (
-                    <div className="border-custom-primary-100/20 bg-custom-primary-100/10 text-custom-primary-100 mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md border">
-                      <Sparkles className="h-3.5 w-3.5" />
-                    </div>
-                  )}
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-surface-2/30 px-4 py-5">
+            {messages.length === 0 ? (
+              <IgorWelcome isSubmitting={isSubmitting} onAction={handleQuickAction} />
+            ) : (
+              <div className="space-y-5">
+                {messages.map((message) => (
                   <div
+                    key={message.id}
                     className={cn(
-                      "text-sm min-w-0 leading-5",
-                      message.role === "user"
-                        ? "border-custom-primary-100/20 bg-custom-primary-100/10 max-w-[86%] rounded-xl rounded-br-sm border px-3 py-2 text-primary"
-                        : "w-full text-primary"
+                      "flex animate-fade-in items-start gap-2.5",
+                      message.role === "user" ? "justify-end" : "justify-start"
                     )}
                   >
-                    <p
+                    {message.role === "assistant" && <IgorMark size="xs" className="mt-0.5" />}
+                    <div
                       className={cn(
-                        "whitespace-pre-wrap",
-                        message.role === "assistant" && "rounded-lg border border-subtle bg-surface-2 px-3 py-2"
+                        "text-sm min-w-0 leading-5",
+                        message.role === "user"
+                          ? "border-custom-primary-100/20 bg-custom-primary-100/10 max-w-[86%] rounded-2xl rounded-br-sm border px-3.5 py-2.5 text-primary"
+                          : "w-full text-primary"
                       )}
                     >
-                      {message.text}
-                    </p>
-                    {message.response?.widgets?.map((widget) =>
-                      widget.type === "weekly_summary" ? (
-                        <IgorWeeklySummaryWidget
-                          key={`${message.id}-${widget.type}-${widget.title}`}
-                          widget={widget}
-                          workspaceSlug={workspaceSlug}
-                        />
-                      ) : widget.type === "capture_review" ? (
-                        <IgorCaptureWidget
-                          key={`${message.id}-${widget.type}-${widget.title}`}
-                          widget={widget}
-                          isSubmitting={isSubmitting}
-                          onCreate={createCaptureTasks}
-                        />
-                      ) : (
-                        <IgorWorkItemWidget
-                          key={`${message.id}-${widget.type}-${widget.title}`}
-                          title={widget.title}
-                          items={widget.items}
-                          total={widget.total}
-                          limit={widget.limit}
-                          hasMore={widget.has_more}
-                          nextOffset={widget.next_offset}
-                          workspaceSlug={workspaceSlug}
-                          request={message.request}
-                        />
-                      )
-                    )}
+                      {message.role === "assistant" && (
+                        <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-tertiary uppercase">
+                          Игорь
+                        </div>
+                      )}
+                      {message.response?.context && <IgorContextStrip context={message.response.context} />}
+                      <p className="max-w-[68ch] whitespace-pre-wrap text-primary">{message.text}</p>
+                      {message.response?.widgets?.map((widget) =>
+                        widget.type === "weekly_summary" ? (
+                          <IgorWeeklySummaryWidget
+                            key={`${message.id}-${widget.type}-${widget.title}`}
+                            widget={widget}
+                            workspaceSlug={workspaceSlug}
+                          />
+                        ) : widget.type === "capture_review" ? (
+                          <IgorCaptureWidget
+                            key={`${message.id}-${widget.type}-${widget.title}`}
+                            widget={widget}
+                            isSubmitting={isSubmitting}
+                            onCreate={createCaptureTasks}
+                          />
+                        ) : (
+                          <IgorWorkItemWidget
+                            key={`${message.id}-${widget.type}-${widget.title}`}
+                            title={widget.title}
+                            items={widget.items}
+                            total={widget.total}
+                            limit={widget.limit}
+                            hasMore={widget.has_more}
+                            nextOffset={widget.next_offset}
+                            workspaceSlug={workspaceSlug}
+                            request={message.request}
+                          />
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-              {isSubmitting && (
-                <div className="flex items-start gap-2.5">
-                  <div className="border-custom-primary-100/20 bg-custom-primary-100/10 text-custom-primary-100 mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md border">
-                    <Sparkles className="h-3.5 w-3.5" />
+                ))}
+                {isSubmitting && (
+                  <div className="flex animate-fade-in items-start gap-2.5" aria-live="polite">
+                    <IgorMark size="xs" className="mt-0.5" />
+                    <div>
+                      <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-tertiary uppercase">
+                        Игорь
+                      </div>
+                      <div className="text-sm flex items-center gap-2 text-secondary">
+                        <Loader2 className="text-custom-primary-100 h-4 w-4 animate-spin" />
+                        Изучаю задачи и собираю факты
+                        <span className="flex gap-0.5" aria-hidden="true">
+                          <span className="bg-tertiary h-1 w-1 animate-pulse rounded-full" />
+                          <span className="bg-tertiary h-1 w-1 animate-pulse rounded-full [animation-delay:150ms]" />
+                          <span className="bg-tertiary h-1 w-1 animate-pulse rounded-full [animation-delay:300ms]" />
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-sm flex items-center gap-2 rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-secondary">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Игорь собирает факты из задач...
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="shrink-0 border-t border-subtle bg-surface-1 px-4 py-3">
-            <div className="mb-2.5 flex gap-2 overflow-x-auto pb-1">
-              {suggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  onClick={() => askIgor(suggestion)}
-                  disabled={isSubmitting}
-                  className="text-xs hover:border-custom-primary-200 shrink-0 rounded-full border border-subtle bg-surface-1 px-3 py-1.5 text-secondary transition hover:bg-surface-2 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-            <div className="focus-within:border-custom-primary-100/60 focus-within:ring-custom-primary-100/10 overflow-hidden rounded-xl border border-subtle bg-surface-2 transition focus-within:ring-2">
+          <div className="shrink-0 border-t border-subtle bg-surface-1 px-4 py-3.5">
+            {messages.length > 0 && (
+              <div className="mb-2.5 flex gap-2 overflow-x-auto pb-1">
+                {suggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => askIgor(suggestion)}
+                    disabled={isSubmitting}
+                    className="text-xs hover:border-custom-primary-200 shrink-0 rounded-full border border-subtle bg-surface-2 px-3 py-1.5 text-secondary transition hover:bg-surface-1 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
+            {activeContext && <IgorContextStrip context={activeContext} compact className="mb-2.5" />}
+            <div className="focus-within:border-custom-primary-100/60 focus-within:ring-custom-primary-100/10 shadow-sm overflow-hidden rounded-2xl border border-subtle bg-surface-1 transition focus-within:ring-2">
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Summary или заметки встречи для разбора"
+                placeholder="Спросите Игоря о задачах или вставьте заметки встречи…"
                 maxLength={CAPTURE_MESSAGE_LENGTH}
-                rows={3}
+                rows={2}
                 aria-describedby="igor-input-hint"
-                className="text-sm max-h-52 min-h-16 w-full resize-y bg-transparent px-3 py-2.5 text-primary outline-none placeholder:text-tertiary"
+                className="text-sm max-h-52 min-h-18 w-full resize-y bg-transparent px-3.5 py-3 leading-5 text-primary outline-none placeholder:text-tertiary"
               />
-              <div className="flex items-center justify-between gap-3 border-t border-subtle px-2 py-1.5">
-                <div id="igor-input-hint" className="text-xs min-w-0 truncate text-tertiary">
-                  Enter — отправить · Shift + Enter — новая строка
+              <div className="flex items-center justify-between gap-2 border-t border-subtle px-2 py-1.5">
+                <div id="igor-input-hint" className="min-w-0 truncate text-[11px] text-tertiary">
+                  Shift + Enter — новая строка
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span
                     className={cn(
-                      "text-xs text-tertiary tabular-nums",
+                      "text-[11px] text-tertiary tabular-nums",
                       input.length > currentMessageLimit && "text-red-500"
                     )}
                   >
@@ -590,10 +657,11 @@ export function IgorChat({ workspaceSlug }: Props) {
                     type="button"
                     onClick={() => askIgor(input)}
                     disabled={isSubmitting || !input.trim() || input.trim().length > currentMessageLimit}
-                    className="bg-custom-primary-100 hover:bg-custom-primary-200 grid h-8 w-8 place-items-center rounded-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+                    className="bg-custom-primary-100 hover:bg-custom-primary-200 flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-white transition disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label="Отправить сообщение Игорю"
                   >
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    <span className="text-xs hidden font-medium @min-[28rem]:inline">Отправить</span>
                   </button>
                 </div>
               </div>
@@ -602,6 +670,127 @@ export function IgorChat({ workspaceSlug }: Props) {
         </section>
       )}
     </>
+  );
+}
+
+function IgorMark({ size = "md", className }: { size?: "xs" | "sm" | "md" | "lg"; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "bg-custom-primary-100 shadow-sm relative grid shrink-0 place-items-center overflow-hidden text-white ring-1 ring-white/15 ring-inset",
+        size === "xs" && "h-7 w-7 rounded-lg",
+        size === "sm" && "h-9 w-9 rounded-xl",
+        size === "md" && "h-10 w-10 rounded-xl",
+        size === "lg" && "h-13 w-13 rounded-2xl",
+        className
+      )}
+      aria-hidden="true"
+    >
+      <span className="absolute inset-x-0 top-0 h-px bg-white/35" />
+      <svg
+        viewBox="0 0 32 32"
+        fill="none"
+        className={cn(size === "xs" ? "h-4.5 w-4.5" : size === "lg" ? "h-8 w-8" : "h-6 w-6")}
+      >
+        <path
+          d="M8.5 8.5v15M23 8.5v15M8.5 23.5 23 8.5"
+          stroke="currentColor"
+          strokeWidth="2.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M25.5 3.75c0 1.52 1.23 2.75 2.75 2.75-1.52 0-2.75 1.23-2.75 2.75 0-1.52-1.23-2.75-2.75-2.75 1.52 0 2.75-1.23 2.75-2.75Z"
+          fill="currentColor"
+          opacity="0.8"
+        />
+      </svg>
+    </span>
+  );
+}
+
+function IgorWelcome({
+  isSubmitting,
+  onAction,
+}: {
+  isSubmitting: boolean;
+  onAction: (action: TIgorQuickAction) => void;
+}) {
+  return (
+    <div className="mx-auto flex min-h-full w-full max-w-2xl animate-fade-in flex-col justify-center py-6">
+      <div className="mb-6 flex items-start gap-3.5">
+        <IgorMark size="lg" />
+        <div className="min-w-0 pt-0.5">
+          <h3 className="text-xl leading-7 font-semibold tracking-[-0.02em] text-primary">Чем помочь?</h3>
+          <p className="text-sm mt-1 max-w-[46ch] leading-5 text-secondary">
+            Соберу факты из Plane, подготовлю отчёт или превращу заметки встречи в понятный план действий.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 @min-[27rem]:grid-cols-2">
+        {QUICK_ACTIONS.map((action) => (
+          <button
+            key={action.id}
+            type="button"
+            onClick={() => onAction(action)}
+            disabled={isSubmitting}
+            className="group hover:border-custom-primary-100/35 focus:border-custom-primary-100 focus:ring-custom-primary-100/15 shadow-xs hover:shadow-sm flex min-h-20 items-start gap-3 rounded-xl border border-subtle bg-surface-1 p-3 text-left transition hover:-translate-y-0.5 focus:ring-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transform-none"
+          >
+            <span className="bg-custom-primary-100/10 text-custom-primary-100 group-hover:bg-custom-primary-100 grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-colors group-hover:text-white">
+              <IgorQuickActionIcon actionId={action.id} />
+            </span>
+            <span className="min-w-0 pt-0.5">
+              <span className="text-sm block font-semibold text-primary">{action.title}</span>
+              <span className="text-xs mt-0.5 block leading-4 text-secondary">{action.description}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <p className="text-xs mt-4 text-center leading-4 text-tertiary">
+        Игорь использует только доступные вам задачи и проекты.
+      </p>
+    </div>
+  );
+}
+
+function IgorQuickActionIcon({ actionId }: { actionId: TIgorQuickAction["id"] }) {
+  const className = "h-4.5 w-4.5";
+  if (actionId === "weekly") return <CalendarRange className={className} />;
+  if (actionId === "meeting") return <ClipboardList className={className} />;
+  if (actionId === "risks") return <ShieldAlert className={className} />;
+  return <ListTodo className={className} />;
+}
+
+function IgorContextStrip({
+  context,
+  compact = false,
+  className,
+}: {
+  context: TIgorChatContext;
+  compact?: boolean;
+  className?: string;
+}) {
+  const segments = getIgorContextSegments(context);
+
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-tertiary",
+        compact ? "rounded-lg border border-subtle bg-surface-2 px-2.5 py-1.5" : "mb-2",
+        className
+      )}
+      aria-label={`Контекст: ${segments.join(", ")}`}
+    >
+      <span className="font-medium text-secondary">Контекст</span>
+      {segments.map((segment) => (
+        <span key={segment} className="flex min-w-0 items-center gap-1.5">
+          <span className="bg-tertiary h-0.5 w-0.5 shrink-0 rounded-full" aria-hidden="true" />
+          <span className="max-w-56 truncate">{segment}</span>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -634,7 +823,7 @@ function IgorWeeklySummaryWidget({
   };
 
   return (
-    <div className="mt-3 overflow-hidden rounded-md border border-subtle bg-surface-1">
+    <div className="shadow-xs mt-3 overflow-hidden rounded-xl border border-subtle bg-surface-1">
       <div className="border-b border-subtle px-3 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -710,10 +899,13 @@ function IgorWeeklySummaryWidget({
             }
             className="group"
           >
-            <summary className="cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2">
+            <summary className="focus-visible:ring-custom-primary-100/30 cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-primary">{section.title}</span>
-                <span className="text-xs rounded-full bg-surface-2 px-2 py-0.5 text-secondary">{section.total}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-xs rounded-full bg-surface-2 px-2 py-0.5 text-secondary">{section.total}</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-tertiary transition-transform group-open:rotate-180" />
+                </span>
               </div>
               <p className="text-xs mt-1 text-tertiary">{section.description}</p>
             </summary>
@@ -862,7 +1054,7 @@ function IgorCaptureWidget({
   };
 
   return (
-    <div className="mt-3 overflow-hidden rounded-md border border-subtle bg-surface-1">
+    <div className="shadow-xs mt-3 overflow-hidden rounded-xl border border-subtle bg-surface-1">
       <div className="border-b border-subtle px-3 py-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -891,10 +1083,13 @@ function IgorCaptureWidget({
             open={["action", "risk", "question", "unclassified"].includes(category.key)}
             className="group"
           >
-            <summary className="cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2">
+            <summary className="focus-visible:ring-custom-primary-100/30 cursor-pointer list-none px-3 py-2.5 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-primary">{category.title}</span>
-                <span className="text-xs rounded-full bg-surface-2 px-2 py-0.5 text-secondary">{category.count}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-xs rounded-full bg-surface-2 px-2 py-0.5 text-secondary">{category.count}</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-tertiary transition-transform group-open:rotate-180" />
+                </span>
               </div>
             </summary>
             <div className="space-y-2 border-t border-subtle bg-surface-2/40 px-3 py-2.5">
@@ -1209,7 +1404,7 @@ function IgorWorkItemWidget({
   };
 
   return (
-    <div className="mt-3 overflow-hidden rounded-md border border-subtle bg-surface-1">
+    <div className="shadow-xs mt-3 overflow-hidden rounded-xl border border-subtle bg-surface-1">
       <div className="text-xs flex items-center justify-between gap-2 border-b border-subtle px-3 py-2 font-medium text-secondary">
         <span className="min-w-0 truncate">{title}</span>
         {typeof total === "number" && total > loadedItems.length && (
