@@ -34,6 +34,7 @@ export type TIgorChatWorkItem = {
   start_date: string | null;
   target_date: string | null;
   completed_at: string | null;
+  url?: string;
   note?: string;
   assignees: {
     id: string;
@@ -42,7 +43,7 @@ export type TIgorChatWorkItem = {
 };
 
 export type TIgorWeeklySummaryMetric = {
-  key: "completed" | "progressed" | "deadline_changes" | "blocked" | "next_week";
+  key: "completed" | "progressed" | "deadline_changes" | "blocked" | "overdue" | "next_week";
   label: string;
   value: number;
 };
@@ -73,6 +74,10 @@ export type TIgorWeeklySummaryWidget = {
   scope: string;
   period_label: string;
   period_range: string;
+  summary_format: "compact" | "standard" | "detailed";
+  summary_audience: "self" | "manager";
+  overview: string;
+  attention: string[];
   metrics: TIgorWeeklySummaryMetric[];
   sections: TIgorWeeklySummarySection[];
   copy_text: string;
@@ -91,6 +96,8 @@ export type TIgorChatContext = {
   period_start: string | null;
   period_end: string | null;
   scope: "personal" | "member" | "projects" | "all_projects";
+  summary_format: "compact" | "standard" | "detailed";
+  summary_audience: "self" | "manager";
 };
 
 export type TIgorChatHistoryItem = {

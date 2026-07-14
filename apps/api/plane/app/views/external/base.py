@@ -15,8 +15,9 @@ from urllib.parse import urlparse
 from openai import OpenAI
 import requests
 
+from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 import pytz
 from rest_framework import status
@@ -387,9 +388,9 @@ class IgorChatEndpoint(BaseAPIView):
                     "context": self._response_context(query_context),
                     "widgets": [summary["widget"]],
                     "suggestions": [
-                        "Собери мой summary за текущую неделю",
-                        "Покажи завершённые задачи из отчёта",
-                        "Какие задачи сейчас заблокированы?",
+                        "Сделай короткую версию для руководителя",
+                        "А теперь подробно",
+                        "Пересобери за текущую неделю",
                     ],
                 },
                 status=status.HTTP_200_OK,
@@ -483,6 +484,8 @@ class IgorChatEndpoint(BaseAPIView):
             "period_label",
             "period_start",
             "period_end",
+            "summary_format",
+            "summary_audience",
         ]:
             value = context.get(key)
             if isinstance(value, str) and value.strip():
@@ -532,7 +535,8 @@ class IgorChatEndpoint(BaseAPIView):
         fallback_member = self._detect_member(message, all_members, user)
         personal_requested = self._scope_is_personal(message)
         team_requested = self._scope_is_team(message)
-        summary_requested = self._detect_weekly_summary_intent(message)
+        summary_follow_up = self._is_summary_follow_up(message, last_context, history)
+        summary_requested = self._detect_weekly_summary_intent(message) or summary_follow_up
         should_plan = (
             self._looks_like_work(message) or projects or fallback_member or self._is_follow_up(message, history)
         )
@@ -562,6 +566,7 @@ class IgorChatEndpoint(BaseAPIView):
             or bool(fallback_member)
             or bool(request_context)
             or follow_up_period_request
+            or summary_requested
         )
         is_work_request = True if explicit_work_request else self._plan_is_work(llm_plan)
         if is_work_request is None:
@@ -615,10 +620,23 @@ class IgorChatEndpoint(BaseAPIView):
         if intent == "weekly_summary" and not self._has_explicit_period_direction(message):
             period_key = "last_week"
         period_start, period_end, period_label = self._detect_period(message, user, period_key)
-        if request_context and not self._period_was_requested(message) and request_context.get("period_start"):
+        period_context = request_context or (last_context if summary_follow_up else {})
+        if period_context and not self._period_was_requested(message) and period_context.get("period_start"):
             period_start, period_end, period_label = self._period_from_context(
-                request_context, period_start, period_end, period_label
+                period_context, period_start, period_end, period_label
             )
+
+        summary_format = self._detect_summary_format(message)
+        if not summary_format and summary_follow_up:
+            summary_format = last_context.get("summary_format")
+        if summary_format not in ["compact", "standard", "detailed"]:
+            summary_format = "standard"
+
+        summary_audience = self._detect_summary_audience(message)
+        if not summary_audience and summary_follow_up:
+            summary_audience = last_context.get("summary_audience")
+        if summary_audience not in ["self", "manager"]:
+            summary_audience = "self"
 
         return {
             "intent": intent,
@@ -629,6 +647,8 @@ class IgorChatEndpoint(BaseAPIView):
             "project": projects[0] if len(projects) == 1 else None,
             "projects": projects,
             "scope": scope,
+            "summary_format": summary_format,
+            "summary_audience": summary_audience,
             "is_manager": is_manager,
             "access_denied": access_denied,
             "llm_plan": llm_plan,
@@ -683,6 +703,8 @@ class IgorChatEndpoint(BaseAPIView):
         summary_markers = [
             "summary",
             "саммари",
+            "самари",
+            "суммари",
             "report",
             "recap",
             "отчет",
@@ -694,6 +716,8 @@ class IgorChatEndpoint(BaseAPIView):
             "weekly update",
             "недельный update",
             "статус для руковод",
+            "статус к планерк",
+            "статус к синк",
             "отчит",
             "результат",
         ]
@@ -706,6 +730,11 @@ class IgorChatEndpoint(BaseAPIView):
             "рабочая неделя",
             "for my manager",
             "for the manager",
+            "для 1 1",
+            "подготовь статус к планерк",
+            "собери статус к планерк",
+            "подготовь статус к синк",
+            "собери статус к синк",
         ]
         work_result_markers = [
             "что я делал",
@@ -720,13 +749,33 @@ class IgorChatEndpoint(BaseAPIView):
             "что успел",
             "что успела",
             "что мы сделали",
+            "чем я занимался",
+            "чем я занималась",
+            "чем занимался",
+            "чем занималась",
+            "над чем я работал",
+            "над чем я работала",
+            "над чем работал",
+            "над чем работала",
+            "какой был прогресс",
+            "что происходило",
             "как прошла моя",
             "подведи итоги",
             "собери выполненное",
             "what did i do",
             "what was done",
         ]
-        week_markers = ["недел", "7 дней", "weekly", "пятнич", "last week", "this week"]
+        week_markers = [
+            "недел",
+            "7 дней",
+            "семь дней",
+            "7 суток",
+            "семь суток",
+            "weekly",
+            "пятнич",
+            "last week",
+            "this week",
+        ]
 
         has_summary_marker = any(marker in text for marker in summary_markers)
         has_report_context = any(marker in text for marker in report_context_markers)
@@ -737,7 +786,18 @@ class IgorChatEndpoint(BaseAPIView):
             or has_report_context
             or (
                 has_summary_marker
-                and any(marker in text for marker in ["моей работ", "моим задач", "по задач", "по проект", "команд"])
+                and any(
+                    marker in text
+                    for marker in [
+                        "моей работ",
+                        "моим задач",
+                        "по задач",
+                        "по проект",
+                        "команд",
+                        "для руковод",
+                        "начальств",
+                    ]
+                )
             )
         )
 
@@ -756,8 +816,6 @@ class IgorChatEndpoint(BaseAPIView):
             "что я ",
             "что у меня",
             "у меня",
-            "для меня",
-            "собери мне",
             "my summary",
             "my report",
             "what did i",
@@ -804,14 +862,94 @@ class IgorChatEndpoint(BaseAPIView):
             "предыдущ",
             "последние 7",
             "последних 7",
+            "последние семь",
+            "последних семь",
             "эта неделя",
             "этой неделе",
+            "эту неделю",
+            "на этой неделе",
             "текущ",
             "с понедельника",
+            "с начала недели",
+            "минувш",
+            "неделю назад",
             "last week",
             "this week",
         ]
         return any(marker in text for marker in markers)
+
+    def _detect_summary_format(self, message):
+        text = self._normalize_search(message)
+        compact_markers = [
+            "коротк",
+            "короче",
+            "покороче",
+            "кратк",
+            "сжато",
+            "без деталей",
+            "только главное",
+            "в двух словах",
+            "для сообщения",
+            "compact",
+            "short version",
+        ]
+        detailed_markers = [
+            "подробн",
+            "детальн",
+            "развернут",
+            "полный отчет",
+            "все задачи",
+            "с деталями",
+            "detailed",
+            "full report",
+        ]
+        if any(marker in text for marker in compact_markers):
+            return "compact"
+        if any(marker in text for marker in detailed_markers):
+            return "detailed"
+        return None
+
+    def _detect_summary_audience(self, message):
+        text = self._normalize_search(message)
+        manager_markers = [
+            "для руковод",
+            "руководителю",
+            "начальств",
+            "начальнику",
+            "директор",
+            "отправить руковод",
+            "for my manager",
+            "for the manager",
+        ]
+        self_markers = ["для себя", "моя рабочая неделя", "личный отчет", "личная сводка"]
+        if any(marker in text for marker in manager_markers):
+            return "manager"
+        if any(marker in text for marker in self_markers):
+            return "self"
+        return None
+
+    def _is_summary_follow_up(self, message, last_context, history):
+        if not history or last_context.get("intent") != "weekly_summary":
+            return False
+        text = self._normalize_search(message)
+        markers = [
+            "короче",
+            "покороче",
+            "кратко",
+            "подробнее",
+            "подробно",
+            "с деталями",
+            "без деталей",
+            "только главное",
+            "для руковод",
+            "руководителю",
+            "для началь",
+            "для себя",
+            "перепиши",
+            "пересобери",
+            "измени формат",
+        ]
+        return self._is_follow_up(message, history) or any(marker in text for marker in markers)
 
     def _looks_like_work(self, message):
         text = self._normalize_search(message)
@@ -878,13 +1016,34 @@ class IgorChatEndpoint(BaseAPIView):
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         current_week_start = today_start - timedelta(days=today_start.weekday())
 
-        if period_key == "last_7_days" or any(phrase in text for phrase in ["последние 7 дней", "последних 7 дней"]):
+        if period_key == "last_7_days" or any(
+            phrase in text
+            for phrase in [
+                "последние 7 дней",
+                "последних 7 дней",
+                "последние семь дней",
+                "последних семь дней",
+                "последние 7 суток",
+                "последних 7 суток",
+                "последние семь суток",
+                "последних семь суток",
+            ]
+        ):
             start = today_start - timedelta(days=6)
             end = today_start + timedelta(days=1) - timedelta(microseconds=1)
             return start.astimezone(pytz.UTC), end.astimezone(pytz.UTC), "последние 7 дней"
 
         if period_key == "last_week" or any(
-            phrase in text for phrase in ["прошлую неделю", "прошлой неделе", "предыдущую неделю", "last week"]
+            phrase in text
+            for phrase in [
+                "прошлую неделю",
+                "прошлой неделе",
+                "предыдущую неделю",
+                "минувшую неделю",
+                "минувшей неделе",
+                "неделю назад",
+                "last week",
+            ]
         ):
             start = current_week_start - timedelta(days=7)
             end = current_week_start - timedelta(microseconds=1)
@@ -911,7 +1070,17 @@ class IgorChatEndpoint(BaseAPIView):
             return start.astimezone(pytz.UTC), end.astimezone(pytz.UTC), "ближайшие 7 дней"
 
         if period_key == "current_week" or any(
-            phrase in text for phrase in ["эта неделя", "этой неделе", "текущая неделя", "с понедельника", "this week"]
+            phrase in text
+            for phrase in [
+                "эта неделя",
+                "эту неделю",
+                "этой неделе",
+                "на этой неделе",
+                "текущая неделя",
+                "с понедельника",
+                "с начала недели",
+                "this week",
+            ]
         ):
             start = current_week_start
             end = current_week_start + timedelta(days=7) - timedelta(microseconds=1)
@@ -935,6 +1104,9 @@ class IgorChatEndpoint(BaseAPIView):
                 "месяц",
                 "ближайш",
                 "следующ",
+                "минувш",
+                "с понедельника",
+                "с начала недели",
                 "last",
                 "today",
                 "tomorrow",
@@ -1060,6 +1232,11 @@ class IgorChatEndpoint(BaseAPIView):
             "отчет",
             "summary",
             "саммари",
+            "короче",
+            "кратко",
+            "подробно",
+            "детально",
+            "руководител",
         ]
         if (
             len(text.split()) <= 4
@@ -1161,6 +1338,8 @@ class IgorChatEndpoint(BaseAPIView):
             "period_start": period_start.isoformat() if period_start else None,
             "period_end": period_end.isoformat() if period_end else None,
             "scope": query_context.get("scope"),
+            "summary_format": query_context.get("summary_format"),
+            "summary_audience": query_context.get("summary_audience"),
         }
 
     def _history_for_llm(self, history):
@@ -1250,6 +1429,10 @@ class IgorChatEndpoint(BaseAPIView):
                                 continue
                             if token.startswith(alias_token) or alias_token.startswith(token):
                                 score = max(score, 2)
+                            elif len(token) >= 4 and len(alias_token) >= 4:
+                                token_ratio = SequenceMatcher(None, token, alias_token).ratio()
+                                if token_ratio >= 0.75:
+                                    score = max(score, 5)
                     if len(alias_variant) >= 4:
                         ratio = SequenceMatcher(None, text, alias_variant).ratio()
                         if ratio >= 0.72:
@@ -1263,6 +1446,9 @@ class IgorChatEndpoint(BaseAPIView):
         period_label = query_context["period_label"]
         member = query_context["member"]
         projects = query_context.get("projects") or []
+        summary_format = query_context.get("summary_format") or "standard"
+        summary_audience = query_context.get("summary_audience") or "self"
+        display_limit = {"compact": 5, "standard": 10, "detailed": self.summary_item_limit}.get(summary_format, 10)
         user_tz = self._user_timezone(user)
         open_groups = [StateGroup.BACKLOG.value, StateGroup.UNSTARTED.value, StateGroup.STARTED.value]
 
@@ -1320,6 +1506,7 @@ class IgorChatEndpoint(BaseAPIView):
         progressed_queryset = (
             report_scope.filter(id__in=progressed_issue_ids)
             .exclude(id__in=completed_ids)
+            .filter(state__group__in=open_groups)
             .order_by("-updated_at")
             .distinct()
         )
@@ -1357,6 +1544,11 @@ class IgorChatEndpoint(BaseAPIView):
             .distinct()
         )
 
+        overdue_queryset = assigned_scope.filter(
+            state__group__in=open_groups,
+            target_date__lt=timezone.now(),
+        ).order_by("target_date", "-priority", "-updated_at")
+
         next_period_start = period_end + timedelta(microseconds=1)
         next_period_end = next_period_start + timedelta(days=7) - timedelta(microseconds=1)
         next_week_queryset = assigned_scope.filter(
@@ -1368,7 +1560,14 @@ class IgorChatEndpoint(BaseAPIView):
         completed_total = completed_queryset.count()
         progressed_total = progressed_queryset.count()
         blocked_total = blocked_queryset.count()
+        overdue_total = overdue_queryset.count()
         next_week_total = next_week_queryset.count()
+        completed_by_project = list(
+            completed_queryset.order_by()
+            .values("project__name")
+            .annotate(total=Count("id", distinct=True))
+            .order_by("-total", "project__name")[:3]
+        )
 
         completed_items = [
             self._serialize_issue(
@@ -1377,11 +1576,11 @@ class IgorChatEndpoint(BaseAPIView):
                 if issue.completed_at
                 else "Завершена",
             )
-            for issue in completed_queryset[: self.summary_item_limit]
+            for issue in completed_queryset[:display_limit]
         ]
         progressed_items = [
             self._serialize_issue(issue, note="Была рабочая активность в выбранный период")
-            for issue in progressed_queryset[: self.summary_item_limit]
+            for issue in progressed_queryset[:display_limit]
         ]
         deadline_items = [
             self._serialize_issue(
@@ -1389,17 +1588,24 @@ class IgorChatEndpoint(BaseAPIView):
                 note=self._deadline_change_note(activity.old_value, activity.new_value, user_tz),
             )
             for activity in latest_deadline_change_by_issue.values()
-        ][: self.summary_item_limit]
+        ][:display_limit]
         blocked_items = [
             self._serialize_issue(issue, note="Остаётся заблокированной на момент отчёта")
-            for issue in blocked_queryset[: self.summary_item_limit]
+            for issue in blocked_queryset[:display_limit]
+        ]
+        overdue_items = [
+            self._serialize_issue(
+                issue,
+                note=f"Просрочена с {self._format_summary_date(issue.target_date, user_tz)}",
+            )
+            for issue in overdue_queryset[:display_limit]
         ]
         next_week_items = [
             self._serialize_issue(
                 issue,
                 note=f"Срок {self._format_summary_date(issue.target_date, user_tz)}" if issue.target_date else None,
             )
-            for issue in next_week_queryset[: self.summary_item_limit]
+            for issue in next_week_queryset[:display_limit]
         ]
 
         next_period_label = self._format_period_range(next_period_start, next_period_end, user_tz)
@@ -1437,6 +1643,14 @@ class IgorChatEndpoint(BaseAPIView):
                 "items": blocked_items,
             },
             {
+                "key": "overdue",
+                "title": "Просрочено сейчас",
+                "description": "Открытые задачи с уже прошедшим дедлайном.",
+                "empty_text": "Просроченных открытых задач нет.",
+                "total": overdue_total,
+                "items": overdue_items,
+            },
+            {
                 "key": "next_week",
                 "title": f"По плану · {next_period_label}",
                 "description": "Открытые задачи со сроком на следующую календарную неделю.",
@@ -1451,12 +1665,37 @@ class IgorChatEndpoint(BaseAPIView):
             {"key": "progressed", "label": "В работе", "value": progressed_total},
             {"key": "deadline_changes", "label": "Сроки менялись", "value": deadline_changes_total},
             {"key": "blocked", "label": "Блокеры", "value": blocked_total},
+            {"key": "overdue", "label": "Просрочено", "value": overdue_total},
             {"key": "next_week", "label": "По плану", "value": next_week_total},
         ]
         scope_label = self._weekly_summary_scope_label(member, projects)
         period_range = self._format_period_range(period_start, period_end, user_tz)
-        title = f"Итоги недели · {scope_label}"
-        copy_text = self._weekly_summary_copy_text(title, period_range, metrics, sections)
+        title_prefix = "Отчёт руководителю" if summary_audience == "manager" else "Итоги недели"
+        title = f"{title_prefix} · {scope_label}"
+        overview = self._weekly_summary_overview(
+            completed_total=completed_total,
+            progressed_total=progressed_total,
+            deadline_changes_total=deadline_changes_total,
+            blocked_total=blocked_total,
+            overdue_total=overdue_total,
+            next_week_total=next_week_total,
+            completed_by_project=completed_by_project,
+        )
+        attention = self._weekly_summary_attention(
+            deadline_changes_total=deadline_changes_total,
+            blocked_total=blocked_total,
+            overdue_total=overdue_total,
+            next_week_total=next_week_total,
+        )
+        copy_text = self._weekly_summary_copy_text(
+            title,
+            period_range,
+            overview,
+            attention,
+            metrics,
+            sections,
+            summary_format,
+        )
 
         if completed_total == 0 and progressed_total == 0:
             answer = (
@@ -1467,7 +1706,8 @@ class IgorChatEndpoint(BaseAPIView):
             answer = (
                 f"Собрал готовый summary за {period_label}: завершено {completed_total}, "
                 f"ещё {progressed_total} задач продвигались в работе. "
-                f"Изменений сроков — {deadline_changes_total}, активных блокеров — {blocked_total}."
+                f"Изменений сроков — {deadline_changes_total}, активных блокеров — {blocked_total}, "
+                f"просроченных открытых задач — {overdue_total}."
             )
 
         return {
@@ -1478,6 +1718,10 @@ class IgorChatEndpoint(BaseAPIView):
                 "scope": scope_label,
                 "period_label": period_label,
                 "period_range": period_range,
+                "summary_format": summary_format,
+                "summary_audience": summary_audience,
+                "overview": overview,
+                "attention": attention,
                 "metrics": metrics,
                 "sections": sections,
                 "copy_text": copy_text,
@@ -1488,7 +1732,8 @@ class IgorChatEndpoint(BaseAPIView):
                         else "Командный отчёт включает задачи только из явно выбранных руководителем проектов. "
                     )
                     + "Данные собраны из статусов, сроков, зависимостей и истории активности Plane. "
-                    "План включает только задачи с зафиксированным сроком."
+                    "План включает только задачи с зафиксированным сроком. Игорь показывает факт изменения срока, "
+                    "но не придумывает причину, если она не зафиксирована в задаче."
                 ),
             },
         }
@@ -1498,20 +1743,83 @@ class IgorChatEndpoint(BaseAPIView):
         project_label = self._project_scope_label(projects)
         return f"{member_name} · {project_label}" if project_label else member_name
 
-    def _weekly_summary_copy_text(self, title, period_range, metrics, sections):
+    def _weekly_summary_overview(
+        self,
+        completed_total,
+        progressed_total,
+        deadline_changes_total,
+        blocked_total,
+        overdue_total,
+        next_week_total,
+        completed_by_project,
+    ):
+        parts = [f"завершено {completed_total}", f"продвигалось в работе {progressed_total}"]
+        if completed_by_project:
+            lead_project = completed_by_project[0]
+            parts.append(f"больше всего завершено в «{lead_project['project__name']}» — {lead_project['total']}")
+        result = ", ".join(parts).capitalize() + "."
+
+        if blocked_total or overdue_total:
+            result += f" Требуют внимания: блокеров {blocked_total}, просрочено {overdue_total}."
+        elif deadline_changes_total:
+            result += f" Блокеров и просрочек нет, но сроки менялись в {deadline_changes_total} задачах."
+        else:
+            result += " Активных блокеров и просроченных задач нет."
+
+        result += f" На следующий период запланировано {next_week_total} задач со сроком."
+        return result
+
+    def _weekly_summary_attention(self, deadline_changes_total, blocked_total, overdue_total, next_week_total):
+        attention = []
+        if blocked_total:
+            attention.append(f"Снять блокеры в {blocked_total} открытых задачах.")
+        if overdue_total:
+            attention.append(f"Перепланировать или завершить {overdue_total} просроченных задач.")
+        if deadline_changes_total:
+            attention.append(
+                "Проверить причины изменения сроков: "
+                f"затронуто задач — {deadline_changes_total}, Игорь не додумывает причины."
+            )
+        if next_week_total == 0:
+            attention.append("План на следующий период не виден: нет открытых задач с зафиксированным сроком.")
+        return attention
+
+    def _weekly_summary_copy_text(
+        self,
+        title,
+        period_range,
+        overview,
+        attention,
+        metrics,
+        sections,
+        summary_format="standard",
+    ):
         metric_line = " · ".join(f"{metric['label']}: {metric['value']}" for metric in metrics)
-        lines = [title, f"Период: {period_range}", metric_line]
+        lines = [title, f"Период: {period_range}", "", f"Коротко: {overview}", metric_line]
+
+        if attention:
+            lines.extend(["", "Требует внимания"])
+            lines.extend(f"- {item}" for item in attention)
+
+        copy_limit = {"compact": 3, "standard": 10, "detailed": self.summary_item_limit}.get(summary_format, 10)
+        compact_sections = {"completed", "deadline_changes", "blocked", "overdue", "next_week"}
 
         for section in sections:
+            if summary_format == "compact" and section["key"] not in compact_sections:
+                continue
+            if summary_format == "compact" and section["total"] == 0:
+                continue
             lines.extend(["", f"{section['title']} — {section['total']}"])
             if not section["items"]:
                 lines.append(section["empty_text"])
                 continue
-            for item in section["items"]:
+            for item in section["items"][:copy_limit]:
                 key = f"{item['project_identifier']}-{item['sequence_id']}"
                 note = f" — {item['note']}" if item.get("note") else ""
                 lines.append(f"- {key}: {item['name']}{note}")
-            hidden_count = section["total"] - len(section["items"])
+                if item.get("url"):
+                    lines.append(f"  {item['url']}")
+            hidden_count = section["total"] - min(len(section["items"]), copy_limit)
             if hidden_count > 0:
                 lines.append(f"- Ещё задач: {hidden_count}")
 
@@ -1994,6 +2302,8 @@ class IgorChatEndpoint(BaseAPIView):
         return member.display_name or member.full_name or member.email or "сотрудника"
 
     def _serialize_issue(self, issue, note=None):
+        web_base_url = (settings.APP_BASE_URL or settings.WEB_URL or "").rstrip("/")
+        work_item_path = f"/{issue.workspace.slug}/browse/{issue.project.identifier}-{issue.sequence_id}/"
         payload = {
             "id": str(issue.id),
             "name": issue.name,
@@ -2007,6 +2317,7 @@ class IgorChatEndpoint(BaseAPIView):
             "start_date": issue.start_date.isoformat() if issue.start_date else None,
             "target_date": issue.target_date.isoformat() if issue.target_date else None,
             "completed_at": issue.completed_at.isoformat() if issue.completed_at else None,
+            "url": f"{web_base_url}{work_item_path}" if web_base_url else work_item_path,
             "assignees": [
                 {
                     "id": str(assignee.id),

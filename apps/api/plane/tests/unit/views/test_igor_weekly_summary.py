@@ -44,6 +44,11 @@ from plane.tests.factories import UserFactory, WorkspaceFactory
         "Дай дайджест моей работы",
         "Подведи итоги недели",
         "Собери недельный отчёт",
+        "Чем я занимался на минувшей неделе?",
+        "Над чем работал Сева на этой неделе?",
+        "Подготовь статус к планёрке",
+        "Собери самари по моим задачам",
+        "Что происходило по B2B за неделю?",
     ],
 )
 def test_weekly_summary_recognizes_varied_phrasing(message):
@@ -57,6 +62,7 @@ def test_weekly_summary_recognizes_varied_phrasing(message):
         "Что у меня сегодня?",
         "Открой активные задачи проекта",
         "Какие задачи сейчас заблокированы?",
+        "Покажи статус одной задачи к планёрке",
     ],
 )
 def test_weekly_summary_does_not_capture_regular_filters(message):
@@ -165,7 +171,15 @@ def test_weekly_summary_collects_facts_and_produces_copyable_report():
         sequence_id=5,
         target_date=period_end + timedelta(days=2),
     )
-    for issue in [completed_issue, active_issue, blocked_issue, next_week_issue]:
+    overdue_issue = Issue.objects.create(
+        workspace=workspace,
+        project=project,
+        state=started,
+        name="Overdue attention item",
+        sequence_id=6,
+        target_date=now - timedelta(days=2),
+    )
+    for issue in [completed_issue, active_issue, blocked_issue, next_week_issue, overdue_issue]:
         IssueAssignee.objects.create(workspace=workspace, project=project, issue=issue, assignee=user)
 
     IssueActivity.objects.create(
@@ -215,12 +229,85 @@ def test_weekly_summary_collects_facts_and_produces_copyable_report():
         "progressed": 1,
         "deadline_changes": 1,
         "blocked": 1,
+        "overdue": 1,
         "next_week": 1,
     }
     assert "SUM-1: Release completed" in result["widget"]["copy_text"]
     assert "Срок перенесён" in result["widget"]["copy_text"]
     assert "External dependency" not in result["widget"]["copy_text"]
+    assert "Overdue attention item" in result["widget"]["copy_text"]
+    assert "Требуют внимания" in result["widget"]["overview"]
+    assert result["widget"]["attention"]
+    assert "/igor-summary/browse/SUM-1/" in result["widget"]["copy_text"]
     assert result["widget"]["source_note"]
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_weekly_summary_follow_up_preserves_scope_period_and_audience_but_changes_format(monkeypatch):
+    user = UserFactory(email="summary-follow-up@plane.so", username="summary-follow-up@plane.so")
+    workspace = WorkspaceFactory(slug="igor-summary-follow-up", owner=user, timezone="UTC")
+    WorkspaceMember.objects.create(workspace=workspace, member=user, role=20)
+    endpoint = IgorChatEndpoint()
+    monkeypatch.setattr(
+        endpoint,
+        "_get_llm_work_plan",
+        lambda *args, **kwargs: pytest.fail("Summary follow-ups must not depend on an external LLM"),
+    )
+
+    initial_context = endpoint._resolve_query_context(
+        "Подготовь подробный отчёт руководителю за прошлую неделю",
+        workspace,
+        user,
+        [],
+        {},
+    )
+    history = [
+        {
+            "role": "assistant",
+            "text": "Отчёт готов",
+            "context": endpoint._response_context(initial_context),
+        }
+    ]
+
+    compact_context = endpoint._resolve_query_context("Сделай короче", workspace, user, history, {})
+
+    assert initial_context["summary_format"] == "detailed"
+    assert initial_context["summary_audience"] == "manager"
+    assert compact_context["intent"] == "weekly_summary"
+    assert compact_context["member"] == user
+    assert compact_context["scope"] == "personal"
+    assert compact_context["period_start"] == initial_context["period_start"]
+    assert compact_context["period_end"] == initial_context["period_end"]
+    assert compact_context["summary_format"] == "compact"
+    assert compact_context["summary_audience"] == "manager"
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_manager_request_recognizes_report_subject_instead_of_treating_recipient_as_personal_scope():
+    manager = UserFactory(email="propandamen@gmail.com", username="propandamen@gmail.com")
+    teammate = UserFactory(
+        email="seva-context@plane.so",
+        username="seva-context@plane.so",
+        first_name="Сева",
+        last_name="Контекстов",
+    )
+    workspace = WorkspaceFactory(slug="igor-summary-subject", owner=manager, timezone="UTC")
+    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=teammate, role=15)
+
+    context = IgorChatEndpoint()._resolve_query_context(
+        "Собери мне отчёт по Севе за прошлую неделю",
+        workspace,
+        manager,
+        [],
+        {},
+    )
+
+    assert context["intent"] == "weekly_summary"
+    assert context["member"] == teammate
+    assert context["scope"] == "member"
 
 
 @pytest.mark.unit
