@@ -70,7 +70,10 @@ class ProjectMemberViewSet(BaseViewSet):
             workspace_member_role = WorkspaceMember.objects.get(
                 workspace__slug=slug, member=member, is_active=True
             ).role
-            if workspace_member_role in [20] and member_roles.get(member) in [5, 15]:
+            if workspace_member_role in [ROLE.ADMIN.value, ROLE.SUPER_ADMIN.value] and member_roles.get(member) in [
+                ROLE.GUEST.value,
+                ROLE.MEMBER.value,
+            ]:
                 return Response(
                     {"error": "You cannot add a user with role lower than the workspace role"},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -214,7 +217,15 @@ class ProjectMemberViewSet(BaseViewSet):
         requester_workspace_role = WorkspaceMember.objects.get(
             workspace__slug=slug, member=request.user, is_active=True
         ).role
-        is_workspace_admin = requester_workspace_role == ROLE.ADMIN.value
+        is_workspace_admin = requester_workspace_role in [ROLE.ADMIN.value, ROLE.SUPER_ADMIN.value]
+
+        # OG access is inherited from the workspace and must not be changed from
+        # an individual project's member settings.
+        if target_workspace_role == ROLE.SUPER_ADMIN.value:
+            return Response(
+                {"error": "OG access is managed at workspace level"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # Check if the user is not editing their own role if they are not an admin
         if request.user.id == project_member.member_id and not is_workspace_admin:
@@ -284,6 +295,16 @@ class ProjectMemberViewSet(BaseViewSet):
             project_id=project_id,
             is_active=True,
         )
+        target_workspace_role = WorkspaceMember.objects.get(
+            workspace__slug=slug,
+            member=project_member.member,
+            is_active=True,
+        ).role
+        if target_workspace_role == ROLE.SUPER_ADMIN.value:
+            return Response(
+                {"error": "OG access is managed at workspace level"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         # User cannot remove himself
         if str(project_member.id) == str(requesting_project_member.id):
             return Response(
@@ -309,6 +330,17 @@ class ProjectMemberViewSet(BaseViewSet):
             member=request.user,
             is_active=True,
         )
+
+        workspace_role = WorkspaceMember.objects.get(
+            workspace__slug=slug,
+            member=request.user,
+            is_active=True,
+        ).role
+        if workspace_role == ROLE.SUPER_ADMIN.value:
+            return Response(
+                {"error": "OG access is managed at workspace level"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # Check if the leaving user is the only admin of the project
         if (

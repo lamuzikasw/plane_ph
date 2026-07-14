@@ -9,6 +9,7 @@ from rest_framework.test import APIRequestFactory
 from plane.app.views.analytic.management import ManagementAnalyticsEndpoint
 from plane.app.views.issue.base import IssueBulkUpdateDateEndpoint
 from plane.app.views.issue.relation import IssueRelationViewSet
+from plane.app.views.project.member import ProjectMemberViewSet
 from plane.db.models import Issue, Project, ProjectMember, State, WorkspaceMember
 from plane.tests.factories import UserFactory, WorkspaceFactory
 
@@ -126,3 +127,44 @@ def test_management_analytics_is_denied_to_admin_and_available_to_super_admin():
     leader_request.user = leader
     allowed = ManagementAnalyticsEndpoint().get(leader_request, slug=workspace.slug, section="overview")
     assert allowed.status_code == 200
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_project_settings_cannot_change_or_remove_og_access():
+    og = UserFactory(email="project-og@plane.so", username="project-og@plane.so")
+    workspace = WorkspaceFactory(slug="project-og-boundary", owner=og)
+    project = Project.objects.create(
+        workspace=workspace,
+        project_lead=og,
+        name="OG project",
+        identifier="OGP",
+    )
+    WorkspaceMember.objects.create(workspace=workspace, member=og, role=30)
+    project_member = ProjectMember.objects.create(
+        workspace=workspace,
+        project=project,
+        member=og,
+        role=20,
+    )
+    request = SimpleNamespace(user=og, data={"role": 15})
+    view = ProjectMemberViewSet()
+
+    update_response = view.partial_update(
+        request,
+        slug=workspace.slug,
+        project_id=project.id,
+        pk=project_member.id,
+    )
+    assert update_response.status_code == 403
+    assert update_response.data["error"] == "OG access is managed at workspace level"
+
+    remove_response = view.destroy(
+        SimpleNamespace(user=og),
+        slug=workspace.slug,
+        project_id=project.id,
+        pk=project_member.id,
+    )
+    assert remove_response.status_code == 403
+    project_member.refresh_from_db()
+    assert project_member.is_active is True

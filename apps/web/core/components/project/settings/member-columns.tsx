@@ -8,7 +8,6 @@ import { observer } from "mobx-react";
 import Link from "next/link";
 import { Controller, useForm } from "react-hook-form";
 import { CircleMinus } from "lucide-react";
-import { Disclosure } from "@headlessui/react";
 // plane imports
 import { ROLE, EUserPermissions, MEMBER_TRACKER_ELEMENTS } from "@plane/constants";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
@@ -22,6 +21,8 @@ import { useUser, useUserPermissions } from "@/hooks/store/user";
 export interface RowData extends Pick<TProjectMembership, "original_role"> {
   member: IWorkspaceMember;
 }
+
+const WORKSPACE_ADMIN_ROLES = new Set([EUserPermissions.SUPER_ADMIN, EUserPermissions.ADMIN]);
 
 type NameProps = {
   rowData: RowData;
@@ -38,61 +39,59 @@ type AccountTypeProps = {
   projectId: string;
 };
 
-export function NameColumn(props: NameProps) {
+export const NameColumn = observer(function NameColumn(props: NameProps) {
   const { rowData, workspaceSlug, isAdmin, currentUser, setRemoveMemberModal } = props;
+  const {
+    workspace: { getWorkspaceMemberDetails },
+  } = useMember();
   // derived values
   const { avatar_url, display_name, email, first_name, id, last_name } = rowData.member;
+  const isRowDataOG = Number(getWorkspaceMemberDetails(rowData.member.id)?.role) === EUserPermissions.SUPER_ADMIN;
 
   return (
-    <Disclosure>
-      {({}) => (
-        <div className="group relative">
-          <div className="flex w-72 items-center gap-2">
-            <div className="flex flex-1 items-center gap-x-2 gap-y-2">
-              {avatar_url && avatar_url.trim() !== "" ? (
-                <Link href={`/${workspaceSlug}/profile/${id}`}>
-                  <span className="relative flex size-6 items-center justify-center rounded-full text-on-color capitalize">
-                    <img
-                      src={getFileURL(avatar_url)}
-                      className="absolute top-0 left-0 h-full w-full rounded-full object-cover"
-                      alt={display_name || email}
-                    />
-                  </span>
-                </Link>
-              ) : (
-                <Link href={`/${workspaceSlug}/profile/${id}`}>
-                  <span className="relative flex size-6 items-center justify-center rounded-full bg-layer-3 text-11 text-on-color capitalize">
-                    {(email ?? display_name ?? "?")[0]}
-                  </span>
-                </Link>
-              )}
-              {first_name} {last_name}
-            </div>
-            {(isAdmin || id === currentUser?.id) && (
-              <CustomMenu
-                ellipsis
-                buttonClassName="p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                optionsClassName="p-1.5"
-                placement="bottom-end"
-              >
-                <CustomMenu.MenuItem>
-                  <div
-                    className="flex cursor-pointer items-center gap-x-1 font-medium text-danger-primary"
-                    data-ph-element={MEMBER_TRACKER_ELEMENTS.PROJECT_MEMBER_TABLE_CONTEXT_MENU}
-                    onClick={() => setRemoveMemberModal(rowData)}
-                  >
-                    <CircleMinus className="size-3.5 flex-shrink-0" />
-                    {rowData.member?.id === currentUser?.id ? "Leave " : "Remove "}
-                  </div>
-                </CustomMenu.MenuItem>
-              </CustomMenu>
-            )}
-          </div>
+    <div className="group relative">
+      <div className="flex w-72 items-center gap-2">
+        <div className="flex flex-1 items-center gap-x-2 gap-y-2">
+          {avatar_url && avatar_url.trim() !== "" ? (
+            <Link href={`/${workspaceSlug}/profile/${id}`}>
+              <span className="relative flex size-6 items-center justify-center rounded-full text-on-color capitalize">
+                <img
+                  src={getFileURL(avatar_url)}
+                  className="absolute top-0 left-0 h-full w-full rounded-full object-cover"
+                  alt={display_name || email}
+                />
+              </span>
+            </Link>
+          ) : (
+            <Link href={`/${workspaceSlug}/profile/${id}`}>
+              <span className="relative flex size-6 items-center justify-center rounded-full bg-layer-3 text-11 text-on-color capitalize">
+                {(email ?? display_name ?? "?")[0]}
+              </span>
+            </Link>
+          )}
+          {first_name} {last_name}
         </div>
-      )}
-    </Disclosure>
+        {!isRowDataOG && (isAdmin || id === currentUser?.id) && (
+          <CustomMenu
+            ellipsis
+            buttonClassName="p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+            optionsClassName="p-1.5"
+            placement="bottom-end"
+          >
+            <CustomMenu.MenuItem
+              className="flex cursor-pointer items-center gap-x-1 font-medium text-danger-primary"
+              data-ph-element={MEMBER_TRACKER_ELEMENTS.PROJECT_MEMBER_TABLE_CONTEXT_MENU}
+              onClick={() => setRemoveMemberModal(rowData)}
+            >
+              <CircleMinus className="size-3.5 flex-shrink-0" />
+              {rowData.member?.id === currentUser?.id ? "Leave " : "Remove "}
+            </CustomMenu.MenuItem>
+          </CustomMenu>
+        )}
+      </div>
+    </div>
   );
-}
+});
 
 export const AccountTypeColumn = observer(function AccountTypeColumn(props: AccountTypeProps) {
   const { rowData, projectId, workspaceSlug } = props;
@@ -109,28 +108,29 @@ export const AccountTypeColumn = observer(function AccountTypeColumn(props: Acco
     formState: { errors },
   } = useForm();
   // derived values
-  const roleLabel = ROLE[rowData.original_role ?? EUserPermissions.GUEST];
+  const rowWorkspaceRole = Number(getWorkspaceMemberDetails(rowData.member.id)?.role) || EUserPermissions.GUEST;
+  const isRowDataOG = rowWorkspaceRole === EUserPermissions.SUPER_ADMIN;
+  const roleLabel = isRowDataOG
+    ? ROLE[EUserPermissions.SUPER_ADMIN]
+    : ROLE[rowData.original_role ?? EUserPermissions.GUEST];
   const isCurrentUser = currentUser?.id === rowData.member.id;
-  const isRowDataWorkspaceAdmin = [EUserPermissions.ADMIN].includes(
-    Number(getWorkspaceMemberDetails(rowData.member.id)?.role) ?? EUserPermissions.GUEST
-  );
+  const isRowDataWorkspaceAdmin = WORKSPACE_ADMIN_ROLES.has(rowWorkspaceRole);
   const isCurrentUserWorkspaceAdmin = currentUser
-    ? [EUserPermissions.ADMIN].includes(
-        Number(getWorkspaceMemberDetails(currentUser.id)?.role) ?? EUserPermissions.GUEST
-      )
+    ? WORKSPACE_ADMIN_ROLES.has(Number(getWorkspaceMemberDetails(currentUser.id)?.role) || EUserPermissions.GUEST)
     : false;
   const currentProjectRole = getProjectRoleByWorkspaceSlugAndProjectId(workspaceSlug, projectId);
 
   const isCurrentUserProjectAdmin = currentProjectRole
-    ? ![EUserPermissions.MEMBER, EUserPermissions.GUEST].includes(Number(currentProjectRole) ?? EUserPermissions.GUEST)
+    ? ![EUserPermissions.MEMBER, EUserPermissions.GUEST].includes(Number(currentProjectRole))
     : false;
 
   // logic
   // Workspace admin can change his own role
   // Project admin can change any role except his own and workspace admin's role
   const isRoleEditable =
-    (isCurrentUserWorkspaceAdmin && isCurrentUser) ||
-    (isCurrentUserProjectAdmin && !isRowDataWorkspaceAdmin && !isCurrentUser);
+    !isRowDataOG &&
+    ((isCurrentUserWorkspaceAdmin && isCurrentUser) ||
+      (isCurrentUserProjectAdmin && !isRowDataWorkspaceAdmin && !isCurrentUser));
   const checkCurrentOptionWorkspaceRole = (value: string) => {
     const currentMemberWorkspaceRole = getWorkspaceMemberDetails(value)?.role as EUserPermissions | undefined;
     if (!value || !currentMemberWorkspaceRole) return ROLE;
