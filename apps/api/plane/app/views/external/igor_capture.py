@@ -24,7 +24,7 @@ from plane.utils.host import base_host
 class IgorCaptureMixin:
     capture_message_limit = 8000
     capture_unit_limit = 80
-    capture_task_limit = 25
+    capture_task_limit = capture_unit_limit
     capture_cache_timeout = 15 * 60
     capture_categories = (
         ("action", "Поручения"),
@@ -477,7 +477,10 @@ class IgorCaptureMixin:
                 "answer": "Черновик задач не найден. Разбери заметки заново.",
             }, 400
         if not isinstance(task_ids, list) or not task_ids or len(task_ids) > self.capture_task_limit:
-            return {"error": "invalid_capture_selection", "answer": "Выбери от 1 до 25 задач для создания."}, 400
+            return {
+                "error": "invalid_capture_selection",
+                "answer": f"Выбери от 1 до {self.capture_task_limit} задач для создания.",
+            }, 400
         if not isinstance(project_assignments, dict):
             return {"error": "invalid_project_assignments", "answer": "Не удалось проверить выбранные проекты."}, 400
         if not isinstance(task_overrides, dict):

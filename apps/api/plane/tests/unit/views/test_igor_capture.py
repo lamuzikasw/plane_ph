@@ -122,6 +122,21 @@ def test_capture_sanitizer_preserves_every_source_and_recovers_missing_action_ta
     assert review["tasks"][0]["source_ids"] == ["S1"]
 
 
+def test_capture_proposes_a_task_for_every_action_without_silent_truncation():
+    endpoint = IgorChatEndpoint()
+    user = SimpleNamespace(id="user", display_name="Сева", first_name="", email="user@example.com")
+    units = [{"id": f"S{index}", "text": f"Нужно выполнить действие {index}"} for index in range(1, 31)]
+    plan = {
+        "items": [{"source_id": unit["id"], "category": "action", "summary": unit["text"]} for unit in units],
+        "tasks": [],
+    }
+
+    review = endpoint._sanitize_capture_plan(units, plan, [], user)
+
+    assert len(review["tasks"]) == len(units)
+    assert {source_id for task in review["tasks"] for source_id in task["source_ids"]} == {unit["id"] for unit in units}
+
+
 def test_capture_sanitizer_deduplicates_tasks_and_never_accepts_unknown_sources():
     endpoint = IgorChatEndpoint()
     units = [
