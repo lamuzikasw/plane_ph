@@ -708,9 +708,12 @@ class IgorChatEndpoint(BaseAPIView):
             "report",
             "recap",
             "отчет",
-            "итоги",
+            "отчетик",
+            "итог",
+            "итогм",
             "резюме",
             "сводк",
+            "выжимк",
             "дайджест",
             "апдейт",
             "weekly update",
@@ -724,6 +727,8 @@ class IgorChatEndpoint(BaseAPIView):
         report_context_markers = [
             "руководител",
             "начальств",
+            "начальник",
+            "босс",
             "отправить руковод",
             "отправить началь",
             "пятничный отчет",
@@ -731,10 +736,15 @@ class IgorChatEndpoint(BaseAPIView):
             "for my manager",
             "for the manager",
             "для 1 1",
+            "на 1 1",
             "подготовь статус к планерк",
             "собери статус к планерк",
             "подготовь статус к синк",
             "собери статус к синк",
+            "отчет к синк",
+            "результаты к планерк",
+            "рабочий дайджест",
+            "отчет без воды",
         ]
         work_result_markers = [
             "что я делал",
@@ -748,7 +758,16 @@ class IgorChatEndpoint(BaseAPIView):
             "что было сделано",
             "что успел",
             "что успела",
+            "что удалось",
+            "что из запланированного",
+            "что важного",
+            "что закрыто",
+            "что продвинулось",
+            "что у меня получилось",
             "что мы сделали",
+            "что сделали",
+            "что команда успел",
+            "чем был занят",
             "чем я занимался",
             "чем я занималась",
             "чем занимался",
@@ -759,11 +778,61 @@ class IgorChatEndpoint(BaseAPIView):
             "над чем работала",
             "какой был прогресс",
             "что происходило",
+            "что там по работе",
+            "че там по работе",
+            "чо там по работе",
+            "чего я добил",
+            "задачи я закрыл",
+            "задачи я закрыла",
+            "какой у меня прогресс",
+            "над какими задачами работал",
+            "над какими задачами работала",
+            "что я успел завершить",
+            "что я успела завершить",
+            "про мою рабочую неделю",
+            "как прошла неделя по задачам",
+            "список сделанного",
+            "главное за неделю",
             "как прошла моя",
             "подведи итоги",
             "собери выполненное",
             "what did i do",
+            "what did i complete",
             "what was done",
+            "what i worked on",
+            "how did my work week go",
+        ]
+        direct_request_markers = [
+            "че сделано",
+            "че мы сделали",
+            "чо сделано",
+            "чо мы сделали",
+            "чего сделано",
+            "какие итоги",
+            "че по итогам",
+            "чо по итогам",
+            "че там за прошлую неделю",
+            "чо там за прошлую неделю",
+            "что успел закрыть",
+            "что удалось довести до done",
+            "дай коротко что сделано",
+            "что было сделано мной",
+            "собери что я сделал",
+            "собери что я делал",
+            "накидай итоги",
+            "выдай итоги",
+            "суммаризируй мою",
+            "покажи результаты моей работы",
+            "рабочий дайджест",
+            "отчет без воды",
+            "подготовь текст для отчета",
+            "что рассказать на пятнич",
+            "собери результаты к планерк",
+            "weekly recap",
+            "weekly work summary",
+            "weekly digest",
+            "generate a report for my manager",
+            "how did my work week go",
         ]
         week_markers = [
             "недел",
@@ -780,9 +849,25 @@ class IgorChatEndpoint(BaseAPIView):
         has_summary_marker = any(marker in text for marker in summary_markers)
         has_report_context = any(marker in text for marker in report_context_markers)
         has_work_results = any(marker in text for marker in work_result_markers)
+        has_direct_request = any(marker in text for marker in direct_request_markers)
         has_week = any(marker in text for marker in week_markers)
+        has_single_task_context = any(
+            marker in text
+            for marker in [
+                "одной задач",
+                "одну задач",
+                "эту задач",
+                "этой задач",
+                "по задаче",
+                "в задаче",
+                "конкретной задач",
+            ]
+        )
+        if has_single_task_context and not has_week:
+            return False
         return (
-            (has_week and (has_summary_marker or has_work_results))
+            has_direct_request
+            or (has_week and (has_summary_marker or has_work_results))
             or has_report_context
             or (
                 has_summary_marker
@@ -791,6 +876,7 @@ class IgorChatEndpoint(BaseAPIView):
                     for marker in [
                         "моей работ",
                         "моим задач",
+                        "задач",
                         "по задач",
                         "по проект",
                         "команд",
