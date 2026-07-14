@@ -53,8 +53,9 @@ export class UserService extends APIService {
   }
 
   async currentUser(): Promise<IUser> {
-    // Using validateStatus: null to bypass interceptors for unauthorized errors.
-    return this.get("/api/users/me/", { validateStatus: null })
+    // A real 401 is returned to the auth wrapper as an anonymous user. Temporary
+    // server errors must reject so they cannot be mistaken for a signed-out session.
+    return this.get("/api/users/me/", { validateStatus: (status: number) => status === 200 || status === 401 })
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response;

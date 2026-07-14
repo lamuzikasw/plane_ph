@@ -7,10 +7,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { AxiosInstance, AxiosRequestConfig } from "axios";
 import { create } from "axios";
+// helpers
+import {
+  getCurrentUserUrl,
+  getLoginRedirectUrl,
+  isCurrentUserRequest,
+  isSessionConfirmedExpired,
+} from "@/services/session-reliability";
 
 export abstract class APIService {
   protected baseURL: string;
   private axiosInstance: AxiosInstance;
+  private sessionCheckPromise: Promise<boolean> | undefined;
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
@@ -26,13 +34,24 @@ export abstract class APIService {
     this.axiosInstance.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response && error.response.status === 401) {
-          const currentPath = window.location.pathname;
-          window.location.replace(`/${currentPath ? `?next_path=${currentPath}` : ``}`);
-        }
+        if (error.response?.status === 401 && typeof window !== "undefined" && !isCurrentUserRequest(error.config?.url))
+          void this.redirectIfSessionExpired();
         return Promise.reject(error);
       }
     );
+  }
+
+  private async redirectIfSessionExpired(): Promise<void> {
+    if (!this.sessionCheckPromise)
+      this.sessionCheckPromise = isSessionConfirmedExpired(
+        window.fetch.bind(window),
+        getCurrentUserUrl(this.baseURL)
+      ).finally(() => {
+        this.sessionCheckPromise = undefined;
+      });
+
+    if (await this.sessionCheckPromise)
+      window.location.replace(getLoginRedirectUrl(window.location.pathname, window.location.search));
   }
 
   get(url: string, params = {}, config: AxiosRequestConfig = {}) {

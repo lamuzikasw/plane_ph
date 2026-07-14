@@ -15,6 +15,7 @@ import type { IUserPermissionStore } from "@/plane-web/store/user/permission.sto
 import { UserPermissionStore } from "@/plane-web/store/user/permission.store";
 // services
 import { AuthService } from "@/services/auth.service";
+import { shouldPreserveAuthenticatedUser } from "@/services/session-reliability";
 import { UserService } from "@/services/user.service";
 // stores
 import type { IAccountStore } from "@/store/user/account.store";
@@ -110,6 +111,7 @@ export class UserStore implements IUserStore {
    * @returns {Promise<IUser>}
    */
   fetchCurrentUser = async (): Promise<IUser> => {
+    const hadAuthenticatedUser = shouldPreserveAuthenticatedUser(Boolean(this.data?.id), this.isAuthenticated);
     try {
       runInAction(() => {
         this.isLoading = true;
@@ -137,7 +139,10 @@ export class UserStore implements IUserStore {
     } catch (error) {
       runInAction(() => {
         this.isLoading = false;
-        this.isAuthenticated = false;
+        // Keep an already established client session during a short deployment
+        // outage. A confirmed 401 is handled by currentUser() without reaching
+        // this branch and still changes the state to unauthenticated.
+        if (!hadAuthenticatedUser) this.isAuthenticated = false;
         this.error = {
           status: "user-fetch-error",
           message: "Failed to fetch current user",
