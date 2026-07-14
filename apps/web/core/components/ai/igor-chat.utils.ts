@@ -9,6 +9,11 @@ export const clampIgorComposerHeight = (height: number, panelHeight: number): nu
   return Math.min(Math.max(height, IGOR_COMPOSER_MIN_HEIGHT), availableMaximum);
 };
 
+export const resolveIgorSuggestions = (
+  responseSuggestions: string[] | undefined,
+  initialSuggestions: string[]
+): string[] => responseSuggestions ?? initialSuggestions;
+
 export const getIgorContextSegments = (context: TIgorChatContext): string[] => {
   const scopeLabel =
     context.scope === "personal"

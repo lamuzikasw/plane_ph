@@ -7,6 +7,7 @@ import {
   getIgorContextSegments,
   IGOR_COMPOSER_MAX_HEIGHT,
   IGOR_COMPOSER_MIN_HEIGHT,
+  resolveIgorSuggestions,
 } from "./igor-chat.utils";
 
 const createContext = (overrides: Partial<TIgorChatContext> = {}): TIgorChatContext => ({
@@ -63,5 +64,15 @@ describe("clampIgorComposerHeight", () => {
 
   it("uses the full editor maximum in a tall panel", () => {
     expect(clampIgorComposerHeight(500, 900)).toBe(IGOR_COMPOSER_MAX_HEIGHT);
+  });
+});
+
+describe("resolveIgorSuggestions", () => {
+  it("preserves an explicitly empty response to hide duplicate action chips", () => {
+    expect(resolveIgorSuggestions([], ["Собери мой summary"])).toEqual([]);
+  });
+
+  it("uses initial suggestions only when the API did not provide them", () => {
+    expect(resolveIgorSuggestions(undefined, ["Собери мой summary"])).toEqual(["Собери мой summary"]);
   });
 });

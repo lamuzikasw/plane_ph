@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.utils import timezone
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 import plane.app.views.external.base as external_base
 from plane.app.views.external.base import IgorChatEndpoint
@@ -180,6 +181,32 @@ def test_weekly_summary_defaults_to_requesting_member_and_previous_week(monkeypa
     assert context["member"] == user
     assert context["period_label"] == "прошлая неделя"
     assert context["period_end"] < timezone.now()
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_weekly_summary_response_hides_duplicate_suggestion_chips(monkeypatch):
+    user = UserFactory(email="summary-no-chips@plane.so", username="summary-no-chips@plane.so")
+    workspace = WorkspaceFactory(slug="igor-summary-no-chips", owner=user, timezone="UTC")
+    WorkspaceMember.objects.create(workspace=workspace, member=user, role=20)
+    monkeypatch.setattr(IgorChatEndpoint, "_is_rate_limited", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        IgorChatEndpoint,
+        "_build_weekly_summary",
+        lambda *_args, **_kwargs: {"answer": "Готово", "widget": {"type": "weekly_summary"}},
+    )
+    request = APIRequestFactory().post(
+        f"/api/workspaces/{workspace.slug}/igor-chat/",
+        {"message": "Собери мой summary за прошлую неделю"},
+        format="json",
+    )
+    force_authenticate(request, user=user)
+
+    response = IgorChatEndpoint.as_view()(request, slug=workspace.slug)
+
+    assert response.status_code == 200
+    assert response.data["intent"] == "weekly_summary"
+    assert response.data["suggestions"] == []
 
 
 @pytest.mark.unit

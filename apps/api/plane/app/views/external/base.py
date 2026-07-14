@@ -435,11 +435,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
                     },
                     "context": self._response_context(query_context),
                     "widgets": [summary["widget"]],
-                    "suggestions": [
-                        "Сделай короткую версию для руководителя",
-                        "А теперь подробно",
-                        "Пересобери за текущую неделю",
-                    ],
+                    "suggestions": [],
                 },
                 status=status.HTTP_200_OK,
             )

@@ -46,6 +46,7 @@ import {
   IGOR_COMPOSER_DEFAULT_HEIGHT,
   IGOR_COMPOSER_MAX_HEIGHT,
   IGOR_COMPOSER_MIN_HEIGHT,
+  resolveIgorSuggestions,
 } from "./igor-chat.utils";
 
 type TIgorMessage = {
@@ -259,9 +260,7 @@ export function IgorChat({ workspaceSlug }: Props) {
       }
     }
 
-    return lastAssistantMessage?.response?.suggestions?.length
-      ? lastAssistantMessage.response.suggestions
-      : INITIAL_SUGGESTIONS;
+    return resolveIgorSuggestions(lastAssistantMessage?.response?.suggestions, INITIAL_SUGGESTIONS);
   }, [messages]);
 
   const activeContext = useMemo(() => {
@@ -718,7 +717,7 @@ export function IgorChat({ workspaceSlug }: Props) {
           </div>
 
           <div className="shrink-0 border-t border-subtle bg-surface-1 px-4 py-3.5">
-            {messages.length > 0 && (
+            {messages.length > 0 && suggestions.length > 0 && (
               <div className="mb-2.5 flex gap-2 overflow-x-auto pb-1">
                 {suggestions.map((suggestion) => (
                   <button
