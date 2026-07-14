@@ -32,6 +32,7 @@ from plane.db.models import User, Workspace, WorkspaceMember, WorkspaceMemberInv
 from plane.utils.cache import invalidate_cache, invalidate_cache_directly
 from plane.utils.host import base_host
 from plane.utils.analytics_events import USER_JOINED_WORKSPACE, USER_INVITED_TO_WORKSPACE
+from plane.utils.permissions.super_admin import SUPER_ADMIN_ROLE, grant_workspace_super_admin_access
 from .. import BaseViewSet
 
 
@@ -215,6 +216,9 @@ class WorkspaceJoinEndpoint(BaseAPIView):
                             member=user,
                             role=workspace_invite.role,
                         )
+
+                    if workspace_invite.role == SUPER_ADMIN_ROLE:
+                        grant_workspace_super_admin_access(workspace_invite.workspace, user)
 
                     # Set the user last_workspace_id to the accepted workspace
                     user.last_workspace_id = workspace_invite.workspace.id

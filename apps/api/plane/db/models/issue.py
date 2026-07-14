@@ -176,6 +176,10 @@ class Issue(ChangeTrackerMixin, ProjectBaseModel):
         verbose_name_plural = "Issues"
         db_table = "issues"
         ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["workspace", "state", "target_date"], name="issue_ws_state_target_idx"),
+            models.Index(fields=["workspace", "completed_at"], name="issue_ws_completed_idx"),
+        ]
 
     def save(self, *args, **kwargs):
         self._ensure_default_state()
@@ -442,6 +446,9 @@ class IssueActivity(ProjectBaseModel):
         verbose_name_plural = "Issue Activities"
         db_table = "issue_activities"
         ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["workspace", "field", "created_at"], name="issueact_ws_field_created_idx"),
+        ]
 
     def __str__(self):
         """Return issue of the comment"""

@@ -5,18 +5,19 @@
 # Python imports
 import copy
 import json
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
 # Django imports
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import connection, transaction
+from django.db import transaction
 from django.db.models import (
     Count,
     Exists,
     F,
     Func,
-    Max,
     OuterRef,
     Prefetch,
     Q,
@@ -26,6 +27,7 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.decorators import method_decorator
 from django.views.decorators.gzip import gzip_page
 
@@ -56,7 +58,6 @@ from plane.db.models import (
     IssueLink,
     IssueReaction,
     IssueRelation,
-    IssueSequence,
     IssueSubscriber,
     ProjectUserProperty,
     ModuleIssue,
@@ -74,10 +75,11 @@ from plane.utils.grouper import (
 )
 from plane.utils.host import base_host
 from plane.utils.issue_filters import issue_filters
+from plane.utils.issue_move import IssueMoveConflict, move_issue_to_project
+from plane.utils.exception_logger import log_exception
 from plane.utils.order_queryset import order_issue_queryset
 from plane.utils.paginator import GroupedOffsetPaginator, SubGroupedOffsetPaginator
 from plane.utils.timezone_converter import user_timezone_converter
-from plane.utils.uuid import convert_uuid_to_integer
 
 from .. import BaseAPIView, BaseViewSet
 
@@ -788,74 +790,41 @@ class WorkItemMoveToProjectEndpoint(BaseAPIView):
             cls=DjangoJSONEncoder,
         )
 
-        with transaction.atomic():
-            lock_key = convert_uuid_to_integer(target_project.id)
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_key])
-
-            last_sequence = IssueSequence.objects.filter(project=target_project).aggregate(largest=Max("sequence"))[
-                "largest"
-            ]
-            next_sequence = last_sequence + 1 if last_sequence else 1
-
-            target_member_ids = ProjectMember.objects.filter(
-                workspace__slug=slug,
-                project_id=target_project_id,
-                is_active=True,
-                role__gte=15,
-            ).values_list("member_id", flat=True)
-
-            CycleIssue.objects.filter(issue=issue).delete()
-            ModuleIssue.objects.filter(issue=issue).delete()
-            IssueLabel.objects.filter(issue=issue).delete()
-            IssueAssignee.objects.filter(issue=issue).exclude(assignee_id__in=target_member_ids).delete()
-            IssueAssignee.objects.filter(issue=issue).update(
-                project_id=target_project_id,
-                workspace_id=target_project.workspace_id,
-                updated_by_id=request.user.id,
+        try:
+            issue = move_issue_to_project(
+                issue=issue,
+                target_project=target_project,
+                target_state=target_state,
+                actor=request.user,
             )
+        except IssueMoveConflict as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
 
-            issue.project = target_project
-            issue.workspace = target_project.workspace
-            issue.state = target_state
-            issue.sequence_id = next_sequence
-            issue.parent = None
-            issue.estimate_point = None
-            issue.updated_by = request.user
-            issue.save(
-                update_fields=[
-                    "project",
-                    "workspace",
-                    "state",
-                    "sequence_id",
-                    "parent",
-                    "estimate_point",
-                    "updated_by",
-                    "updated_at",
-                ]
+        try:
+            issue_activity.delay(
+                type="issue.activity.updated",
+                requested_data=requested_data,
+                actor_id=str(request.user.id),
+                issue_id=str(issue_id),
+                project_id=str(target_project_id),
+                current_instance=current_instance,
+                epoch=int(timezone.now().timestamp()),
+                notification=True,
+                origin=base_host(request=request, is_app=True),
             )
-            IssueSequence.objects.create(issue=issue, sequence=next_sequence, project=target_project)
-
-        issue_activity.delay(
-            type="issue.activity.updated",
-            requested_data=requested_data,
-            actor_id=str(request.user.id),
-            issue_id=str(issue_id),
-            project_id=str(target_project_id),
-            current_instance=current_instance,
-            epoch=int(timezone.now().timestamp()),
-            notification=True,
-            origin=base_host(request=request, is_app=True),
-        )
-        model_activity.delay(
-            model_name="issue",
-            model_id=str(issue_id),
-            requested_data={"project_id": str(target_project_id), "state_id": str(target_state.id)},
-            current_instance=current_instance,
-            actor_id=request.user.id,
-            slug=slug,
-            origin=base_host(request=request, is_app=True),
-        )
+            model_activity.delay(
+                model_name="issue",
+                model_id=str(issue_id),
+                requested_data={"project_id": str(target_project_id), "state_id": str(target_state.id)},
+                current_instance=current_instance,
+                actor_id=request.user.id,
+                slug=slug,
+                origin=base_host(request=request, is_app=True),
+            )
+        except Exception as exc:
+            # The move is already committed. A broker outage must not turn a
+            # successful move into a misleading 500 response.
+            log_exception(exc)
 
         moved_issue = Issue.objects.get(workspace__slug=slug, project_id=target_project_id, pk=issue_id)
         return Response(
@@ -1228,81 +1197,106 @@ class IssueDetailEndpoint(BaseAPIView):
 
 
 class IssueBulkUpdateDateEndpoint(BaseAPIView):
-    def validate_dates(self, current_start, current_target, new_start, new_target):
-        """
-        Validate that start date is before target date.
-        """
-        from datetime import datetime
+    def _parse_datetime(self, value, workspace_timezone):
+        if value is None or isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            parsed = parse_datetime(value)
+            if parsed is None:
+                parsed_date = parse_date(value)
+                if parsed_date is None:
+                    raise ValueError("Use an ISO 8601 date-time value")
+                parsed = datetime.combine(parsed_date, time.min)
+        else:
+            raise ValueError("Use an ISO 8601 date-time value")
 
-        start = new_start or current_start
-        target = new_target or current_target
-
-        # Convert string dates to datetime objects if they're strings
-        if isinstance(start, str):
-            start = datetime.strptime(start, "%Y-%m-%d").date()
-        if isinstance(target, str):
-            target = datetime.strptime(target, "%Y-%m-%d").date()
-
-        if start and target and start > target:
-            return False
-        return True
+        if parsed is not None and timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, ZoneInfo(workspace_timezone or "UTC"))
+        return parsed
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def post(self, request, slug, project_id):
         updates = request.data.get("updates", [])
+        if not isinstance(updates, list) or not updates:
+            return Response({"error": "updates must be a non-empty list"}, status=status.HTTP_400_BAD_REQUEST)
+        if len(updates) > 500:
+            return Response({"error": "A maximum of 500 work items can be updated"}, status=status.HTTP_400_BAD_REQUEST)
+        if any(not isinstance(update, dict) or not update.get("id") for update in updates):
+            return Response({"error": "Every update must include an id"}, status=status.HTTP_400_BAD_REQUEST)
 
         issue_ids = [update["id"] for update in updates]
+        if len(set(issue_ids)) != len(issue_ids):
+            return Response({"error": "Duplicate work item ids are not allowed"}, status=status.HTTP_400_BAD_REQUEST)
         epoch = int(timezone.now().timestamp())
 
         # Fetch all relevant issues in a single query
         issues = list(Issue.objects.filter(id__in=issue_ids, workspace__slug=slug, project_id=project_id))
         issues_dict = {str(issue.id): issue for issue in issues}
         issues_to_update = []
+        activities = []
+
+        if len(issues_dict) != len(issue_ids):
+            return Response(
+                {"error": "One or more work items do not exist in this project"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        workspace_timezone = issues[0].workspace.timezone if issues else "UTC"
 
         for update in updates:
-            issue_id = update["id"]
+            issue_id = str(update["id"])
             issue = issues_dict.get(issue_id)
 
-            if not issue:
-                continue
+            try:
+                start_date = (
+                    self._parse_datetime(update.get("start_date"), workspace_timezone)
+                    if "start_date" in update
+                    else issue.start_date
+                )
+                target_date = (
+                    self._parse_datetime(update.get("target_date"), workspace_timezone)
+                    if "target_date" in update
+                    else issue.target_date
+                )
+            except ValueError as exc:
+                return Response(
+                    {"error": str(exc), "work_item_id": issue_id},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-            start_date = update.get("start_date")
-            target_date = update.get("target_date")
-            validate_dates = self.validate_dates(issue.start_date, issue.target_date, start_date, target_date)
-            if not validate_dates:
+            if start_date and target_date and start_date > target_date:
                 return Response(
                     {"message": "Start date cannot exceed target date"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            if start_date:
-                issue_activity.delay(
-                    type="issue.activity.updated",
-                    requested_data=json.dumps({"start_date": update.get("start_date")}),
-                    current_instance=json.dumps({"start_date": str(issue.start_date)}),
-                    issue_id=str(issue_id),
-                    actor_id=str(request.user.id),
-                    project_id=str(project_id),
-                    epoch=epoch,
-                )
+            if "start_date" in update and start_date != issue.start_date:
+                activities.append((issue_id, "start_date", issue.start_date, start_date))
                 issue.start_date = start_date
-                issues_to_update.append(issue)
 
-            if target_date:
-                issue_activity.delay(
-                    type="issue.activity.updated",
-                    requested_data=json.dumps({"target_date": update.get("target_date")}),
-                    current_instance=json.dumps({"target_date": str(issue.target_date)}),
-                    issue_id=str(issue_id),
-                    actor_id=str(request.user.id),
-                    project_id=str(project_id),
-                    epoch=epoch,
-                )
+            if "target_date" in update and target_date != issue.target_date:
+                activities.append((issue_id, "target_date", issue.target_date, target_date))
                 issue.target_date = target_date
+
+            if any(item[0] == issue_id for item in activities):
                 issues_to_update.append(issue)
 
-        # Bulk update issues
-        Issue.objects.bulk_update(issues_to_update, ["start_date", "target_date"])
+        with transaction.atomic():
+            if issues_to_update:
+                Issue.objects.bulk_update(issues_to_update, ["start_date", "target_date"])
+            for item_issue_id, field, old_value, new_value in activities:
+                transaction.on_commit(
+                    lambda issue_id=item_issue_id, field_name=field, old=old_value, new=new_value: issue_activity.delay(
+                        type="issue.activity.updated",
+                        requested_data=json.dumps({field_name: new.isoformat() if new else None}),
+                        current_instance=json.dumps({field_name: old.isoformat() if old else None}),
+                        issue_id=str(issue_id),
+                        actor_id=str(request.user.id),
+                        project_id=str(project_id),
+                        epoch=epoch,
+                    ),
+                    robust=True,
+                )
 
         return Response({"message": "Issues updated successfully"}, status=status.HTTP_200_OK)
 

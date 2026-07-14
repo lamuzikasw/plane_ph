@@ -34,6 +34,7 @@ export enum EUserPermissionsLevel {
 export type TUserPermissionsLevel = EUserPermissionsLevel;
 
 export enum EUserPermissions {
+  SUPER_ADMIN = 30,
   ADMIN = 20,
   MEMBER = 15,
   GUEST = 5,

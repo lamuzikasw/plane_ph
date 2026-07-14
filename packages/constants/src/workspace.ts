@@ -78,12 +78,17 @@ export const RESTRICTED_URLS: string[] = [
 ];
 
 export const ROLE = {
+  [EUserWorkspaceRoles.SUPER_ADMIN]: "OG",
   [EUserWorkspaceRoles.GUEST]: "Guest",
   [EUserWorkspaceRoles.MEMBER]: "Member",
   [EUserWorkspaceRoles.ADMIN]: "Admin",
 };
 
 export const ROLE_DETAILS = {
+  [EUserWorkspaceRoles.SUPER_ADMIN]: {
+    i18n_title: "role_details.super_admin.title",
+    i18n_description: "role_details.super_admin.description",
+  },
   [EUserWorkspaceRoles.GUEST]: {
     i18n_title: "role_details.guest.title",
     i18n_description: "role_details.guest.description",

@@ -13,6 +13,7 @@ import type { TLoginMediums } from "./instance";
 import type { IWorkspaceViewProps } from "./view-props";
 
 export enum EUserWorkspaceRoles {
+  SUPER_ADMIN = 30,
   ADMIN = 20,
   MEMBER = 15,
   GUEST = 5,

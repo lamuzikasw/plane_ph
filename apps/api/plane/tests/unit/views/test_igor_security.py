@@ -16,17 +16,18 @@ from plane.db.models import Issue, IssueAssignee, Project, State, WorkspaceMembe
 from plane.tests.factories import UserFactory, WorkspaceFactory
 
 
-@pytest.mark.parametrize(
-    ("email", "expected"),
-    [
-        ("propandamen@gmail.com", True),
-        ("VSEVOLODKARGASHIN2408@GMAIL.COM", True),
-        ("workspace-admin@plane.so", False),
-    ],
-)
-def test_only_configured_leaders_have_igor_manager_scope(email, expected):
-    user = SimpleNamespace(email=email)
-    assert IgorChatEndpoint()._is_igor_manager(user) is expected
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_only_workspace_super_admins_have_igor_manager_scope():
+    leader = UserFactory(email="leader@plane.so", username="leader@plane.so")
+    admin = UserFactory(email="admin@plane.so", username="admin@plane.so")
+    workspace = WorkspaceFactory(slug="igor-role-boundary", owner=leader)
+    WorkspaceMember.objects.create(workspace=workspace, member=leader, role=30)
+    WorkspaceMember.objects.create(workspace=workspace, member=admin, role=20)
+
+    endpoint = IgorChatEndpoint()
+    assert endpoint._is_igor_manager(leader, workspace) is True
+    assert endpoint._is_igor_manager(admin, workspace) is False
 
 
 @pytest.mark.unit

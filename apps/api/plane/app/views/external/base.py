@@ -256,13 +256,6 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
     weekly_copy_item_limit = 8
     weekly_copy_max_chars = 1400
     weekly_copy_cache_seconds = 900
-    manager_emails = frozenset(
-        {
-            "propandamen@gmail.com",
-            "vsevolodkargashin2408@gmail.com",
-        }
-    )
-
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
         action = request.data.get("action")
@@ -586,7 +579,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         return limit, offset
 
     def _resolve_query_context(self, message, workspace, user, history, request_context):
-        is_manager = self._is_igor_manager(user)
+        is_manager = self._is_igor_manager(user, workspace)
         all_projects = list(Project.objects.filter(workspace=workspace, archived_at__isnull=True).order_by("name"))
         accessible_projects = list(self._accessible_projects(workspace, user).order_by("name"))
         accessible_project_ids = {project.id for project in accessible_projects}
@@ -741,22 +734,20 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
     def _accessible_projects(self, workspace, user):
         """Keep Igor inside the same project boundary as the requesting user."""
         projects = Project.objects.filter(workspace=workspace, archived_at__isnull=True)
-        if self._is_igor_manager(user):
+        if self._is_igor_manager(user, workspace):
             return projects
         return projects.filter(
             project_projectmember__member=user,
             project_projectmember__is_active=True,
         ).distinct()
 
-    def _is_igor_manager(self, user):
-        email = str(getattr(user, "email", "") or "").strip().lower()
-        configured_emails = os.environ.get("IGOR_MANAGER_EMAILS", "")
-        manager_emails = (
-            {item.strip().lower() for item in configured_emails.split(",") if item.strip()}
-            if configured_emails.strip()
-            else self.manager_emails
-        )
-        return email in manager_emails
+    def _is_igor_manager(self, user, workspace):
+        return WorkspaceMember.objects.filter(
+            workspace=workspace,
+            member=user,
+            role=ROLE.SUPER_ADMIN.value,
+            is_active=True,
+        ).exists()
 
     def _extract_task_search_query(self, message):
         """Extract a task title fragment from an explicit search/location question."""
@@ -1768,7 +1759,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             issue__state__group__in=open_groups,
         ).values("issue_id")
         blocked_queryset = (
-            assigned_scope.filter(Q(id__in=blocked_issue_ids) | Q(blocked_issues__isnull=False))
+            assigned_scope.filter(Q(id__in=blocked_issue_ids) | Q(blocker_issues__isnull=False))
             .filter(state__group__in=open_groups)
             .order_by("target_date", "-priority", "-updated_at")
             .distinct()
@@ -2421,7 +2412,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
                 issue__state__group__in=open_groups,
             ).values("issue_id")
             return (
-                queryset.filter(Q(id__in=blocked_issue_ids) | Q(blocked_issues__isnull=False))
+                queryset.filter(Q(id__in=blocked_issue_ids) | Q(blocker_issues__isnull=False))
                 .exclude(state__group=StateGroup.COMPLETED.value)
                 .order_by("target_date", "-priority", "-updated_at")
                 .distinct()

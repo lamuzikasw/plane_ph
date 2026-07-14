@@ -9,12 +9,13 @@ import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 import { AlertTriangle, ArrowUpRight, CalendarCheck, Clock3, Copy, Search, Sparkles, UserRound, X } from "lucide-react";
 import useSWR from "swr";
+import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import { Button, Loader } from "@plane/ui";
 import type { TIssue } from "@plane/types";
 import { cn } from "@plane/utils";
 import { IssuePeekOverview } from "@/components/issues/peek-overview";
-import { useUser } from "@/hooks/store/user";
+import { useUser, useUserPermissions } from "@/hooks/store/user";
 import useIssuePeekOverviewRedirection from "@/hooks/use-issue-peek-overview-redirection";
 import { usePlatformOS } from "@/hooks/use-platform-os";
 import { AnalyticsService } from "@/services/analytics.service";
@@ -74,6 +75,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
   const { workspaceSlug } = useParams();
   const workspaceSlugString = workspaceSlug?.toString() ?? "";
   const { data: currentUser } = useUser();
+  const { allowPermissions } = useUserPermissions();
   const { isMobile } = usePlatformOS();
   const { handleRedirection } = useIssuePeekOverviewRedirection();
   const [selectedMember, setSelectedMember] = useState<TMemberRow | undefined>();
@@ -82,6 +84,11 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
 
   const currentUserId = currentUser?.id;
   const currentPeriod = "current_week";
+  const canViewManagementAnalytics = allowPermissions(
+    [EUserPermissions.SUPER_ADMIN],
+    EUserPermissionsLevel.WORKSPACE,
+    workspaceSlugString
+  );
 
   const { data: activeData, isLoading: activeLoading } = useSWR(
     workspaceSlugString && currentUserId ? ["today-active", workspaceSlugString, currentUserId] : null,
@@ -104,7 +111,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
   );
 
   const { data: unassignedData, isLoading: unassignedLoading } = useSWR(
-    workspaceSlugString ? ["today-unassigned", workspaceSlugString] : null,
+    workspaceSlugString && canViewManagementAnalytics ? ["today-unassigned", workspaceSlugString] : null,
     () =>
       analyticsService.getManagementAnalyticsDrilldown(workspaceSlugString, {
         metric: "missing_assignee",
@@ -113,7 +120,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
   );
 
   const { data: teamData, isLoading: teamLoading } = useSWR(
-    workspaceSlugString ? ["today-team", workspaceSlugString] : null,
+    workspaceSlugString && canViewManagementAnalytics ? ["today-team", workspaceSlugString] : null,
     () => analyticsService.getManagementAnalytics(workspaceSlugString, "team", { period: currentPeriod })
   );
 

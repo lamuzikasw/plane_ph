@@ -7,6 +7,12 @@
 import os
 
 from .common import *  # noqa
+from .security import validate_production_security
+
+validate_production_security(os.environ)
+CORS_ALLOW_ALL_ORIGINS = False
+SESSION_COOKIE_SECURE = os.environ.get("ALLOW_INSECURE_HTTP") != "1"
+CSRF_COOKIE_SECURE = os.environ.get("ALLOW_INSECURE_HTTP") != "1"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = int(os.environ.get("DEBUG", 0)) == 1

@@ -11,6 +11,7 @@ from enum import Enum
 
 
 class ROLE(Enum):
+    SUPER_ADMIN = 30
     ADMIN = 20
     MEMBER = 15
     GUEST = 5
@@ -20,6 +21,16 @@ def allow_permission(allowed_roles, level="PROJECT", creator=False, model=None):
     def decorator(view_func):
         @wraps(view_func)
         def _wrapped_view(instance, request, *args, **kwargs):
+            is_super_admin = WorkspaceMember.objects.filter(
+                member=request.user,
+                workspace__slug=kwargs["slug"],
+                role=ROLE.SUPER_ADMIN.value,
+                is_active=True,
+            ).exists()
+
+            if is_super_admin:
+                return view_func(instance, request, *args, **kwargs)
+
             # Check for creator if required
             if creator and model:
                 obj = model.objects.filter(id=kwargs["pk"], created_by=request.user).exists()

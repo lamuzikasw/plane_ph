@@ -12,7 +12,7 @@ from plane.app.views.base import BaseAPIView
 
 
 class ManagementAnalyticsEndpoint(BaseAPIView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def get(self, request, slug, section):
         service = ManagementAnalyticsService(workspace_slug=slug, params=request.GET)
         section_map = {
@@ -36,24 +36,39 @@ class ManagementAnalyticsDrilldownEndpoint(BaseAPIView):
         if not metric:
             return Response({"error": "metric is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        workspace_role = request.user.member_workspace.filter(
+            workspace__slug=slug,
+            is_active=True,
+        ).values_list("role", flat=True).first()
+        if workspace_role != ROLE.SUPER_ADMIN.value:
+            personal_metrics = {"active_work_items", "blocked_work_items"}
+            requested_members = {
+                value for value in request.GET.get("member_ids", "").split(",") if value
+            }
+            if metric not in personal_metrics or requested_members != {str(request.user.id)}:
+                return Response(
+                    {"error": "Management analytics is available only to OG users"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         service = ManagementAnalyticsService(workspace_slug=slug, params=request.GET)
         return Response(service.drilldown(metric), status=status.HTTP_200_OK)
 
 
 class ManagementAnalyticsSettingsEndpoint(BaseAPIView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         service = ManagementAnalyticsService(workspace_slug=slug, params=request.GET)
         return Response(service.get_settings(), status=status.HTTP_200_OK)
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def patch(self, request, slug):
         service = ManagementAnalyticsService(workspace_slug=slug, params=request.GET)
         return Response(service.update_settings(request.data), status=status.HTTP_200_OK)
 
 
 class ManagementAnalyticsExportEndpoint(BaseAPIView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def get(self, request, slug, section):
         service = ManagementAnalyticsService(workspace_slug=slug, params=request.GET)
         content = service.export_csv(section)

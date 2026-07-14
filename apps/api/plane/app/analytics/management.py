@@ -20,6 +20,7 @@ from plane.db.models import (
     ManagementAnalyticsSettings,
     Project,
     ProjectMember,
+    State,
     Workspace,
     WorkspaceMember,
 )
@@ -64,14 +65,9 @@ class ManagementAnalyticsService:
         previous = self._filtered_issues(period="previous")
         snapshot = self._filtered_issues(include_period=False)
         now = timezone.now()
-        settings = self.settings
-
         open_current = current.filter(state__group__in=OPEN_STATE_GROUPS)
-        open_previous = previous.filter(state__group__in=OPEN_STATE_GROUPS)
         blocked_current = self._blocked_issues(snapshot)
-        blocked_previous = self._blocked_issues(previous)
         overdue_current = current.filter(state__group__in=OPEN_STATE_GROUPS, target_date__lt=now)
-        overdue_previous = previous.filter(state__group__in=OPEN_STATE_GROUPS, target_date__lt=self.period.previous_end)
         completed_current = current.filter(state__group="completed", completed_at__isnull=False)
         completed_previous = previous.filter(state__group="completed", completed_at__isnull=False)
         team_rows = self.team()["results"]
@@ -83,15 +79,15 @@ class ManagementAnalyticsService:
             "period": self._period_payload(),
             "history": self._history_payload(),
             "kpis": [
-                self._kpi("active_members", self._active_members_count(), self._previous_active_members_count(), "workspace_member"),
-                self._kpi("active_projects", self._active_projects_count(), self._previous_active_projects_count(), "project"),
-                self._kpi("work_items_in_progress", open_current.filter(state__group="started").count(), open_previous.filter(state__group="started").count(), "issue"),
-                self._kpi("work_items_in_review", self._review_issues(current).count(), self._review_issues(previous).count(), "issue"),
-                self._kpi("blocked_work_items", blocked_current.count(), blocked_previous.count(), "issue"),
-                self._kpi("overdue_work_items", overdue_current.count(), overdue_previous.count(), "issue"),
-                self._kpi("unassigned_work_items", open_current.filter(assignees__isnull=True).distinct().count(), open_previous.filter(assignees__isnull=True).distinct().count(), "issue"),
-                self._kpi("unestimated_work_items", open_current.filter(Q(point__isnull=True) & Q(estimate_point__isnull=True)).count(), open_previous.filter(Q(point__isnull=True) & Q(estimate_point__isnull=True)).count(), "issue"),
-                self._kpi("unscheduled_work_items", open_current.filter(target_date__isnull=True).count(), open_previous.filter(target_date__isnull=True).count(), "issue"),
+                self._kpi("active_members", self._active_members_count(), None, "workspace_member"),
+                self._kpi("active_projects", self._active_projects_count(), None, "project"),
+                self._kpi("work_items_in_progress", open_current.filter(state__group="started").count(), None, "issue"),
+                self._kpi("work_items_in_review", self._review_issues(current).count(), None, "issue"),
+                self._kpi("blocked_work_items", blocked_current.count(), None, "issue"),
+                self._kpi("overdue_work_items", overdue_current.count(), None, "issue"),
+                self._kpi("unassigned_work_items", open_current.filter(assignees__isnull=True).distinct().count(), None, "issue"),
+                self._kpi("unestimated_work_items", open_current.filter(Q(point__isnull=True) & Q(estimate_point__isnull=True)).count(), None, "issue"),
+                self._kpi("unscheduled_work_items", open_current.filter(target_date__isnull=True).count(), None, "issue"),
                 self._kpi("completed_work_items", completed_current.count(), completed_previous.count(), "issue"),
                 self._kpi("average_cycle_time_hours", self._cycle_time_hours(current), self._cycle_time_hours(previous), "issue", value_type="duration"),
                 self._kpi("on_time_delivery_percent", self._on_time_delivery(current), self._on_time_delivery(previous), "issue", value_type="percent"),
@@ -491,12 +487,17 @@ class ManagementAnalyticsService:
         if include_period:
             start = self.period.previous_start if period == "previous" else self.period.start
             end = self.period.previous_end if period == "previous" else self.period.end
+            snapshot_end = min(end, timezone.now())
             queryset = queryset.filter(
-                Q(created_at__gte=start, created_at__lte=end)
-                | Q(updated_at__gte=start, updated_at__lte=end)
-                | Q(completed_at__gte=start, completed_at__lte=end)
-                | Q(target_date__gte=start, target_date__lte=end)
-                | Q(start_date__gte=start, start_date__lte=end)
+                Q(
+                    state__group__in=OPEN_STATE_GROUPS,
+                    created_at__lt=snapshot_end,
+                )
+                | Q(
+                    state__group="completed",
+                    completed_at__gte=start,
+                    completed_at__lt=end,
+                )
             )
         project_ids = self._csv("project_ids")
         member_ids = self._csv("member_ids") or self._csv("assignee_ids")
@@ -616,7 +617,7 @@ class ManagementAnalyticsService:
             issue__state__group__in=OPEN_STATE_GROUPS,
         ).values("issue_id")
         return (
-            queryset.filter(Q(id__in=blocked_issue_ids) | Q(blocked_issues__isnull=False))
+            queryset.filter(Q(id__in=blocked_issue_ids) | Q(blocker_issues__isnull=False))
             .exclude(state__group__in=DONE_STATE_GROUPS)
             .distinct()
         )
@@ -684,15 +685,14 @@ class ManagementAnalyticsService:
     def _first_activity_by_issue(self, issue_ids, field, target_values):
         rows = (
             IssueActivity.objects.filter(issue_id__in=issue_ids, field=field)
-            .filter(Q(new_value__in=target_values) | Q(new_identifier__isnull=False))
             .order_by("issue_id", "created_at")
-            .values("issue_id", "created_at", "new_value")
+            .values("issue_id", "created_at", "new_value", "new_identifier")
         )
         result = {}
         for row in rows:
             if row["issue_id"] in result:
                 continue
-            if row["new_value"] in target_values or not row["new_value"]:
+            if self._activity_state_group(row["new_value"], row["new_identifier"]) in target_values:
                 result[row["issue_id"]] = row["created_at"]
         return result
 
@@ -705,24 +705,45 @@ class ManagementAnalyticsService:
         return round((on_time / total) * 100, 1)
 
     def _reopened_count(self):
-        return (
-            IssueActivity.objects.filter(workspace=self.workspace, field="state", created_at__gte=self.period.start, created_at__lte=self.period.end)
-            .filter(old_value__in=["completed", "cancelled"], new_value="started")
-            .count()
-        )
+        return len(self._reopened_issue_ids())
 
     def _reopened_issues(self):
-        issue_ids = (
-            IssueActivity.objects.filter(
-                workspace=self.workspace,
-                field="state",
-                created_at__gte=self.period.start,
-                created_at__lte=self.period.end,
-            )
-            .filter(old_value__in=["completed", "cancelled"], new_value="started")
-            .values("issue_id")
-        )
-        return self._filtered_issues(include_period=False).filter(id__in=issue_ids)
+        return self._filtered_issues(include_period=False).filter(id__in=self._reopened_issue_ids())
+
+    def _reopened_issue_ids(self):
+        rows = IssueActivity.objects.filter(
+            workspace=self.workspace,
+            field="state",
+            created_at__gte=self.period.start,
+            created_at__lt=self.period.end,
+        ).values("issue_id", "old_value", "new_value", "old_identifier", "new_identifier")
+        issue_ids = set()
+        for row in rows:
+            old_group = self._activity_state_group(row["old_value"], row["old_identifier"])
+            new_group = self._activity_state_group(row["new_value"], row["new_identifier"])
+            if old_group in DONE_STATE_GROUPS and new_group == "started":
+                issue_ids.add(row["issue_id"])
+        return issue_ids
+
+    def _activity_state_group(self, value, identifier):
+        if not hasattr(self, "_state_groups_by_id"):
+            states = State.objects.filter(workspace=self.workspace).values("id", "name", "group")
+            self._state_groups_by_id = {str(state["id"]): state["group"] for state in states}
+            groups_by_name = {}
+            for state in states:
+                groups_by_name.setdefault(str(state["name"]).strip().casefold(), set()).add(state["group"])
+            self._state_groups_by_name = {
+                name: next(iter(groups)) for name, groups in groups_by_name.items() if len(groups) == 1
+            }
+
+        if identifier:
+            group = self._state_groups_by_id.get(str(identifier))
+            if group:
+                return group
+        normalized = str(value or "").strip().casefold()
+        if normalized in {*OPEN_STATE_GROUPS, *DONE_STATE_GROUPS}:
+            return normalized
+        return self._state_groups_by_name.get(normalized)
 
     def _active_members_count(self):
         return WorkspaceMember.objects.filter(workspace=self.workspace, is_active=True, member__is_bot=False).count()

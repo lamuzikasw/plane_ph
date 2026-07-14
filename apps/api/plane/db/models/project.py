@@ -22,6 +22,7 @@ ROLE_CHOICES = ((20, "Admin"), (15, "Member"), (5, "Guest"))
 
 
 class ROLE(Enum):
+    SUPER_ADMIN = 30
     ADMIN = 20
     MEMBER = 15
     GUEST = 5
@@ -222,6 +223,10 @@ class ProjectMember(ProjectBaseModel):
     preferences = models.JSONField(default=get_default_preferences)
     sort_order = models.FloatField(default=65535)
     is_active = models.BooleanField(default=True)
+    # True only for access rows created automatically from a workspace-level
+    # super-admin role. It lets us revoke that implicit access without touching
+    # a person's genuine project membership.
+    is_super_admin_access = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if self._state.adding and self.member:

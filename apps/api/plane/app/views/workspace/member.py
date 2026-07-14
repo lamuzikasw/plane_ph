@@ -23,6 +23,10 @@ from plane.app.serializers import (
 from plane.app.views.base import BaseAPIView
 from plane.db.models import Project, ProjectMember, WorkspaceMember, DraftIssue
 from plane.utils.cache import invalidate_cache
+from plane.utils.permissions.super_admin import (
+    grant_workspace_super_admin_access,
+    revoke_workspace_super_admin_access,
+)
 
 from .. import BaseViewSet
 
@@ -75,6 +79,9 @@ class WorkSpaceMemberViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
     def partial_update(self, request, slug, pk):
+        requesting_workspace_member = WorkspaceMember.objects.get(
+            workspace__slug=slug, member=request.user, is_active=True
+        )
         workspace_member = WorkspaceMember.objects.get(
             pk=pk, workspace__slug=slug, member__is_bot=False, is_active=True
         )
@@ -84,14 +91,36 @@ class WorkSpaceMemberViewSet(BaseViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        requested_role = int(request.data.get("role", workspace_member.role))
+        if (
+            requested_role == ROLE.SUPER_ADMIN.value
+            or workspace_member.role == ROLE.SUPER_ADMIN.value
+        ) and requesting_workspace_member.role != ROLE.SUPER_ADMIN.value:
+            return Response(
+                {"error": "Only an OG can grant or revoke the OG role"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if requesting_workspace_member.role < workspace_member.role:
+            return Response(
+                {"error": "You cannot update a user having a higher role"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        previous_role = workspace_member.role
+
         # If a user is moved to a guest role he can't have any other role in projects
-        if "role" in request.data and int(request.data.get("role")) == 5:
+        if requested_role == ROLE.GUEST.value:
             ProjectMember.objects.filter(workspace__slug=slug, member_id=workspace_member.member_id).update(role=5)
 
         serializer = WorkSpaceMemberSerializer(workspace_member, data=request.data, partial=True)
 
         if serializer.is_valid():
             serializer.save()
+            if requested_role == ROLE.SUPER_ADMIN.value and previous_role != ROLE.SUPER_ADMIN.value:
+                grant_workspace_super_admin_access(workspace_member.workspace, workspace_member.member)
+            elif previous_role == ROLE.SUPER_ADMIN.value and requested_role != ROLE.SUPER_ADMIN.value:
+                revoke_workspace_super_admin_access(workspace_member.workspace, workspace_member.member)
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

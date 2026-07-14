@@ -593,7 +593,7 @@ def test_manager_request_recognizes_report_subject_instead_of_treating_recipient
         last_name="Контекстов",
     )
     workspace = WorkspaceFactory(slug="igor-summary-subject", owner=manager, timezone="UTC")
-    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=30)
     WorkspaceMember.objects.create(workspace=workspace, member=teammate, role=15)
 
     context = IgorChatEndpoint()._resolve_query_context(
@@ -703,6 +703,7 @@ def test_personal_summary_only_counts_currently_assigned_issues():
         network=0,
         project_lead=user,
     )
+    ProjectMember.objects.create(workspace=workspace, project=project, member=user, role=20)
     started = State.objects.create(
         workspace=workspace,
         project=project,
@@ -763,7 +764,7 @@ def test_manager_personal_two_project_and_all_project_scopes_are_distinct():
     manager = UserFactory(email="propandamen@gmail.com", username="propandamen@gmail.com")
     teammate = UserFactory(email="teammate@plane.so", username="teammate@plane.so")
     workspace = WorkspaceFactory(slug="igor-manager-scopes", owner=manager, timezone="UTC")
-    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=30)
     WorkspaceMember.objects.create(workspace=workspace, member=teammate, role=15)
 
     projects = []
@@ -883,7 +884,7 @@ def test_unlisted_workspace_admin_cannot_expand_igor_scope_or_tamper_with_contex
         {},
     )
 
-    assert endpoint._is_igor_manager(owner) is False
+    assert endpoint._is_igor_manager(owner, workspace) is False
     assert list(endpoint._accessible_projects(workspace, owner)) == [accessible_project]
     assert all_projects_context["access_denied"]
     assert tampered_context["member"] == owner

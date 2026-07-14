@@ -38,7 +38,7 @@ def test_task_search_finds_partial_title_across_all_projects_for_manager(monkeyp
     manager = UserFactory(email="propandamen@gmail.com", username="propandamen@gmail.com")
     teammate = UserFactory(email="task-search-teammate@plane.so", username="task-search-teammate@plane.so")
     workspace = WorkspaceFactory(slug="igor-task-search", owner=manager)
-    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=30)
     WorkspaceMember.objects.create(workspace=workspace, member=teammate, role=15)
 
     own_project = Project.objects.create(

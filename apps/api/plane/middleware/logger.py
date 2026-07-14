@@ -61,7 +61,7 @@ class RequestLoggerMiddleware:
 
         # Log the request information
         api_logger.info(
-            f"{request.method} {request.get_full_path()} {response.status_code}",
+            f"{request.method} {request.path} {response.status_code}",
             extra={
                 "path": request.path,
                 "method": request.method,
@@ -86,48 +86,11 @@ class APITokenLogMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        request_body = request.body
         response = self.get_response(request)
-        self.process_request(request, response, request_body)
+        self.process_request(request, response)
         return response
 
-    def _safe_decode_body(self, content):
-        """
-        Safely decodes request/response body content, handling binary data.
-        Returns None if content is None, or a string representation of the content.
-        """
-        # If the content is None, return None
-        if content is None:
-            return None
-
-        # If the content is an empty bytes object, return None
-        if content == b"":
-            return None
-
-        # Check if content is binary by looking for common binary file signatures
-        if content.startswith(b"\x89PNG") or content.startswith(b"\xff\xd8\xff") or content.startswith(b"%PDF"):
-            return "[Binary Content]"
-
-        try:
-            return content.decode("utf-8")
-        except UnicodeDecodeError:
-            return "[Could not decode content]"
-
-    # Headers whose values must never be persisted in plaintext logs
-    SENSITIVE_HEADERS = frozenset({"x-api-key", "authorization", "cookie"})
-
-    def _redacted_headers(self, request):
-        """
-        Returns the request headers as a string with sensitive values redacted,
-        so that credentials such as the API key are never stored in plaintext.
-        """
-        redacted = {
-            key: ("[REDACTED]" if key.lower() in self.SENSITIVE_HEADERS else value)
-            for key, value in request.headers.items()
-        }
-        return str(redacted)
-
-    def process_request(self, request, response, request_body):
+    def process_request(self, request, response, request_body=None):
         api_key_header = "X-Api-Key"
         api_key = request.headers.get(api_key_header)
 
@@ -146,10 +109,13 @@ class APITokenLogMiddleware:
                 ).hexdigest(),
                 "path": request.path,
                 "method": request.method,
-                "query_params": request.META.get("QUERY_STRING", ""),
-                "headers": self._redacted_headers(request),
-                "body": self._safe_decode_body(request_body) if request_body else None,
-                "response_body": self._safe_decode_body(response.content) if response.content else None,
+                # Request/response bodies and raw query strings can contain
+                # credentials, customer data and task content. Operational logs
+                # intentionally retain metadata only.
+                "query_params": None,
+                "headers": "{}",
+                "body": None,
+                "response_body": None,
                 "response_code": response.status_code,
                 "ip_address": get_client_ip(request=request),
                 "user_agent": request.META.get("HTTP_USER_AGENT", None),

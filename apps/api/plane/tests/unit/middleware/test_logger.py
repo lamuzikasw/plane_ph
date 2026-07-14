@@ -7,7 +7,7 @@ Unit tests for APITokenLogMiddleware.
 
 Covers the credential-hygiene guarantees of the external API request logger:
 - the raw API key is never persisted (a non-reversible hash is stored instead)
-- sensitive request headers are redacted before being logged
+- request/response bodies, headers, and query strings are never persisted
 """
 
 import hashlib
@@ -62,14 +62,13 @@ class TestAPITokenLogMiddleware:
         assert log_data["token_identifier"] == expected_hash
         assert self.API_KEY not in log_data["token_identifier"]
 
-    def test_sensitive_headers_are_redacted(self, middleware, request_factory):
+    def test_sensitive_request_material_is_not_recorded(self, middleware, request_factory):
         log_data = self._captured_log_data(middleware, request_factory)
 
-        # None of the sensitive header values may appear in the logged headers.
-        assert self.API_KEY not in log_data["headers"]
-        assert self.AUTHORIZATION not in log_data["headers"]
-        assert self.COOKIE not in log_data["headers"]
-        assert "[REDACTED]" in log_data["headers"]
+        assert log_data["headers"] == "{}"
+        assert log_data["query_params"] is None
+        assert log_data["body"] is None
+        assert log_data["response_body"] is None
 
     def test_no_log_without_api_key(self, middleware, request_factory):
         request = request_factory.get("/api/v1/workspaces/")

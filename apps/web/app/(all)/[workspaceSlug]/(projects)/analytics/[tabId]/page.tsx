@@ -48,6 +48,10 @@ function AnalyticsPage({ params }: Route.ComponentProps) {
     [EUserPermissions.ADMIN, EUserPermissions.MEMBER],
     EUserPermissionsLevel.WORKSPACE
   );
+  const canAccessManagementAnalytics = allowPermissions(
+    [EUserPermissions.SUPER_ADMIN],
+    EUserPermissionsLevel.WORKSPACE
+  );
 
   const workspaceSlug = params.workspaceSlug;
   const ANALYTICS_TABS = useAnalyticsTabs(workspaceSlug.toString());
@@ -60,11 +64,17 @@ function AnalyticsPage({ params }: Route.ComponentProps) {
     }
   }, [tabId]);
 
+  useEffect(() => {
+    if (!canAccessManagementAnalytics) router.replace(`/${params.workspaceSlug}/`);
+  }, [canAccessManagementAnalytics, params.workspaceSlug, router]);
+
   // Handle tab change
   const handleTabChange = (value: string) => {
     setSelectedTab(value);
     router.push(`/${currentWorkspace?.slug}/analytics/${value}`);
   };
+
+  if (!canAccessManagementAnalytics) return null;
 
   return (
     <>

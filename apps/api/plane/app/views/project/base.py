@@ -42,6 +42,7 @@ from plane.db.models import (
 from plane.db.models.intake import IntakeIssueStatus
 from plane.utils.host import base_host
 from plane.utils.order_queryset import PROJECT_ORDER_BY_ALLOWLIST, sanitize_order_by
+from plane.utils.permissions.super_admin import grant_project_access_to_workspace_super_admins
 
 
 class ProjectViewSet(BaseViewSet):
@@ -277,6 +278,8 @@ class ProjectViewSet(BaseViewSet):
                     member_id=serializer.data["project_lead"],
                     role=ROLE.ADMIN.value,
                 )
+
+            grant_project_access_to_workspace_super_admins(serializer.instance)
 
             State.objects.bulk_create(
                 [

@@ -124,7 +124,8 @@ export abstract class BaseUserPermissionStore implements IBaseUserPermissionStor
     const projectRole = this.workspaceProjectsPermissions?.[workspaceSlug]?.[projectId];
     if (!projectRole) return undefined;
     const workspaceRole = this.workspaceUserInfo?.[workspaceSlug]?.role;
-    if (workspaceRole === EUserWorkspaceRoles.ADMIN) return EUserPermissions.ADMIN;
+    if (workspaceRole === EUserWorkspaceRoles.SUPER_ADMIN || workspaceRole === EUserWorkspaceRoles.ADMIN)
+      return EUserPermissions.ADMIN;
     else return projectRole;
   });
 
@@ -215,6 +216,11 @@ export abstract class BaseUserPermissionStore implements IBaseUserPermissionStor
 
     if (typeof currentUserRole === "string") {
       currentUserRole = parseInt(currentUserRole);
+    }
+
+    if (currentUserRole === EUserPermissions.SUPER_ADMIN) {
+      if (onPermissionAllowed) return onPermissionAllowed();
+      return true;
     }
 
     if (currentUserRole && typeof currentUserRole === "number" && allowPermissions.includes(currentUserRole)) {

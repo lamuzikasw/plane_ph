@@ -59,7 +59,7 @@ export const SidebarWorkspaceMenu = observer(function SidebarWorkspaceMenu() {
       key: "analytics",
       labelTranslationKey: "sidebar.analytics",
       href: `/${workspaceSlug}/analytics/`,
-      access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
+      access: [EUserWorkspaceRoles.SUPER_ADMIN],
       Icon: AnalyticsIcon,
     },
   ];

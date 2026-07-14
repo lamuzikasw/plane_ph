@@ -10,7 +10,7 @@ import re
 # Django imports
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponseRedirect
-from django.db import IntegrityError, connection, transaction
+from django.db import IntegrityError
 from django.db.models import (
     Case,
     CharField,
@@ -72,11 +72,7 @@ from plane.db.models import (
     IssueComment,
     IssueLink,
     IssueRelation,
-    IssueSequence,
-    IssueAssignee,
-    IssueLabel,
     Label,
-    ModuleIssue,
     Project,
     ProjectMember,
     CycleIssue,
@@ -90,6 +86,8 @@ from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
 from .base import BaseAPIView
 from plane.utils.host import base_host
 from plane.utils.issue_relation_mapper import get_actual_relation
+from plane.utils.issue_move import IssueMoveConflict, move_issue_to_project
+from plane.utils.exception_logger import log_exception
 from plane.bgtasks.webhook_task import model_activity
 from plane.app.permissions import ROLE
 from plane.utils.openapi import (
@@ -160,7 +158,6 @@ from plane.utils.openapi import (
     WORKSPACE_NOT_FOUND_RESPONSE,
 )
 from plane.bgtasks.work_item_link_task import crawl_work_item_link_title
-from plane.utils.uuid import convert_uuid_to_integer
 
 
 def user_has_issue_permission(user_id, project_id, issue=None, allowed_roles=None, allow_creator=True):
@@ -856,72 +853,37 @@ class IssueDetailAPIEndpoint(BaseAPIView):
             cls=DjangoJSONEncoder,
         )
 
-        with transaction.atomic():
-            lock_key = convert_uuid_to_integer(target_project.id)
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_key])
-
-            last_sequence = IssueSequence.objects.filter(project=target_project).aggregate(largest=Max("sequence"))[
-                "largest"
-            ]
-            next_sequence = last_sequence + 1 if last_sequence else 1
-
-            target_member_ids = ProjectMember.objects.filter(
-                workspace__slug=slug,
-                project_id=target_project_id,
-                is_active=True,
-                role__gte=15,
-            ).values_list("member_id", flat=True)
-
-            CycleIssue.objects.filter(issue=issue).delete()
-            ModuleIssue.objects.filter(issue=issue).delete()
-            IssueLabel.objects.filter(issue=issue).delete()
-            IssueAssignee.objects.filter(issue=issue).exclude(assignee_id__in=target_member_ids).delete()
-            IssueAssignee.objects.filter(issue=issue).update(
-                project_id=target_project_id,
-                workspace_id=target_project.workspace_id,
-                updated_by_id=request.user.id,
+        try:
+            issue = move_issue_to_project(
+                issue=issue,
+                target_project=target_project,
+                target_state=target_state,
+                actor=request.user,
             )
+        except IssueMoveConflict as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
 
-            issue.project = target_project
-            issue.workspace = target_project.workspace
-            issue.state = target_state
-            issue.sequence_id = next_sequence
-            issue.parent = None
-            issue.estimate_point = None
-            issue.updated_by = request.user
-            issue.save(
-                update_fields=[
-                    "project",
-                    "workspace",
-                    "state",
-                    "sequence_id",
-                    "parent",
-                    "estimate_point",
-                    "updated_by",
-                    "updated_at",
-                ]
+        try:
+            issue_activity.delay(
+                type="issue.activity.updated",
+                requested_data=requested_data,
+                actor_id=str(request.user.id),
+                issue_id=str(pk),
+                project_id=str(target_project_id),
+                current_instance=current_instance,
+                epoch=int(timezone.now().timestamp()),
             )
-            IssueSequence.objects.create(issue=issue, sequence=next_sequence, project=target_project)
-
-        issue_activity.delay(
-            type="issue.activity.updated",
-            requested_data=requested_data,
-            actor_id=str(request.user.id),
-            issue_id=str(pk),
-            project_id=str(target_project_id),
-            current_instance=current_instance,
-            epoch=int(timezone.now().timestamp()),
-        )
-        model_activity.delay(
-            model_name="issue",
-            model_id=str(pk),
-            requested_data={"project_id": str(target_project_id), "state_id": str(target_state.id)},
-            current_instance=current_instance,
-            actor_id=request.user.id,
-            slug=slug,
-            origin=base_host(request=request, is_app=True),
-        )
+            model_activity.delay(
+                model_name="issue",
+                model_id=str(pk),
+                requested_data={"project_id": str(target_project_id), "state_id": str(target_state.id)},
+                current_instance=current_instance,
+                actor_id=request.user.id,
+                slug=slug,
+                origin=base_host(request=request, is_app=True),
+            )
+        except Exception as exc:
+            log_exception(exc)
 
         moved_issue = Issue.objects.get(workspace__slug=slug, project_id=target_project_id, pk=pk)
         return Response(

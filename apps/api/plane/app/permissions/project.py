@@ -10,10 +10,21 @@ from plane.db.models import ProjectMember, WorkspaceMember
 from plane.db.models.project import ROLE
 
 
+def _is_workspace_super_admin(request, view):
+    return WorkspaceMember.objects.filter(
+        workspace__slug=view.workspace_slug,
+        member=request.user,
+        role=ROLE.SUPER_ADMIN.value,
+        is_active=True,
+    ).exists()
+
+
 class ProjectBasePermission(BasePermission):
     def has_permission(self, request, view):
         if request.user.is_anonymous:
             return False
+        if _is_workspace_super_admin(request, view):
+            return True
 
         ## Safe Methods -> Handle the filtering logic in queryset
         if request.method in SAFE_METHODS:
@@ -57,6 +68,8 @@ class ProjectMemberPermission(BasePermission):
     def has_permission(self, request, view):
         if request.user.is_anonymous:
             return False
+        if _is_workspace_super_admin(request, view):
+            return True
 
         ## Safe Methods -> Handle the filtering logic in queryset
         if request.method in SAFE_METHODS:
@@ -86,6 +99,8 @@ class ProjectEntityPermission(BasePermission):
     def has_permission(self, request, view):
         if request.user.is_anonymous:
             return False
+        if _is_workspace_super_admin(request, view):
+            return True
 
         # Handle requests based on project__identifier
         if hasattr(view, "project_identifier") and view.project_identifier:
@@ -120,6 +135,8 @@ class ProjectAdminPermission(BasePermission):
     def has_permission(self, request, view):
         if request.user.is_anonymous:
             return False
+        if _is_workspace_super_admin(request, view):
+            return True
 
         return ProjectMember.objects.filter(
             workspace__slug=view.workspace_slug,
@@ -134,6 +151,8 @@ class ProjectLitePermission(BasePermission):
     def has_permission(self, request, view):
         if request.user.is_anonymous:
             return False
+        if _is_workspace_super_admin(request, view):
+            return True
 
         return ProjectMember.objects.filter(
             workspace__slug=view.workspace_slug,
