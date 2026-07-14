@@ -286,6 +286,27 @@ def test_capture_assignee_is_resolved_from_heading_and_never_defaults_to_request
     assert task["assignee_name"] == "Павел Смирнов"
 
 
+@pytest.mark.parametrize(
+    ("first", "repeated"),
+    [
+        ("адаптировать форму заявки под B2B-направление", "адаптация формы заявки"),
+        ("уточняет формат домена или поддомена", "уточнение формата домена"),
+        ("подключить личный кабинет к B2B-воронке", "интеграция личного кабинета с воронкой Bitrix24"),
+    ],
+)
+def test_capture_deduplicates_responsibility_restatements(first, repeated):
+    assert IgorChatEndpoint()._capture_tasks_equivalent(first, repeated)
+
+
+def test_capture_keeps_distinct_email_actions_separate():
+    endpoint = IgorChatEndpoint()
+
+    assert not endpoint._capture_tasks_equivalent(
+        "определить адреса электронной почты",
+        "определить события для автоматических писем",
+    )
+
+
 def test_capture_llm_receives_api_key_only_as_transport_and_output_is_json(monkeypatch):
     captured = {}
 

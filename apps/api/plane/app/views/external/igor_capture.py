@@ -375,7 +375,6 @@ class IgorCaptureMixin:
         raw_tasks = plan.get("tasks", []) if isinstance(plan, dict) else []
         raw_tasks = raw_tasks if isinstance(raw_tasks, list) else []
         tasks = []
-        task_by_title = {}
         action_ids = {item["source_id"] for item in action_items}
 
         for raw_task in raw_tasks[: self.capture_task_limit * 2]:
@@ -398,14 +397,13 @@ class IgorCaptureMixin:
             normalized_title = self._capture_task_key(title)
             if not normalized_title:
                 continue
-            if normalized_title in task_by_title:
-                existing = task_by_title[normalized_title]
+            existing = next((task for task in tasks if self._capture_tasks_equivalent(task["title"], title)), None)
+            if existing:
                 existing["source_ids"] = list(dict.fromkeys(existing["source_ids"] + source_ids))
                 continue
 
             task = self._capture_task_from_raw(raw_task, title, source_ids, unit_by_id, projects, user, members)
             tasks.append(task)
-            task_by_title[normalized_title] = task
             if len(tasks) >= self.capture_task_limit:
                 break
 
@@ -415,14 +413,12 @@ class IgorCaptureMixin:
                 continue
             source_id = item["source_id"]
             title = self._clean_capture_text(item["summary"], 255) or unit_by_id[source_id]["text"][:255]
-            task_key = self._capture_task_key(title)
-            if task_key in task_by_title:
-                existing = task_by_title[task_key]
+            existing = next((task for task in tasks if self._capture_tasks_equivalent(task["title"], title)), None)
+            if existing:
                 existing["source_ids"] = list(dict.fromkeys(existing["source_ids"] + [source_id]))
                 continue
             task = self._capture_task_from_raw({}, title, [source_id], unit_by_id, projects, user, members)
             tasks.append(task)
-            task_by_title[task_key] = task
 
         for index, task in enumerate(tasks, start=1):
             task["id"] = f"T{index}"
@@ -575,6 +571,41 @@ class IgorCaptureMixin:
             r"\b(?:для|необходимо|нужно|надо|самостоятельно|занимается|наша|команда)\b", " ", normalized
         )
         return re.sub(r"\s+", " ", normalized).strip()
+
+    def _capture_tasks_equivalent(self, left_title, right_title):
+        left_key = self._capture_task_key(left_title)
+        right_key = self._capture_task_key(right_title)
+        if not left_key or not right_key:
+            return False
+        if left_key == right_key:
+            return True
+
+        left_numbers = set(re.findall(r"\b\d+\b", left_key))
+        right_numbers = set(re.findall(r"\b\d+\b", right_key))
+        if (left_numbers or right_numbers) and left_numbers != right_numbers:
+            return False
+
+        stop_words = {
+            "и", "или", "в", "на", "под", "к", "с", "по", "от", "этапа", "отдельную",
+            "b2b", "bitrix24", "направление",
+        }
+
+        def signature(value):
+            return {
+                token[:4]
+                for token in value.replace("-", " ").split()
+                if token not in stop_words and len(token) > 2 and not token.isdigit()
+            }
+
+        left_signature = signature(left_key)
+        right_signature = signature(right_key)
+        if not left_signature or not right_signature:
+            return False
+        overlap = left_signature.intersection(right_signature)
+        return (
+            len(overlap) / min(len(left_signature), len(right_signature)) >= 0.8
+            and abs(len(left_signature) - len(right_signature)) <= 2
+        )
 
     def _capture_members(self, workspace, projects):
         project_ids = [project.id for project in projects]
