@@ -80,6 +80,23 @@ def test_secret_extraction_request_is_refused_without_calling_llm(monkeypatch):
 
 
 @pytest.mark.unit
+def test_secret_like_material_is_blocked_in_current_message_and_redacted_from_history():
+    endpoint = IgorChatEndpoint()
+    fake_openai_key = "sk-proj-" + "A" * 32
+
+    assert endpoint._is_secret_extraction_request(f"Посмотри, что это: {fake_openai_key}") is True
+    history = endpoint._clean_history(
+        [
+            {"role": "user", "text": f"Сохрани {fake_openai_key}"},
+            {"role": "assistant", "text": "Хорошо"},
+        ]
+    )
+
+    assert history[0]["text"] == "[Секрет скрыт Игорем]"
+    assert fake_openai_key not in json.dumps(history, ensure_ascii=False)
+
+
+@pytest.mark.unit
 def test_untrusted_or_insecure_llm_base_url_disables_igor_key(monkeypatch):
     monkeypatch.setattr(
         external_base,

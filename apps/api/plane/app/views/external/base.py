@@ -455,6 +455,8 @@ class IgorChatEndpoint(BaseAPIView):
             text = text.strip()
             if not text:
                 continue
+            if self._contains_secret_material(text):
+                text = "[Секрет скрыт Игорем]"
             clean_history.append(
                 {
                     "role": role,
@@ -1838,6 +1840,8 @@ class IgorChatEndpoint(BaseAPIView):
         return clean_plan
 
     def _is_secret_extraction_request(self, message):
+        if self._contains_secret_material(message):
+            return True
         text = self._normalize_search(message)
         return any(
             marker in text
@@ -1865,6 +1869,18 @@ class IgorChatEndpoint(BaseAPIView):
                 "выведи токен",
             ]
         )
+
+    def _contains_secret_material(self, value):
+        text = str(value or "")
+        secret_patterns = [
+            r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b",
+            r"\bgithub_pat_[A-Za-z0-9_]{20,}\b",
+            r"\bgh[pousr]_[A-Za-z0-9]{20,}\b",
+            r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b",
+            r"\bAKIA[A-Z0-9]{16}\b",
+            r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+        ]
+        return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in secret_patterns)
 
     def _log_safe_failure(self, stage, exception):
         error_name = exception.__class__.__name__
