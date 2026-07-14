@@ -2,11 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+import json
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from django.utils import timezone
 
+import plane.app.views.external.base as external_base
 from plane.app.views.external.base import IgorChatEndpoint
 from plane.db.models import (
     Issue,
@@ -181,7 +184,7 @@ def test_weekly_summary_defaults_to_requesting_member_and_previous_week(monkeypa
 
 @pytest.mark.unit
 @pytest.mark.django_db
-def test_weekly_summary_collects_facts_and_produces_copyable_report():
+def test_weekly_summary_collects_facts_and_produces_concise_copyable_report(monkeypatch):
     user = UserFactory(email="summary-member@plane.so", username="summary-member@plane.so")
     workspace = WorkspaceFactory(slug="igor-summary", owner=user, timezone="UTC")
     WorkspaceMember.objects.create(workspace=workspace, member=user, role=20)
@@ -298,7 +301,9 @@ def test_weekly_summary_collects_facts_and_produces_copyable_report():
         relation_type="blocked_by",
     )
 
-    result = IgorChatEndpoint()._build_weekly_summary(
+    endpoint = IgorChatEndpoint()
+    monkeypatch.setattr(endpoint, "_get_igor_llm_config", lambda: (None, "gpt-4o-mini", None, 8.0))
+    result = endpoint._build_weekly_summary(
         workspace,
         {
             "intent": "weekly_summary",
@@ -321,14 +326,186 @@ def test_weekly_summary_collects_facts_and_produces_copyable_report():
         "overdue": 1,
         "next_week": 1,
     }
-    assert "SUM-1: Release completed" in result["widget"]["copy_text"]
-    assert "Срок перенесён" in result["widget"]["copy_text"]
+    assert "Сделано: Release completed" in result["widget"]["copy_text"]
+    assert "срок перенесён" in result["widget"]["copy_text"]
     assert "External dependency" not in result["widget"]["copy_text"]
     assert "Overdue attention item" in result["widget"]["copy_text"]
+    assert "Next planned task" in result["widget"]["copy_text"]
     assert "Требуют внимания" in result["widget"]["overview"]
     assert result["widget"]["attention"]
-    assert "/igor-summary/browse/SUM-1/" in result["widget"]["copy_text"]
+    assert "SUM-1" not in result["widget"]["copy_text"]
+    assert "/browse/" not in result["widget"]["copy_text"]
+    assert len(result["widget"]["copy_text"]) <= endpoint.weekly_copy_max_chars
     assert result["widget"]["source_note"]
+
+
+@pytest.mark.unit
+def test_weekly_summary_llm_turns_structured_facts_into_short_human_copy(monkeypatch):
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured["request"] = kwargs
+            response = {
+                "completed": "Ускорил VPN и настроил ключи VLESS",
+                "in_progress": "Дорабатывал ботов оплаты и тестировал Telegram-бота",
+                "risks": "До 18 июля нужно закрыть аудит безопасности серверов",
+                "plan": "Завершить мониторинг оплаты сервисов до 19 июля",
+            }
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(response, ensure_ascii=False)))]
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured["client"] = kwargs
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    endpoint = IgorChatEndpoint()
+    monkeypatch.setattr(endpoint, "_get_igor_llm_config", lambda: ("transport-key", "gpt-4o-mini", None, 8.0))
+    monkeypatch.setattr(external_base, "OpenAI", FakeOpenAI)
+    monkeypatch.setattr(external_base.cache, "get", lambda _key: None)
+    monkeypatch.setattr(external_base.cache, "set", lambda *_args, **_kwargs: None)
+    facts = {
+        "subject": "Сева",
+        "subject_type": "person",
+        "period": "6 июля — 12 июля 2026",
+        "categories": [
+            {
+                "key": "completed",
+                "total": 2,
+                "items": [
+                    {"title": "Ускорить VPN", "project": "DevOPS", "deadline": None, "note": "Завершена"},
+                    {"title": "Настроить VLESS", "project": "DevOPS", "deadline": None, "note": "Завершена"},
+                ],
+                "not_listed": 0,
+            }
+        ],
+    }
+
+    result = endpoint._get_llm_weekly_summary_copy(
+        facts,
+        "Итоги недели · Сева",
+        "6 июля — 12 июля 2026",
+    )
+
+    assert result == (
+        "Итоги недели · Сева · 6 июля — 12 июля 2026\n\n"
+        "Сделано: Ускорил VPN и настроил ключи VLESS.\n\n"
+        "В работе: Дорабатывал ботов оплаты и тестировал Telegram-бота.\n\n"
+        "Сроки и риски: До 18 июля нужно закрыть аудит безопасности серверов.\n\n"
+        "План: Завершить мониторинг оплаты сервисов до 19 июля."
+    )
+    assert captured["client"]["api_key"] == "transport-key"
+    assert captured["request"]["response_format"] == {"type": "json_object"}
+    prompt = json.dumps(captured["request"]["messages"], ensure_ascii=False)
+    assert "transport-key" not in prompt
+    assert "https://" not in captured["request"]["messages"][1]["content"]
+    assert "SUM-1" not in captured["request"]["messages"][1]["content"]
+
+
+@pytest.mark.unit
+def test_weekly_summary_llm_rejects_unsafe_or_oversized_copy(monkeypatch):
+    class FakeCompletions:
+        def create(self, **_kwargs):
+            response = {"completed": "Подробнее: https://unsafe.example/report", "in_progress": None}
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(response)))])
+
+    class FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    endpoint = IgorChatEndpoint()
+    monkeypatch.setattr(endpoint, "_get_igor_llm_config", lambda: ("transport-key", "gpt-4o-mini", None, 8.0))
+    monkeypatch.setattr(external_base, "OpenAI", FakeOpenAI)
+    monkeypatch.setattr(external_base.cache, "get", lambda _key: None)
+
+    result = endpoint._get_llm_weekly_summary_copy(
+        {"subject": "Сева", "period": "6–12 июля", "categories": []},
+        "Итоги недели · Сева",
+        "6–12 июля",
+    )
+
+    assert result is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("old_value", "new_value", "expected"),
+    [
+        ("2026-07-13T00:00:00+03:00", "2026-07-13T18:00:00+03:00", False),
+        ("2026-07-13T00:00:00+03:00", "2026-07-14T00:00:00+03:00", True),
+        (None, "2026-07-13T00:00:00+03:00", True),
+        (None, None, False),
+    ],
+)
+def test_weekly_summary_only_counts_real_deadline_date_changes(old_value, new_value, expected):
+    endpoint = IgorChatEndpoint()
+    user_tz = endpoint._user_timezone(SimpleNamespace(user_timezone="Europe/Moscow"))
+
+    assert endpoint._deadline_change_is_meaningful(old_value, new_value, user_tz) is expected
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_weekly_summary_does_not_count_overdue_task_as_future_plan(monkeypatch):
+    user = UserFactory(email="summary-plan-user@plane.so", username="summary-plan-user@plane.so")
+    workspace = WorkspaceFactory(slug="igor-summary-plan", owner=user, timezone="UTC")
+    WorkspaceMember.objects.create(workspace=workspace, member=user, role=20)
+    project = Project.objects.create(
+        workspace=workspace,
+        name="Planning",
+        identifier="PLAN",
+        project_lead=user,
+    )
+    ProjectMember.objects.create(workspace=workspace, project=project, member=user, role=20)
+    started = State.objects.create(
+        workspace=workspace,
+        project=project,
+        name="Started",
+        color="#F59E0B",
+        group="started",
+    )
+    now = timezone.now()
+    overdue_issue = Issue.objects.create(
+        workspace=workspace,
+        project=project,
+        state=started,
+        name="Уже просроченная задача",
+        target_date=now - timedelta(hours=12),
+    )
+    future_issue = Issue.objects.create(
+        workspace=workspace,
+        project=project,
+        state=started,
+        name="Будущая задача",
+        target_date=now + timedelta(days=2),
+    )
+    for issue in [overdue_issue, future_issue]:
+        IssueAssignee.objects.create(workspace=workspace, project=project, issue=issue, assignee=user)
+
+    endpoint = IgorChatEndpoint()
+    monkeypatch.setattr(endpoint, "_get_igor_llm_config", lambda: (None, "gpt-4o-mini", None, 8.0))
+    result = endpoint._build_weekly_summary(
+        workspace,
+        {
+            "intent": "weekly_summary",
+            "period_start": now - timedelta(days=7),
+            "period_end": now - timedelta(days=1),
+            "period_label": "прошлая неделя",
+            "member": user,
+            "project": project,
+            "projects": [project],
+        },
+        user,
+    )
+
+    metrics = {metric["key"]: metric["value"] for metric in result["widget"]["metrics"]}
+    plan_items = next(section for section in result["widget"]["sections"] if section["key"] == "next_week")["items"]
+    assert metrics["overdue"] == 1
+    assert metrics["next_week"] == 1
+    assert [item["id"] for item in plan_items] == [str(future_issue.id)]
+    assert str(overdue_issue.id) not in {item["id"] for item in plan_items}
 
 
 @pytest.mark.unit

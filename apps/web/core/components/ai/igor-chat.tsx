@@ -940,8 +940,8 @@ function IgorWeeklySummaryWidget({
       setIsCopied(true);
       setToast({
         type: TOAST_TYPE.SUCCESS,
-        title: "Summary скопирован",
-        message: "Отчёт можно отправить руководителю.",
+        title: "Краткое summary скопировано",
+        message: "Текст готов к отправке.",
       });
       window.setTimeout(() => setIsCopied(false), 1800);
     } catch {
@@ -977,7 +977,7 @@ function IgorWeeklySummaryWidget({
             className="text-xs flex shrink-0 items-center gap-1.5 rounded border border-subtle px-2 py-1.5 font-medium text-secondary transition hover:border-[#0b6ea8]/40 hover:text-[#0b6ea8]"
           >
             {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            {isCopied ? "Готово" : "Копировать отчёт"}
+            {isCopied ? "Готово" : "Скопировать краткое summary"}
           </button>
         </div>
 
