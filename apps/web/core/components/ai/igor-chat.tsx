@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -13,7 +13,10 @@ import {
   ExternalLink,
   ListChecks,
   Loader2,
+  Maximize2,
   MessageCircle,
+  Minimize2,
+  MoveDiagonal2,
   Send,
   Sparkles,
   X,
@@ -51,7 +54,12 @@ type Props = {
 };
 
 const aiService = new AIService();
-const MAX_MESSAGE_LENGTH = 8000;
+const REGULAR_MESSAGE_LENGTH = 5000;
+const CAPTURE_MESSAGE_LENGTH = 8000;
+const PANEL_STORAGE_KEY = "plane:igor:panel-size";
+const DEFAULT_PANEL_SIZE = { width: 480, height: 720 };
+const MIN_PANEL_SIZE = { width: 380, height: 480 };
+const PANEL_VIEWPORT_GAP = 40;
 const WELCOME_MESSAGE =
   "Привет, я Игорь. Соберу итоги недели или разберу заметки со встречи: сохраню каждую мысль, разложу решения, риски и вопросы по категориям и предложу задачи для подтверждения.";
 
@@ -70,6 +78,33 @@ const initialMessages = (): TIgorMessage[] => [
     text: WELCOME_MESSAGE,
   },
 ];
+
+type TIgorPanelSize = typeof DEFAULT_PANEL_SIZE;
+
+type TIgorResizeSession = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startWidth: number;
+  startHeight: number;
+};
+
+const clampPanelSize = ({ width, height }: TIgorPanelSize): TIgorPanelSize => {
+  if (typeof window === "undefined") return { width, height };
+  const maxWidth = Math.max(280, window.innerWidth - PANEL_VIEWPORT_GAP);
+  const maxHeight = Math.max(360, window.innerHeight - PANEL_VIEWPORT_GAP);
+  return {
+    width: Math.min(Math.max(width, MIN_PANEL_SIZE.width), maxWidth),
+    height: Math.min(Math.max(height, MIN_PANEL_SIZE.height), maxHeight),
+  };
+};
+
+const getMessageLimit = (message: string) =>
+  /разбер|обработ|структур|разлож|преврат|вытащ|выдел|предлож|поручен|договорен|задач.*из|meeting notes|action items|turn this into tasks|categorize these notes/i.test(
+    message
+  )
+    ? CAPTURE_MESSAGE_LENGTH
+    : REGULAR_MESSAGE_LENGTH;
 
 const stateLabels: Record<string, string> = {
   backlog: "Backlog",
@@ -94,9 +129,44 @@ export function IgorChat({ workspaceSlug }: Props) {
   const [input, setInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [messages, setMessages] = useState<TIgorMessage[]>(initialMessages);
+  const [panelSize, setPanelSize] = useState<TIgorPanelSize>(DEFAULT_PANEL_SIZE);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const resizeSessionRef = useRef<TIgorResizeSession | null>(null);
+  const panelSizeRef = useRef<TIgorPanelSize>(panelSize);
   const activeWorkspaceRef = useRef(workspaceSlug);
+  const currentMessageLimit = getMessageLimit(input);
+
+  panelSizeRef.current = panelSize;
+
+  useEffect(() => {
+    try {
+      const savedSize = window.localStorage.getItem(PANEL_STORAGE_KEY);
+      if (!savedSize) return;
+      const parsedSize = JSON.parse(savedSize) as Partial<TIgorPanelSize>;
+      if (typeof parsedSize.width !== "number" || typeof parsedSize.height !== "number") return;
+      setPanelSize(clampPanelSize({ width: parsedSize.width, height: parsedSize.height }));
+    } catch {
+      // Ignore malformed or unavailable browser storage and use the default size.
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleViewportResize = () => setPanelSize((currentSize) => clampPanelSize(currentSize));
+    handleViewportResize();
+    window.addEventListener("resize", handleViewportResize);
+    return () => window.removeEventListener("resize", handleViewportResize);
+  }, []);
+
+  useEffect(
+    () => () => {
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+    },
+    []
+  );
 
   useEffect(() => {
     activeWorkspaceRef.current = workspaceSlug;
@@ -128,18 +198,82 @@ export function IgorChat({ workspaceSlug }: Props) {
 
   useEffect(() => {
     if (!isOpen) return;
-    scrollRef.current?.scrollIntoView({ block: "end" });
+    const animationFrame = window.requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    });
     inputRef.current?.focus();
+    return () => window.cancelAnimationFrame(animationFrame);
   }, [isOpen, messages.length, isSubmitting]);
+
+  const persistPanelSize = (size: TIgorPanelSize) => {
+    try {
+      window.localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify(size));
+    } catch {
+      // A private browser session can deny storage; resizing should still work for the current session.
+    }
+  };
+
+  const handleResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (isMaximized) return;
+    event.preventDefault();
+    resizeSessionRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: panelSize.width,
+      startHeight: panelSize.height,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.style.cursor = "nwse-resize";
+    document.body.style.userSelect = "none";
+    setIsResizing(true);
+  };
+
+  const handleResizePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const session = resizeSessionRef.current;
+    if (!session || session.pointerId !== event.pointerId) return;
+    const nextSize = clampPanelSize({
+      width: session.startWidth + session.startX - event.clientX,
+      height: session.startHeight + session.startY - event.clientY,
+    });
+    panelSizeRef.current = nextSize;
+    setPanelSize(nextSize);
+  };
+
+  const finishPanelResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const session = resizeSessionRef.current;
+    if (!session || session.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    resizeSessionRef.current = null;
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+    setIsResizing(false);
+    persistPanelSize(panelSizeRef.current);
+  };
+
+  const handleResizeKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (isMaximized || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 64 : 24;
+    const nextSize = clampPanelSize({
+      width: panelSize.width + (event.key === "ArrowLeft" ? step : event.key === "ArrowRight" ? -step : 0),
+      height: panelSize.height + (event.key === "ArrowUp" ? step : event.key === "ArrowDown" ? -step : 0),
+    });
+    panelSizeRef.current = nextSize;
+    setPanelSize(nextSize);
+    persistPanelSize(nextSize);
+  };
 
   const askIgor = async (messageText: string) => {
     const trimmedMessage = messageText.trim();
     if (!trimmedMessage || isSubmitting) return;
-    if (trimmedMessage.length > MAX_MESSAGE_LENGTH) {
+    const messageLimit = getMessageLimit(trimmedMessage);
+    if (trimmedMessage.length > messageLimit) {
       setToast({
         type: TOAST_TYPE.ERROR,
         title: "Вопрос слишком длинный",
-        message: `Сократи вопрос до ${MAX_MESSAGE_LENGTH} символов.`,
+        message: `Сократи вопрос до ${messageLimit} символов.`,
       });
       return;
     }
@@ -275,40 +409,99 @@ export function IgorChat({ workspaceSlug }: Props) {
       )}
 
       {isOpen && (
-        <section className="shadow-lg fixed right-5 bottom-5 z-40 flex h-[min(720px,calc(100vh-40px))] w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-lg border border-subtle bg-surface-1">
-          <header className="flex items-center justify-between border-b border-subtle px-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className="border-custom-primary-100/20 bg-custom-primary-100/10 text-custom-primary-100 flex h-8 w-8 items-center justify-center rounded-full border">
-                <MessageCircle className="h-4 w-4" />
-              </div>
-              <div>
-                <h2 className="text-sm font-semibold text-primary">Игорь</h2>
-                <p className="text-xs text-secondary">Ассистент по задачам и срокам</p>
-              </div>
-            </div>
+        <section
+          role="dialog"
+          aria-modal="false"
+          aria-labelledby="igor-title"
+          style={{
+            width: isMaximized ? "calc(100vw - 40px)" : panelSize.width,
+            height: isMaximized ? "calc(100vh - 40px)" : panelSize.height,
+          }}
+          className={cn(
+            "shadow-lg fixed right-5 bottom-5 z-40 flex max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] flex-col overflow-hidden rounded-xl border border-subtle bg-surface-1",
+            !isResizing && "transition-[width,height] duration-200"
+          )}
+        >
+          {!isMaximized && (
             <button
               type="button"
-              onClick={() => setIsOpen(false)}
-              className="focus:ring-custom-primary-100 grid h-7 w-7 place-items-center rounded hover:bg-surface-2 focus:ring-2 focus:outline-none"
-              aria-label="Закрыть Игоря"
+              onPointerDown={handleResizePointerDown}
+              onPointerMove={handleResizePointerMove}
+              onPointerUp={finishPanelResize}
+              onPointerCancel={finishPanelResize}
+              onKeyDown={handleResizeKeyDown}
+              className="hover:text-custom-primary-100 focus:ring-custom-primary-100 absolute top-1 left-1 z-10 hidden h-7 w-7 cursor-nwse-resize touch-none place-items-center rounded text-tertiary hover:bg-surface-2 focus:ring-2 focus:outline-none sm:grid"
+              aria-label="Изменить размер окна Игоря"
+              title="Потяните, чтобы изменить размер. Стрелки изменяют размер с клавиатуры."
             >
-              <X className="h-4 w-4 text-secondary" />
+              <MoveDiagonal2 className="h-3.5 w-3.5" />
             </button>
+          )}
+
+          <header className="flex items-center justify-between border-b border-subtle py-3 pr-3 pl-10">
+            <div className="flex items-center gap-3">
+              <div className="border-custom-primary-100/20 bg-custom-primary-100/10 text-custom-primary-100 flex h-9 w-9 items-center justify-center rounded-lg border">
+                <MessageCircle className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 id="igor-title" className="text-sm truncate font-semibold text-primary">
+                  Игорь
+                </h2>
+                <p className="text-xs flex items-center gap-1.5 truncate text-secondary">
+                  <span className="bg-green-500 h-1.5 w-1.5 shrink-0 rounded-full" aria-hidden="true" />
+                  Задачи, отчёты и встречи
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setIsMaximized((current) => !current)}
+                className="focus:ring-custom-primary-100 grid h-8 w-8 place-items-center rounded-md text-secondary hover:bg-surface-2 hover:text-primary focus:ring-2 focus:outline-none"
+                aria-label={isMaximized ? "Вернуть размер окна Игоря" : "Развернуть окно Игоря"}
+                title={isMaximized ? "Вернуть размер" : "Развернуть"}
+              >
+                {isMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="focus:ring-custom-primary-100 grid h-8 w-8 place-items-center rounded-md text-secondary hover:bg-surface-2 hover:text-primary focus:ring-2 focus:outline-none"
+                aria-label="Закрыть Игоря"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto px-4 py-3">
-            <div className="space-y-3">
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            <div className="space-y-4">
               {messages.map((message) => (
-                <div key={message.id} className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}>
+                <div
+                  key={message.id}
+                  className={cn("flex items-start gap-2.5", message.role === "user" ? "justify-end" : "justify-start")}
+                >
+                  {message.role === "assistant" && (
+                    <div className="border-custom-primary-100/20 bg-custom-primary-100/10 text-custom-primary-100 mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md border">
+                      <Sparkles className="h-3.5 w-3.5" />
+                    </div>
+                  )}
                   <div
                     className={cn(
-                      "text-sm max-w-[92%] rounded-lg border px-3 py-2 leading-5",
+                      "text-sm min-w-0 leading-5",
                       message.role === "user"
-                        ? "border-custom-primary-100/20 bg-custom-primary-100/10 text-primary"
-                        : "border-subtle bg-surface-2 text-primary"
+                        ? "border-custom-primary-100/20 bg-custom-primary-100/10 max-w-[86%] rounded-xl rounded-br-sm border px-3 py-2 text-primary"
+                        : "w-full text-primary"
                     )}
                   >
-                    <p className="whitespace-pre-wrap">{message.text}</p>
+                    <p
+                      className={cn(
+                        "whitespace-pre-wrap",
+                        message.role === "assistant" && "rounded-lg border border-subtle bg-surface-2 px-3 py-2"
+                      )}
+                    >
+                      {message.text}
+                    </p>
                     {message.response?.widgets?.map((widget) =>
                       widget.type === "weekly_summary" ? (
                         <IgorWeeklySummaryWidget
@@ -341,51 +534,69 @@ export function IgorChat({ workspaceSlug }: Props) {
                 </div>
               ))}
               {isSubmitting && (
-                <div className="flex justify-start">
+                <div className="flex items-start gap-2.5">
+                  <div className="border-custom-primary-100/20 bg-custom-primary-100/10 text-custom-primary-100 mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md border">
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </div>
                   <div className="text-sm flex items-center gap-2 rounded-lg border border-subtle bg-surface-2 px-3 py-2 text-secondary">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Игорь собирает факты из задач...
                   </div>
                 </div>
               )}
-              <div ref={scrollRef} />
             </div>
           </div>
 
-          <div className="border-t border-subtle bg-surface-1 px-4 py-3">
-            <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+          <div className="shrink-0 border-t border-subtle bg-surface-1 px-4 py-3">
+            <div className="mb-2.5 flex gap-2 overflow-x-auto pb-1">
               {suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
                   onClick={() => askIgor(suggestion)}
                   disabled={isSubmitting}
-                  className="text-xs hover:border-custom-primary-200 shrink-0 rounded-full border border-subtle px-3 py-1 text-secondary transition hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                  className="text-xs hover:border-custom-primary-200 shrink-0 rounded-full border border-subtle bg-surface-1 px-3 py-1.5 text-secondary transition hover:bg-surface-2 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {suggestion}
                 </button>
               ))}
             </div>
-            <div className="flex items-end gap-2 rounded-lg border border-subtle bg-surface-2 p-2">
+            <div className="focus-within:border-custom-primary-100/60 focus-within:ring-custom-primary-100/10 overflow-hidden rounded-xl border border-subtle bg-surface-2 transition focus-within:ring-2">
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Summary или заметки встречи для разбора"
-                maxLength={MAX_MESSAGE_LENGTH}
-                rows={2}
-                className="text-sm max-h-28 min-h-10 flex-1 resize-none bg-transparent px-1 py-1 text-primary outline-none placeholder:text-tertiary"
+                maxLength={CAPTURE_MESSAGE_LENGTH}
+                rows={3}
+                aria-describedby="igor-input-hint"
+                className="text-sm max-h-52 min-h-16 w-full resize-y bg-transparent px-3 py-2.5 text-primary outline-none placeholder:text-tertiary"
               />
-              <button
-                type="button"
-                onClick={() => askIgor(input)}
-                disabled={isSubmitting || !input.trim()}
-                className="bg-custom-primary-100 hover:bg-custom-primary-200 grid h-9 w-9 place-items-center rounded text-white transition disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Отправить сообщение Игорю"
-              >
-                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </button>
+              <div className="flex items-center justify-between gap-3 border-t border-subtle px-2 py-1.5">
+                <div id="igor-input-hint" className="text-xs min-w-0 truncate text-tertiary">
+                  Enter — отправить · Shift + Enter — новая строка
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={cn(
+                      "text-xs text-tertiary tabular-nums",
+                      input.length > currentMessageLimit && "text-red-500"
+                    )}
+                  >
+                    {input.length.toLocaleString("ru-RU")} / {currentMessageLimit.toLocaleString("ru-RU")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => askIgor(input)}
+                    disabled={isSubmitting || !input.trim() || input.trim().length > currentMessageLimit}
+                    className="bg-custom-primary-100 hover:bg-custom-primary-200 grid h-8 w-8 place-items-center rounded-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Отправить сообщение Игорю"
+                  >
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
