@@ -17,7 +17,7 @@ import requests
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.utils import timezone
 import pytz
 from rest_framework import status
@@ -243,6 +243,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         "active",
         "unassigned",
         "weekly_summary",
+        "task_search",
         "capture_review",
         "capture_create",
     }
@@ -439,11 +440,27 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
                 status=status.HTTP_200_OK,
             )
 
-        issues_queryset = self._issues_for_intent(intent, base_queryset, workspace, period_start, period_end)
+        issues_queryset = self._issues_for_intent(
+            intent,
+            base_queryset,
+            workspace,
+            period_start,
+            period_end,
+            query_context.get("search_query"),
+        )
         total = issues_queryset.count()
         issues = list(issues_queryset[offset : offset + limit])
 
-        answer = self._build_answer(intent, issues, total, member, projects, period_label, offset)
+        answer = self._build_answer(
+            intent,
+            issues,
+            total,
+            member,
+            projects,
+            period_label,
+            offset,
+            query_context.get("search_query"),
+        )
 
         return Response(
             {
@@ -529,6 +546,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             "period_end",
             "summary_format",
             "summary_audience",
+            "search_query",
         ]:
             value = context.get(key)
             if isinstance(value, str) and value.strip():
@@ -571,16 +589,19 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         planner_members = all_members if is_manager else [user]
 
         last_context = request_context or self._last_context(history)
-        requested_all_projects = self._scope_is_all_projects(message)
-        mentioned_projects = [] if requested_all_projects else self._detect_projects(message, all_projects)
+        search_query = self._extract_task_search_query(message)
+        requested_all_projects = self._scope_is_all_projects(message) if not search_query else False
+        mentioned_projects = (
+            [] if requested_all_projects or search_query else self._detect_projects(message, all_projects)
+        )
         unavailable_projects = [project for project in mentioned_projects if project.id not in accessible_project_ids]
         projects = [project for project in mentioned_projects if project.id in accessible_project_ids]
         fallback_member = self._detect_member(message, all_members, user)
         personal_requested = self._scope_is_personal(message)
-        team_requested = self._scope_is_team(message)
+        team_requested = self._scope_is_team(message) if not search_query else False
         summary_follow_up = self._is_summary_follow_up(message, last_context, history)
         summary_requested = self._detect_weekly_summary_intent(message) or summary_follow_up
-        should_plan = (
+        should_plan = not search_query and (
             self._looks_like_work(message) or projects or fallback_member or self._is_follow_up(message, history)
         )
         llm_plan = (
@@ -589,7 +610,13 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             else {}
         )
 
-        intent = "weekly_summary" if summary_requested else self._plan_intent(llm_plan) or self._detect_intent(message)
+        intent = (
+            "task_search"
+            if search_query
+            else "weekly_summary"
+            if summary_requested
+            else self._plan_intent(llm_plan) or self._detect_intent(message)
+        )
         if not projects:
             planned_project = self._project_from_plan(llm_plan, accessible_projects)
             projects = [planned_project] if planned_project else []
@@ -610,6 +637,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             or bool(request_context)
             or follow_up_period_request
             or summary_requested
+            or bool(search_query)
         )
         is_work_request = True if explicit_work_request else self._plan_is_work(llm_plan)
         if is_work_request is None:
@@ -624,7 +652,13 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         if unavailable_projects:
             access_denied = "У тебя нет доступа к одному или нескольким указанным проектам."
 
-        if not is_manager:
+        if intent == "task_search":
+            # Task search is deliberately personal even for Igor managers. A broad
+            # manager report must never be inferred from a short title fragment.
+            member = user
+            projects = []
+            scope = "personal"
+        elif not is_manager:
             requested_other_member = member is not None and member.id != user.id
             if requested_all_projects or team_requested or requested_other_member or intent == "unassigned":
                 access_denied = (
@@ -692,6 +726,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             "scope": scope,
             "summary_format": summary_format,
             "summary_audience": summary_audience,
+            "search_query": search_query,
             "is_manager": is_manager,
             "access_denied": access_denied,
             "llm_plan": llm_plan,
@@ -717,10 +752,64 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         )
         return email in manager_emails
 
+    def _extract_task_search_query(self, message):
+        """Extract a task title fragment from an explicit search/location question."""
+        if not isinstance(message, str):
+            return None
+
+        text = re.sub(r"\s+", " ", message).strip()
+        if not text:
+            return None
+
+        assistant_prefix = r"(?:игор(?:ь|я|ю)?[\s,:-]+)?"
+        task_word = r"(?:задач(?:а|у|и)?|таск|issue|work item)"
+        single_task_word = r"(?:задач(?:а|у)|таск|issue|work item)"
+        patterns = [
+            rf"^{assistant_prefix}(?:в каком проекте|в какой доске)\s+"
+            rf"(?:находится|лежит|создана?|есть)?\s*{task_word}\s+(?P<query>.+)$",
+            rf"^{assistant_prefix}к какому проекту\s+(?:относится|принадлежит)\s+{task_word}\s+(?P<query>.+)$",
+            rf"^{assistant_prefix}где\s+(?:находится|лежит|создана?)?\s*{task_word}\s+(?P<query>.+)$",
+            rf"^{assistant_prefix}(?:найди|найти|поищи|отыщи|ищу)\s+(?:мне\s+)?{task_word}\s+(?P<query>.+)$",
+            rf"^{assistant_prefix}(?:покажи|открой)\s+(?:мне\s+)?{single_task_word}\s+(?P<query>.+)$",
+            rf"^{assistant_prefix}(?:в каком проекте|в какой доске)\s+"
+            rf"(?:находится|лежит|создана?|есть)?\s*(?P<query>.+)$",
+            rf"^{assistant_prefix}(?:where is|find|search for)\s+(?:the\s+)?(?:task|issue)\s+(?P<query>.+)$",
+        ]
+        for pattern in patterns:
+            match = re.match(pattern, text, flags=re.IGNORECASE)
+            if not match:
+                continue
+            query = match.group("query").strip()
+            query = re.sub(r"\s+(?:пожалуйста|плиз|please)$", "", query, flags=re.IGNORECASE).strip()
+            query = query.strip(" \t\n\r?.!,;:«»\"'`()[]{}")
+            query = re.sub(r"[\x00-\x1f\x7f]", "", query).strip()
+            normalized_query = self._normalize_search(query)
+            if len(query) < 2 or normalized_query in {
+                "моя",
+                "мои",
+                "мою",
+                "все",
+                "задача",
+                "задачи",
+                "таск",
+                "issue",
+                "без исполнителя",
+                "без ответственного",
+                "в работе",
+                "на сегодня",
+                "просроченная",
+                "заблокированная",
+            }:
+                return None
+            return query[:255]
+        return None
+
     def _detect_intent(self, message):
         text = message.lower()
         if not self._looks_like_work(message):
             return "conversation"
+        if self._extract_task_search_query(message):
+            return "task_search"
         if self._detect_weekly_summary_intent(message):
             return "weekly_summary"
         if any(
@@ -1469,6 +1558,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             "scope": query_context.get("scope"),
             "summary_format": query_context.get("summary_format"),
             "summary_audience": query_context.get("summary_audience"),
+            "search_query": query_context.get("search_query"),
         }
 
     def _history_for_llm(self, history):
@@ -2016,8 +2106,30 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             action = "Срок изменён"
         return f"{action}: {old_label} → {new_label}"
 
-    def _issues_for_intent(self, intent, queryset, workspace, period_start, period_end):
+    def _issues_for_intent(self, intent, queryset, workspace, period_start, period_end, search_query=None):
         open_groups = [StateGroup.BACKLOG.value, StateGroup.UNSTARTED.value, StateGroup.STARTED.value]
+
+        if intent == "task_search":
+            variants = self._task_search_variants(search_query)
+            if not variants:
+                return queryset.none()
+            title_filter = Q()
+            for variant in variants:
+                title_filter |= Q(name__icontains=variant)
+            primary_query = variants[0]
+            return (
+                queryset.filter(title_filter)
+                .annotate(
+                    search_rank=Case(
+                        When(name__iexact=primary_query, then=Value(0)),
+                        When(name__istartswith=primary_query, then=Value(1)),
+                        default=Value(2),
+                        output_field=IntegerField(),
+                    )
+                )
+                .order_by("search_rank", "name", "-updated_at")
+                .distinct()
+            )
 
         if intent == "completed":
             return queryset.filter(
@@ -2064,12 +2176,46 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
 
         return queryset.filter(state__group__in=open_groups).order_by("target_date", "-priority", "-updated_at")
 
-    def _build_answer(self, intent, issues, total, member, projects, period_label, offset):
+    def _task_search_variants(self, query):
+        value = str(query or "").strip()
+        if len(value) < 2:
+            return []
+        variants = [
+            value,
+            value.replace("_", " "),
+            value.replace("-", " "),
+            value.replace(" ", "_"),
+            value.replace(" ", "-"),
+        ]
+        result = []
+        for variant in variants:
+            variant = re.sub(r"\s+", " ", variant).strip()
+            if len(variant) >= 2 and variant.lower() not in {item.lower() for item in result}:
+                result.append(variant[:255])
+        return result
+
+    def _build_answer(self, intent, issues, total, member, projects, period_label, offset, search_query=None):
         person = self._member_name(member) if member else "команде"
         scope = self._scope_label(member, projects)
         visible_count = len(issues)
         count = total
         more = " Ниже показываю следующую часть списка." if offset else ""
+
+        if intent == "task_search":
+            safe_query = str(search_query or "").strip()
+            if count == 0:
+                return f"Не нашёл среди назначенных тебе задач совпадений по «{safe_query}»."
+            if count == 1 and issues:
+                issue = issues[0]
+                identifier = f"{issue.project.identifier}-{issue.sequence_id}"
+                return (
+                    f"Нашёл среди твоих задач: {identifier} «{issue.name}» находится "
+                    f"в проекте «{issue.project.name}»."
+                )
+            return (
+                f"Нашёл среди твоих задач {count} совпадений по «{safe_query}». "
+                f"Показываю полные названия и проекты, чтобы выбрать нужную задачу.{more}"
+            )
 
         if intent == "completed":
             if count == 0:
@@ -2396,6 +2542,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             "active": f"Задачи в работе · {scope}",
             "unassigned": f"Задачи без исполнителя · {scope}",
             "overview": f"Актуальные задачи · {scope}",
+            "task_search": "Результаты поиска · Мои задачи",
         }
         return titles.get(intent, "Задачи")
 

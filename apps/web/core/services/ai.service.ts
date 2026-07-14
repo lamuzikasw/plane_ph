@@ -152,6 +152,7 @@ export type TIgorChatContext = {
   scope: "personal" | "member" | "projects" | "all_projects";
   summary_format: "compact" | "standard" | "detailed";
   summary_audience: "self" | "manager";
+  search_query?: string | null;
 };
 
 export type TIgorChatHistoryItem = {
