@@ -41,7 +41,7 @@ if [[ -z "$SECRET_KEY_VALUE" || "$SECRET_KEY_VALUE" == "change-this-key-on-deplo
   exit 1
 fi
 
-if [[ -z "$LIVE_SECRET_KEY_VALUE" || "$LIVE_SECRET_KEY_VALUE" == "change-this-key-on-deployment" ]]; then
+if [[ -z "$LIVE_SECRET_KEY_VALUE" || "$LIVE_SECRET_KEY_VALUE" == "change-this-key-on-deployment" || "$LIVE_SECRET_KEY_VALUE" == "htbqvBJAgpm9bzvf3r4urJer0ENReatceh" ]]; then
   echo "Plane deployment stopped: LIVE_SERVER_SECRET_KEY in plane.env is missing or insecure." >&2
   exit 1
 fi
