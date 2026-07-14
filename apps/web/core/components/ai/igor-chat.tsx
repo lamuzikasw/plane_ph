@@ -39,12 +39,23 @@ type Props = {
 };
 
 const aiService = new AIService();
+const MAX_MESSAGE_LENGTH = 1200;
+const WELCOME_MESSAGE =
+  "Привет, я Игорь. Соберу личные итоги только по задачам, где ты назначен исполнителем. Руководители также могут запросить отчёт по выбранным проектам или всей команде.";
 
 const INITIAL_SUGGESTIONS = [
   "Собери мой summary за прошлую неделю",
   "Что я делал на прошлой неделе?",
   "Подготовь отчёт руководителю по моим задачам",
-  "Что сделал Danila Kuzovatov за прошлую неделю?",
+  "Покажи мои просроченные задачи",
+];
+
+const initialMessages = (): TIgorMessage[] => [
+  {
+    id: "welcome",
+    role: "assistant",
+    text: WELCOME_MESSAGE,
+  },
 ];
 
 const stateLabels: Record<string, string> = {
@@ -69,15 +80,18 @@ export function IgorChat({ workspaceSlug }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [messages, setMessages] = useState<TIgorMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "Привет, я Игорь. Соберу итоги недели из задач и истории Plane: что завершено, что продвинулось, где менялись сроки и что остаётся заблокированным.",
-    },
-  ]);
+  const [messages, setMessages] = useState<TIgorMessage[]>(initialMessages);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const activeWorkspaceRef = useRef(workspaceSlug);
+
+  useEffect(() => {
+    activeWorkspaceRef.current = workspaceSlug;
+    setMessages(initialMessages());
+    setInput("");
+    setIsSubmitting(false);
+    setIsOpen(false);
+  }, [workspaceSlug]);
 
   useEffect(() => {
     const handleOpenIgor = () => setIsOpen(true);
@@ -108,7 +122,16 @@ export function IgorChat({ workspaceSlug }: Props) {
   const askIgor = async (messageText: string) => {
     const trimmedMessage = messageText.trim();
     if (!trimmedMessage || isSubmitting) return;
+    if (trimmedMessage.length > MAX_MESSAGE_LENGTH) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Вопрос слишком длинный",
+        message: `Сократи вопрос до ${MAX_MESSAGE_LENGTH} символов.`,
+      });
+      return;
+    }
 
+    const requestWorkspaceSlug = workspaceSlug;
     setInput("");
     setIsSubmitting(true);
     const historyPayload = buildHistoryPayload(messages);
@@ -123,6 +146,7 @@ export function IgorChat({ workspaceSlug }: Props) {
 
     try {
       const response = await aiService.askIgor(workspaceSlug, { message: trimmedMessage, history: historyPayload });
+      if (activeWorkspaceRef.current !== requestWorkspaceSlug) return;
       setMessages((currentMessages) => [
         ...currentMessages,
         {
@@ -137,22 +161,28 @@ export function IgorChat({ workspaceSlug }: Props) {
           },
         },
       ]);
-    } catch {
+    } catch (error) {
+      if (activeWorkspaceRef.current !== requestWorkspaceSlug) return;
+      const serverAnswer = (error as { data?: { answer?: unknown } } | undefined)?.data?.answer;
+      const errorMessage =
+        typeof serverAnswer === "string"
+          ? serverAnswer
+          : "Я не смог достучаться до задач. Давай попробуем ещё раз через пару секунд.";
       setToast({
         type: TOAST_TYPE.ERROR,
         title: "Игорь не ответил",
-        message: "Не получилось получить ответ. Проверь соединение и попробуй ещё раз.",
+        message: errorMessage,
       });
       setMessages((currentMessages) => [
         ...currentMessages,
         {
           id: `assistant-error-${Date.now()}`,
           role: "assistant",
-          text: "Я не смог достучаться до задач. Давай попробуем ещё раз через пару секунд.",
+          text: errorMessage,
         },
       ]);
     } finally {
-      setIsSubmitting(false);
+      if (activeWorkspaceRef.current === requestWorkspaceSlug) setIsSubmitting(false);
     }
   };
 
@@ -269,6 +299,7 @@ export function IgorChat({ workspaceSlug }: Props) {
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Например: собери мой summary за прошлую неделю"
+                maxLength={MAX_MESSAGE_LENGTH}
                 rows={2}
                 className="text-sm max-h-28 min-h-10 flex-1 resize-none bg-transparent px-1 py-1 text-primary outline-none placeholder:text-tertiary"
               />

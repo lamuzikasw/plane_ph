@@ -38,8 +38,6 @@ export type TIgorChatWorkItem = {
   assignees: {
     id: string;
     name: string;
-    email: string | null;
-    avatar: string | null;
   }[];
 };
 
@@ -85,11 +83,14 @@ export type TIgorChatContext = {
   intent: string;
   project_id: string | null;
   project_name: string | null;
+  project_ids: string[];
+  project_names: string[];
   member_id: string | null;
   member_name: string | null;
   period_label: string | null;
   period_start: string | null;
   period_end: string | null;
+  scope: "personal" | "member" | "projects" | "all_projects";
 };
 
 export type TIgorChatHistoryItem = {
