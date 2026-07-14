@@ -18,6 +18,7 @@ import { useUser } from "@/hooks/store/user";
 import useIssuePeekOverviewRedirection from "@/hooks/use-issue-peek-overview-redirection";
 import { usePlatformOS } from "@/hooks/use-platform-os";
 import { AnalyticsService } from "@/services/analytics.service";
+import { openIssueAfterClosingDrawer } from "./drawer-navigation";
 
 const analyticsService = new AnalyticsService();
 
@@ -475,6 +476,8 @@ function TodayIssuesDrawer({
 
   if (!detail) return null;
 
+  const handleOpenIssue = (issue: TIssueRow) => openIssueAfterClosingDrawer(issue, onClose, onOpenIssue);
+
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/20">
       <button type="button" className="h-full flex-1 cursor-default" aria-label="Закрыть список" onClick={onClose} />
@@ -515,7 +518,7 @@ function TodayIssuesDrawer({
           ) : (
             <div className="divide-y divide-subtle">
               {rows.map((issue) => (
-                <IssueListItem key={issue.id} issue={issue} onOpenIssue={onOpenIssue} />
+                <IssueListItem key={issue.id} issue={issue} onOpenIssue={handleOpenIssue} />
               ))}
             </div>
           )}
@@ -616,6 +619,7 @@ function EmployeeDrawer({
   if (!isOpen || !member) return null;
 
   const focusIssue = rows[0] ?? member.main_work_item;
+  const handleOpenIssue = (issue: TIssueRow) => openIssueAfterClosingDrawer(issue, onClose, onOpenIssue);
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/20">
@@ -648,7 +652,7 @@ function EmployeeDrawer({
             <button
               type="button"
               className="mt-2 flex w-full items-center justify-between gap-3 rounded border border-subtle p-3 text-left transition-colors hover:bg-surface-2"
-              onClick={() => onOpenIssue(focusIssue)}
+              onClick={() => handleOpenIssue(focusIssue)}
             >
               <div className="min-w-0">
                 <div className="text-11 font-medium text-tertiary">
@@ -686,7 +690,7 @@ function EmployeeDrawer({
           ) : (
             <div className="divide-y divide-subtle">
               {rows.map((issue) => (
-                <IssueListItem key={issue.id} issue={issue} onOpenIssue={onOpenIssue} />
+                <IssueListItem key={issue.id} issue={issue} onOpenIssue={handleOpenIssue} />
               ))}
             </div>
           )}
