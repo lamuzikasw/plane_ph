@@ -945,6 +945,11 @@ class IgorCaptureMixin:
             for item in normalized[collection]
             for source_id in item["source_ids"]
         }
+        covered_source_ids.update(
+            source_id
+            for document in normalized["document_candidates"]
+            for source_id in document["source_ids"]
+        )
         uncovered_source_ids = sorted(valid_source_ids - covered_source_ids)
         if uncovered_source_ids:
             raise ValueError("spec_map_uncovered_source_ids:" + ",".join(uncovered_source_ids[:30]))

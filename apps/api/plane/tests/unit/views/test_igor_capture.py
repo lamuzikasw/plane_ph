@@ -561,6 +561,38 @@ def test_spec_map_rejects_uncovered_source_fragments():
         endpoint._normalize_spec_maps(mapped, [{"id": "S1", "text": "Цель"}, {"id": "S2", "text": "Обрывок"}])
 
 
+def test_spec_map_counts_document_metadata_as_covered_source():
+    endpoint = IgorChatEndpoint()
+    mapped = [
+        {
+            "document": {
+                "type": "technical_spec",
+                "title": "Учебное ТЗ",
+                "goal": "Проверить напоминания",
+                "summary": "",
+                "source_ids": ["S1"],
+            },
+            "facts": [
+                {
+                    "kind": "functional_requirement",
+                    "text": "Отправить напоминание",
+                    "source_ids": ["S2"],
+                }
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+    ]
+
+    normalized = endpoint._normalize_spec_maps(
+        mapped,
+        [{"id": "S1", "text": "Техническое задание"}, {"id": "S2", "text": "Отправить напоминание"}],
+    )
+
+    assert normalized["document_candidates"][0]["source_ids"] == ["S1"]
+
+
 def test_spec_contract_rejects_duplicate_and_fragment_tasks():
     endpoint = IgorChatEndpoint()
     plan = _valid_spec_decomposition()
