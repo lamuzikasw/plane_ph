@@ -950,6 +950,22 @@ class IgorCaptureMixin:
             for document in normalized["document_candidates"]
             for source_id in document["source_ids"]
         )
+        unit_by_id = {unit["id"]: unit for unit in units}
+        missing_heading_ids = [
+            source_id
+            for source_id in valid_source_ids - covered_source_ids
+            if unit_by_id[source_id].get("kind") == "heading"
+        ]
+        for index, source_id in enumerate(sorted(missing_heading_ids), start=1):
+            normalized["facts"].append(
+                {
+                    "id": f"HFM{index}",
+                    "kind": "metadata",
+                    "text": self._clean_capture_text(unit_by_id[source_id].get("text"), 1500),
+                    "source_ids": [source_id],
+                }
+            )
+        covered_source_ids.update(missing_heading_ids)
         uncovered_source_ids = sorted(valid_source_ids - covered_source_ids)
         if uncovered_source_ids:
             raise ValueError("spec_map_uncovered_source_ids:" + ",".join(uncovered_source_ids[:30]))

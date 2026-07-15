@@ -593,6 +593,46 @@ def test_spec_map_counts_document_metadata_as_covered_source():
     assert normalized["document_candidates"][0]["source_ids"] == ["S1"]
 
 
+def test_spec_map_preserves_unmentioned_heading_as_deterministic_metadata():
+    endpoint = IgorChatEndpoint()
+    mapped = [
+        {
+            "document": {
+                "type": "technical_spec",
+                "title": "Учебное ТЗ",
+                "goal": "Проверить напоминания",
+                "summary": "",
+                "source_ids": [],
+            },
+            "facts": [
+                {
+                    "kind": "functional_requirement",
+                    "text": "Отправить напоминание",
+                    "source_ids": ["S2"],
+                }
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+    ]
+
+    normalized = endpoint._normalize_spec_maps(
+        mapped,
+        [
+            {"id": "S1", "text": "Критерии готовности", "kind": "heading"},
+            {"id": "S2", "text": "Отправить напоминание", "kind": "paragraph"},
+        ],
+    )
+
+    assert normalized["facts"][-1] == {
+        "id": "HFM1",
+        "kind": "metadata",
+        "text": "Критерии готовности",
+        "source_ids": ["S1"],
+    }
+
+
 def test_spec_contract_rejects_duplicate_and_fragment_tasks():
     endpoint = IgorChatEndpoint()
     plan = _valid_spec_decomposition()
