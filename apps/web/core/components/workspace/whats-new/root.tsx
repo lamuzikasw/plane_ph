@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Popover } from "@headlessui/react";
+import { Disclosure } from "@headlessui/react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -18,6 +18,7 @@ import {
   CalendarCheck,
   CalendarRange,
   Check,
+  ChevronDown,
   Code2,
   FileText,
   Gauge,
@@ -273,10 +274,11 @@ function ReleaseFeatureCard({ feature, workspaceSlug }: { feature: TReleaseFeatu
         </span>
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <h3 className="text-lg leading-6 font-semibold text-primary">{feature.title}</h3>
-        {feature.technicalDetails && <ReleaseTechnicalDetails details={feature.technicalDetails} />}
-      </div>
+      {feature.technicalDetails ? (
+        <ReleaseTechnicalDetails title={feature.title} details={feature.technicalDetails} />
+      ) : (
+        <h3 className="text-lg mt-5 leading-6 font-semibold text-primary">{feature.title}</h3>
+      )}
       <p className="mt-2 text-13 leading-5 text-secondary">{feature.description}</p>
 
       <ul className="mt-4 flex flex-col gap-2.5">
@@ -297,40 +299,65 @@ function ReleaseFeatureCard({ feature, workspaceSlug }: { feature: TReleaseFeatu
   );
 }
 
-function ReleaseTechnicalDetails({ details }: { details: NonNullable<TReleaseFeature["technicalDetails"]> }) {
+function ReleaseTechnicalDetails({
+  title,
+  details,
+}: {
+  title: string;
+  details: NonNullable<TReleaseFeature["technicalDetails"]>;
+}) {
   return (
-    <Popover className="relative inline-flex">
-      <Popover.Button className="group/technical border-accent-primary/20 hover:border-accent-primary/40 inline-flex h-6 items-center gap-1 rounded-sm border bg-accent-primary/5 px-2 text-10 font-semibold whitespace-nowrap text-accent-primary transition-colors outline-none hover:bg-accent-primary/10 focus-visible:ring-2 focus-visible:ring-accent-strong">
-        <Code2 className="size-3 stroke-[1.8]" aria-hidden="true" />
-        Под капотом
-      </Popover.Button>
-
-      <Popover.Panel className="shadow-lg absolute top-full left-0 z-30 mt-2 w-72 max-w-[calc(100vw-4rem)] rounded-md border border-strong bg-surface-1 p-4 sm:right-0 sm:left-auto sm:w-80">
-        <div className="flex items-start gap-2.5">
-          <span className="grid size-7 flex-none place-items-center rounded-sm bg-accent-primary/10 text-accent-primary">
-            <Code2 className="size-4 stroke-[1.8]" aria-hidden="true" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-12 font-semibold text-primary">{details.title}</p>
-            <p className="mt-1.5 text-11 leading-5 text-secondary">{details.description}</p>
+    <Disclosure as="div" className="mt-5">
+      {({ open }) => (
+        <>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            <h3 className="text-lg leading-6 font-semibold text-primary">{title}</h3>
+            <Disclosure.Button
+              className={cn(
+                "border-accent-primary/20 hover:border-accent-primary/40 inline-flex h-6 items-center gap-1 rounded-sm border px-2 text-10 font-semibold whitespace-nowrap text-accent-primary transition-colors outline-none hover:bg-accent-primary/10 focus-visible:ring-2 focus-visible:ring-accent-strong motion-reduce:transition-none",
+                open ? "bg-accent-primary/10" : "bg-accent-primary/5"
+              )}
+            >
+              <Code2 className="size-3 stroke-[1.8]" aria-hidden="true" />
+              Под капотом
+              <ChevronDown
+                className={cn(
+                  "size-3 stroke-[1.8] transition-transform duration-200 motion-reduce:transition-none",
+                  open && "rotate-180"
+                )}
+                aria-hidden="true"
+              />
+            </Disclosure.Button>
           </div>
-        </div>
 
-        <div className="mt-3 border-t border-subtle pt-3">
-          <p className="text-9 font-semibold tracking-wide text-tertiary uppercase">Инструменты</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {details.tools.map((tool) => (
-              <span
-                key={tool}
-                className="font-mono rounded-sm border border-subtle bg-layer-1 px-1.5 py-1 text-9 text-secondary"
-              >
-                {tool}
+          <Disclosure.Panel className="border-accent-primary/20 mt-3 rounded-md border bg-layer-1/60 p-4">
+            <div className="flex items-start gap-2.5">
+              <span className="grid size-7 flex-none place-items-center rounded-sm bg-accent-primary/10 text-accent-primary">
+                <Code2 className="size-4 stroke-[1.8]" aria-hidden="true" />
               </span>
-            ))}
-          </div>
-        </div>
-      </Popover.Panel>
-    </Popover>
+              <div className="min-w-0">
+                <p className="text-12 font-semibold text-primary">{details.title}</p>
+                <p className="mt-1.5 text-11 leading-5 text-secondary">{details.description}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 border-t border-subtle pt-3">
+              <p className="text-9 font-semibold tracking-wide text-tertiary uppercase">Инструменты</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {details.tools.map((tool) => (
+                  <span
+                    key={tool}
+                    className="font-mono rounded-sm border border-subtle bg-surface-1 px-1.5 py-1 text-9 text-secondary"
+                  >
+                    {tool}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </Disclosure.Panel>
+        </>
+      )}
+    </Disclosure>
   );
 }
 
