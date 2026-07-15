@@ -2,12 +2,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+import csv
 from datetime import timedelta
 
 import pytest
 from django.utils import timezone
+from rest_framework.test import APIRequestFactory, force_authenticate
 
-from plane.app.analytics.management import ManagementAnalyticsService
+from plane.app.analytics.management import ManagementAnalyticsService, ManagementAnalyticsValidationError
+from plane.app.views.analytic.management import (
+    ManagementAnalyticsEndpoint,
+    ManagementAnalyticsSettingsEndpoint,
+)
 from plane.db.models import (
     Estimate,
     EstimatePoint,
@@ -15,6 +21,7 @@ from plane.db.models import (
     IssueAssignee,
     IssueBlocker,
     IssueRelation,
+    ManagementAnalyticsSettings,
     Project,
     State,
     Workspace,
@@ -74,7 +81,9 @@ def make_issue(workspace, project, state, name, **kwargs):
 
 
 def make_estimate_point(workspace, project, key=1, value="1"):
-    estimate = Estimate.objects.create(workspace=workspace, project=project, name=f"Points {key} {value}", type="points")
+    estimate = Estimate.objects.create(
+        workspace=workspace, project=project, name=f"Points {key} {value}", type="points"
+    )
     return EstimatePoint.objects.create(workspace=workspace, project=project, estimate=estimate, key=key, value=value)
 
 
@@ -155,7 +164,9 @@ def test_project_progress_uses_estimate_points():
     remaining_estimate = make_estimate_point(workspace, project, key=9, value="9")
     completed_estimate = make_estimate_point(workspace, project, key=3, value="3")
     make_issue(workspace, project, started, "Remaining", estimate_point=remaining_estimate)
-    make_issue(workspace, project, completed, "Completed", estimate_point=completed_estimate, completed_at=timezone.now())
+    make_issue(
+        workspace, project, completed, "Completed", estimate_point=completed_estimate, completed_at=timezone.now()
+    )
 
     service = ManagementAnalyticsService(workspace.slug, {"period": "last_30_days"})
     project_row = service.projects()["results"][0]
@@ -283,3 +294,139 @@ def test_workspace_isolation_keeps_other_workspace_out():
     service = ManagementAnalyticsService(workspace.slug, {"period": "last_30_days"})
 
     assert service.overview()["kpis"][2]["value"] == 1
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"period": "unknown"},
+        {"period": "custom", "start_date": "2026-07-01"},
+        {"period": "custom", "start_date": "invalid", "end_date": "2026-07-02"},
+        {"period": "custom", "start_date": "2026-07-02", "end_date": "2026-07-01"},
+        {"period": "custom", "start_date": "2025-01-01", "end_date": "2026-07-02"},
+    ],
+)
+def test_invalid_analytics_periods_are_rejected(params):
+    workspace, _ = make_workspace(f"period-{abs(hash(str(params))) % 100000}")
+
+    with pytest.raises(ManagementAnalyticsValidationError):
+        ManagementAnalyticsService(workspace.slug, params)
+
+
+def test_custom_date_period_includes_the_selected_end_day():
+    workspace, _ = make_workspace("custom-period-end")
+
+    service = ManagementAnalyticsService(
+        workspace.slug,
+        {"period": "custom", "start_date": "2026-07-01", "end_date": "2026-07-02"},
+    )
+
+    assert service.period.end - service.period.start == timedelta(days=2)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"project_ids": "not-a-uuid"},
+        {"member_ids": "not-a-uuid"},
+        {"priorities": "critical"},
+        {"planned": "sometimes"},
+    ],
+)
+def test_invalid_analytics_filters_are_rejected_before_querying(params):
+    workspace, _ = make_workspace(f"filter-{abs(hash(str(params))) % 100000}")
+    service = ManagementAnalyticsService(workspace.slug, params)
+
+    with pytest.raises(ManagementAnalyticsValidationError):
+        service.overview()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"unknown_setting": 1},
+        {"default_weekly_capacity": 0},
+        {"stale_work_days": 1.5},
+        {"low_utilization_threshold": 100, "high_utilization_threshold": 90},
+        {"risk_weights": {"invented_weight": 10}},
+        {"member_weekly_capacity": {"not-a-uuid": 30}},
+        {"hidden_analytics_blocks": {"invented-section": ["summary"]}},
+    ],
+)
+def test_invalid_analytics_settings_are_rejected_without_persisting(payload):
+    workspace, _ = make_workspace(f"settings-{abs(hash(str(payload))) % 100000}")
+    service = ManagementAnalyticsService(workspace.slug)
+    original_config = ManagementAnalyticsSettings.objects.get(workspace=workspace).config
+
+    with pytest.raises(ManagementAnalyticsValidationError):
+        service.update_settings(payload)
+
+    assert ManagementAnalyticsSettings.objects.get(workspace=workspace).config == original_config
+
+
+def test_valid_partial_analytics_settings_are_merged():
+    workspace, _ = make_workspace("valid-settings")
+    service = ManagementAnalyticsService(workspace.slug)
+
+    updated = service.update_settings(
+        {
+            "default_weekly_capacity": 40,
+            "hidden_analytics_blocks": {"overview": ["attention"]},
+        }
+    )
+
+    assert updated["default_weekly_capacity"] == 40
+    assert updated["hidden_analytics_blocks"] == {"overview": ["attention"]}
+    assert updated["overload_threshold"] == 110
+
+
+def test_unknown_drilldown_metric_and_export_section_are_rejected():
+    workspace, _ = make_workspace("unknown-analytics-contract")
+    service = ManagementAnalyticsService(workspace.slug)
+
+    with pytest.raises(ManagementAnalyticsValidationError):
+        service.drilldown("invented-metric")
+    with pytest.raises(ManagementAnalyticsValidationError):
+        service.export_csv("invented-section")
+
+
+def test_csv_export_escapes_cells_that_spreadsheets_treat_as_formulas():
+    workspace, member = make_workspace("safe-csv")
+    member.display_name = '=HYPERLINK("https://example.com")'
+    member.save(update_fields=["display_name", "updated_at"])
+
+    rows = list(csv.reader(ManagementAnalyticsService(workspace.slug).export_csv("team").splitlines()))
+
+    assert rows[1][0] == '\'=HYPERLINK("https://example.com")'
+
+
+def test_management_analytics_api_returns_400_for_invalid_input():
+    workspace, user = make_workspace("analytics-api-validation")
+    WorkspaceMember.objects.filter(workspace=workspace, member=user).update(role=30)
+    factory = APIRequestFactory()
+    invalid_period_request = factory.get(
+        "/api/workspaces/analytics-api-validation/management-analytics/overview/",
+        {"period": "custom", "start_date": "bad", "end_date": "2026-07-02"},
+    )
+    force_authenticate(invalid_period_request, user=user)
+    invalid_settings_request = factory.patch(
+        "/api/workspaces/analytics-api-validation/management-analytics-settings/",
+        {"default_weekly_capacity": 0},
+        format="json",
+    )
+    force_authenticate(invalid_settings_request, user=user)
+
+    period_response = ManagementAnalyticsEndpoint.as_view()(
+        invalid_period_request,
+        slug=workspace.slug,
+        section="overview",
+    )
+    settings_response = ManagementAnalyticsSettingsEndpoint.as_view()(
+        invalid_settings_request,
+        slug=workspace.slug,
+    )
+
+    assert period_response.status_code == 400
+    assert period_response.data["error"] == "Invalid start_date"
+    assert settings_response.status_code == 400
+    assert settings_response.data["error"] == "Invalid default_weekly_capacity"

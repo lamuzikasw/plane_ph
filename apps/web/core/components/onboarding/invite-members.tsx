@@ -27,7 +27,7 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { PlusIcon, CheckIcon, ChevronDownIcon } from "@plane/propel/icons";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
-import type { IUser, IWorkspace } from "@plane/types";
+import { EUserWorkspaceRoles, type IUser, type IWorkspace } from "@plane/types";
 // ui
 import { Input, Spinner } from "@plane/ui";
 // services
@@ -213,28 +213,30 @@ const InviteMemberInput = observer(function InviteMemberInput(props: InviteMembe
                     style={styles.popper}
                     {...attributes.popper}
                   >
-                    {Object.entries(ROLE_DETAILS).map(([key, value]) => (
-                      <Listbox.Option
-                        as="div"
-                        key={key}
-                        value={parseInt(key)}
-                        className={({ active, selected }) =>
-                          `cursor-pointer truncate rounded-sm px-1 py-1.5 select-none ${
-                            active || selected ? "bg-onboarding-background-400/40" : ""
-                          } ${selected ? "text-primary" : "text-secondary"}`
-                        }
-                      >
-                        {({ selected }) => (
-                          <div className="flex items-center gap-2 p-1 text-wrap">
-                            <div className="flex flex-col">
-                              <div className="text-13 font-medium">{t(value.i18n_title)}</div>
-                              <div className="flex text-11 text-tertiary">{t(value.i18n_description)}</div>
+                    {Object.entries(ROLE_DETAILS)
+                      .filter(([key]) => Number(key) !== EUserWorkspaceRoles.SUPER_ADMIN)
+                      .map(([key, roleDetails]) => (
+                        <Listbox.Option
+                          as="div"
+                          key={key}
+                          value={parseInt(key)}
+                          className={({ active, selected }) =>
+                            `cursor-pointer truncate rounded-sm px-1 py-1.5 select-none ${
+                              active || selected ? "bg-onboarding-background-400/40" : ""
+                            } ${selected ? "text-primary" : "text-secondary"}`
+                          }
+                        >
+                          {({ selected }) => (
+                            <div className="flex items-center gap-2 p-1 text-wrap">
+                              <div className="flex flex-col">
+                                <div className="text-13 font-medium">{t(roleDetails.i18n_title)}</div>
+                                <div className="flex text-11 text-tertiary">{t(roleDetails.i18n_description)}</div>
+                              </div>
+                              {selected && <CheckIcon className="h-4 w-4 shrink-0" />}
                             </div>
-                            {selected && <CheckIcon className="h-4 w-4 shrink-0" />}
-                          </div>
-                        )}
-                      </Listbox.Option>
-                    ))}
+                          )}
+                        </Listbox.Option>
+                      ))}
                   </div>
                 </Listbox.Options>
               </Listbox>
@@ -297,13 +299,13 @@ export function InviteMembers(props: Props) {
           role: email.role,
         })),
       })
-      .then(async () => {
+      .then(() => {
         setToast({
           type: TOAST_TYPE.SUCCESS,
           title: "Success!",
           message: "Invitations sent successfully.",
         });
-        await nextStep();
+        return nextStep();
       })
       .catch((err) => {
         setToast({

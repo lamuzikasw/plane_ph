@@ -91,10 +91,22 @@ class WorkSpaceMemberViewSet(BaseViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        requested_role = int(request.data.get("role", workspace_member.role))
+        try:
+            requested_role = int(request.data.get("role", workspace_member.role))
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "Invalid workspace role"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        allowed_roles = {role.value for role in ROLE}
+        if requested_role not in allowed_roles:
+            return Response(
+                {"error": "Invalid workspace role"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if (
-            requested_role == ROLE.SUPER_ADMIN.value
-            or workspace_member.role == ROLE.SUPER_ADMIN.value
+            requested_role == ROLE.SUPER_ADMIN.value or workspace_member.role == ROLE.SUPER_ADMIN.value
         ) and requesting_workspace_member.role != ROLE.SUPER_ADMIN.value:
             return Response(
                 {"error": "Only an OG can grant or revoke the OG role"},
@@ -113,7 +125,10 @@ class WorkSpaceMemberViewSet(BaseViewSet):
         if requested_role == ROLE.GUEST.value:
             ProjectMember.objects.filter(workspace__slug=slug, member_id=workspace_member.member_id).update(role=5)
 
-        serializer = WorkSpaceMemberSerializer(workspace_member, data=request.data, partial=True)
+        # This endpoint changes membership role only. Passing request.data to a
+        # model serializer would also allow unrelated membership fields to be
+        # modified through a crafted request.
+        serializer = WorkSpaceMemberSerializer(workspace_member, data={"role": requested_role}, partial=True)
 
         if serializer.is_valid():
             serializer.save()
@@ -139,6 +154,12 @@ class WorkSpaceMemberViewSet(BaseViewSet):
         if str(workspace_member.id) == str(requesting_workspace_member.id):
             return Response(
                 {"error": "You cannot remove yourself from the workspace. Please use leave workspace"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if workspace_member.role == ROLE.SUPER_ADMIN.value:
+            return Response(
+                {"error": "Revoke the OG role before removing this member from the workspace"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -189,6 +210,12 @@ class WorkSpaceMemberViewSet(BaseViewSet):
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def leave(self, request, slug):
         workspace_member = WorkspaceMember.objects.get(workspace__slug=slug, member=request.user, is_active=True)
+
+        if workspace_member.role == ROLE.SUPER_ADMIN.value:
+            return Response(
+                {"error": "An OG must be demoted by another OG before leaving the workspace"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Check if the leaving user is the only admin of the workspace
         if (

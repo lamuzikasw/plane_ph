@@ -61,6 +61,20 @@ class WorkspaceInvitationsViewset(BaseViewSet):
         # check for role level of the requesting user
         requesting_user = WorkspaceMember.objects.get(workspace__slug=slug, member=request.user, is_active=True)
 
+        normalized_emails = []
+        allowed_roles = {5, 15, 20, SUPER_ADMIN_ROLE}
+        for invitee in emails:
+            if not isinstance(invitee, dict):
+                return Response({"error": "Invalid invitation payload"}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                invitee_role = int(invitee.get("role", 5))
+            except (TypeError, ValueError):
+                return Response({"error": "Invalid workspace role"}, status=status.HTTP_400_BAD_REQUEST)
+            if invitee_role not in allowed_roles:
+                return Response({"error": "Invalid workspace role"}, status=status.HTTP_400_BAD_REQUEST)
+            normalized_emails.append({**invitee, "role": invitee_role})
+        emails = normalized_emails
+
         # Check if any invited user has an higher role
         if len([email for email in emails if int(email.get("role", 5)) > requesting_user.role]):
             return Response(

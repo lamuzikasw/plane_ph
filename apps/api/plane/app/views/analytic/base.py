@@ -15,7 +15,7 @@ from rest_framework import status
 from rest_framework.response import Response
 
 # Module imports
-from plane.app.permissions import WorkSpaceAdminPermission
+from plane.app.permissions import WorkSpaceSuperAdminPermission
 from plane.app.serializers import AnalyticViewSerializer
 from plane.app.views.base import BaseAPIView, BaseViewSet
 from plane.bgtasks.analytic_plot_export import analytic_export_task
@@ -35,7 +35,7 @@ from plane.app.permissions import allow_permission, ROLE
 
 
 class AnalyticsEndpoint(BaseAPIView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         x_axis = request.GET.get("x_axis", False)
         y_axis = request.GET.get("y_axis", False)
@@ -174,7 +174,7 @@ class AnalyticsEndpoint(BaseAPIView):
 
 
 class AnalyticViewViewset(BaseViewSet):
-    permission_classes = [WorkSpaceAdminPermission]
+    permission_classes = [WorkSpaceSuperAdminPermission]
     model = AnalyticView
     serializer_class = AnalyticViewSerializer
 
@@ -187,7 +187,7 @@ class AnalyticViewViewset(BaseViewSet):
 
 
 class SavedAnalyticEndpoint(BaseAPIView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def get(self, request, slug, analytic_id):
         analytic_view = AnalyticView.objects.get(pk=analytic_id, workspace__slug=slug)
 
@@ -220,7 +220,7 @@ class SavedAnalyticEndpoint(BaseAPIView):
 
 
 class ExportAnalyticsEndpoint(BaseAPIView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def post(self, request, slug):
         x_axis = request.data.get("x_axis", False)
         y_axis = request.data.get("y_axis", False)
@@ -249,7 +249,7 @@ class ExportAnalyticsEndpoint(BaseAPIView):
 
 
 class DefaultAnalyticsEndpoint(BaseAPIView):
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def get(self, request, slug):
         filters = issue_filters(request.GET, "GET")
         base_issues = Issue.issue_objects.filter(workspace__slug=slug, **filters)

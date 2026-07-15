@@ -9,6 +9,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { ArrowUpRight, Check, ChevronDown, CircleHelp, Search, SlidersHorizontal, X } from "lucide-react";
 import useSWR from "swr";
 import { useTranslation } from "@plane/i18n";
+import { setToast, TOAST_TYPE } from "@plane/propel/toast";
 import { Button, Loader } from "@plane/ui";
 import type { TIssue, TManagementAnalyticsKPI, TManagementAnalyticsSection } from "@plane/types";
 import { cn } from "@plane/utils";
@@ -458,6 +459,7 @@ export function ManagementAnalyticsSettings() {
   const { t } = useTranslation();
   const { workspaceSlug } = useParams();
   const [draft, setDraft] = useState<Record<string, any> | undefined>();
+  const [isSaving, setIsSaving] = useState(false);
   const { data, isLoading, mutate } = useSWR(
     workspaceSlug ? ["management-analytics-settings", workspaceSlug.toString()] : null,
     () => analyticsService.getManagementAnalyticsSettings(workspaceSlug.toString())
@@ -471,10 +473,26 @@ export function ManagementAnalyticsSettings() {
     });
 
   const save = async () => {
-    if (!workspaceSlug || !settings) return;
-    await analyticsService.updateManagementAnalyticsSettings(workspaceSlug.toString(), settings);
-    setDraft(undefined);
-    mutate();
+    if (!workspaceSlug || !settings || isSaving) return;
+    setIsSaving(true);
+    try {
+      await analyticsService.updateManagementAnalyticsSettings(workspaceSlug.toString(), settings);
+      setDraft(undefined);
+      await mutate();
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: "Настройки сохранены",
+        message: "Новые пороги применены к управленческой аналитике.",
+      });
+    } catch {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Не удалось сохранить настройки",
+        message: "Проверьте значения: ёмкость и дни должны быть больше нуля, а пороги — идти по возрастанию.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -487,35 +505,47 @@ export function ManagementAnalyticsSettings() {
               label={t("management_analytics.settings.default_capacity")}
               value={settings.default_weekly_capacity}
               onChange={(value) => updateDraft("default_weekly_capacity", value)}
+              min={1}
+              max={10000}
             />
             <SettingInput
               label={t("management_analytics.settings.low_threshold")}
               value={settings.low_utilization_threshold}
               onChange={(value) => updateDraft("low_utilization_threshold", value)}
+              min={1}
+              max={1000}
             />
             <SettingInput
               label={t("management_analytics.settings.high_threshold")}
               value={settings.high_utilization_threshold}
               onChange={(value) => updateDraft("high_utilization_threshold", value)}
+              min={1}
+              max={1000}
             />
             <SettingInput
               label={t("management_analytics.settings.overload_threshold")}
               value={settings.overload_threshold}
               onChange={(value) => updateDraft("overload_threshold", value)}
+              min={1}
+              max={1000}
             />
             <SettingInput
               label={t("management_analytics.settings.stale_days")}
               value={settings.stale_work_days}
               onChange={(value) => updateDraft("stale_work_days", value)}
+              min={1}
+              max={3650}
             />
             <SettingInput
               label={t("management_analytics.settings.max_wip_age")}
               value={settings.max_wip_age_days}
               onChange={(value) => updateDraft("max_wip_age_days", value)}
+              min={1}
+              max={3650}
             />
           </div>
           <div className="flex justify-end">
-            <Button size="sm" onClick={save}>
+            <Button size="sm" onClick={save} loading={isSaving}>
               {t("common.save")}
             </Button>
           </div>
@@ -2413,15 +2443,23 @@ function SettingInput({
   label,
   value,
   onChange,
+  min,
+  max,
 }: {
   label: string;
   value: string | number;
   onChange: (value: string) => void;
+  min: number;
+  max: number;
 }) {
   return (
     <label className="rounded border border-subtle bg-surface-1 p-3">
       <span className="text-12 font-medium text-secondary">{label}</span>
       <input
+        type="number"
+        inputMode="decimal"
+        min={min}
+        max={max}
         value={value ?? ""}
         onChange={(event) => onChange(event.target.value)}
         className="mt-2 h-8 w-full rounded border border-subtle bg-surface-2 px-2 text-13 text-primary outline-none"

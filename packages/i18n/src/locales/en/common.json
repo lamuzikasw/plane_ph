@@ -783,6 +783,10 @@
     }
   },
   "role_details": {
+    "super_admin": {
+      "title": "OG",
+      "description": "Leader access to every project, management analytics, and team reports."
+    },
     "guest": {
       "title": "Guest",
       "description": "External members of organizations can be invited as guests."

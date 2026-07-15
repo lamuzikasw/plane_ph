@@ -4,12 +4,16 @@
 from types import SimpleNamespace
 
 import pytest
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
+from plane.app.permissions import WorkSpaceAdminPermission, WorkSpaceSuperAdminPermission
+from plane.app.views.analytic.advance import AdvanceAnalyticsEndpoint
 from plane.app.views.analytic.management import ManagementAnalyticsEndpoint
 from plane.app.views.issue.base import IssueBulkUpdateDateEndpoint
 from plane.app.views.issue.relation import IssueRelationViewSet
 from plane.app.views.project.member import ProjectMemberViewSet
+from plane.app.views.workspace.invite import WorkspaceInvitationsViewset
+from plane.app.views.workspace.member import WorkSpaceMemberViewSet
 from plane.db.models import Issue, Project, ProjectMember, State, WorkspaceMember
 from plane.tests.factories import UserFactory, WorkspaceFactory
 
@@ -131,6 +135,84 @@ def test_management_analytics_is_denied_to_admin_and_available_to_super_admin():
 
 @pytest.mark.unit
 @pytest.mark.django_db
+def test_legacy_workspace_analytics_and_management_permissions_are_og_only():
+    admin = UserFactory(email="legacy-analytics-admin@plane.so", username="legacy-analytics-admin@plane.so")
+    leader = UserFactory(email="legacy-analytics-og@plane.so", username="legacy-analytics-og@plane.so")
+    workspace = WorkspaceFactory(slug="legacy-analytics-role-boundary", owner=leader)
+    WorkspaceMember.objects.create(workspace=workspace, member=admin, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=leader, role=30)
+    factory = APIRequestFactory()
+
+    admin_request = factory.get(f"/api/workspaces/{workspace.slug}/advance-analytics/?tab=overview")
+    force_authenticate(admin_request, user=admin)
+    denied = AdvanceAnalyticsEndpoint.as_view()(admin_request, slug=workspace.slug)
+
+    leader_request = factory.get(f"/api/workspaces/{workspace.slug}/advance-analytics/?tab=overview")
+    force_authenticate(leader_request, user=leader)
+    allowed = AdvanceAnalyticsEndpoint.as_view()(leader_request, slug=workspace.slug)
+
+    admin_permission_request = SimpleNamespace(user=admin)
+    leader_permission_request = SimpleNamespace(user=leader)
+    view = SimpleNamespace(workspace_slug=workspace.slug)
+
+    assert denied.status_code == 403
+    assert allowed.status_code == 200
+    assert WorkSpaceSuperAdminPermission().has_permission(admin_permission_request, view) is False
+    assert WorkSpaceSuperAdminPermission().has_permission(leader_permission_request, view) is True
+    assert WorkSpaceAdminPermission().has_permission(leader_permission_request, view) is True
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_workspace_role_update_rejects_unknown_roles_and_ignores_unrelated_fields():
+    leader = UserFactory(email="role-update-og@plane.so", username="role-update-og@plane.so")
+    member = UserFactory(email="role-update-member@plane.so", username="role-update-member@plane.so")
+    workspace = WorkspaceFactory(slug="role-update-boundary", owner=leader)
+    WorkspaceMember.objects.create(workspace=workspace, member=leader, role=30)
+    membership = WorkspaceMember.objects.create(workspace=workspace, member=member, role=20)
+    view = WorkSpaceMemberViewSet()
+
+    invalid = view.partial_update(
+        SimpleNamespace(user=leader, data={"role": 999}),
+        slug=workspace.slug,
+        pk=membership.id,
+    )
+    updated = view.partial_update(
+        SimpleNamespace(user=leader, data={"role": 15, "is_active": False, "workspace": None}),
+        slug=workspace.slug,
+        pk=membership.id,
+    )
+
+    membership.refresh_from_db()
+    assert invalid.status_code == 400
+    assert invalid.data["error"] == "Invalid workspace role"
+    assert updated.status_code == 200
+    assert membership.role == 15
+    assert membership.is_active is True
+    assert membership.workspace_id == workspace.id
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_workspace_invite_rejects_an_unknown_role_before_creating_records():
+    og = UserFactory(email="invite-og@plane.so", username="invite-og@plane.so")
+    workspace = WorkspaceFactory(slug="invite-role-boundary", owner=og)
+    WorkspaceMember.objects.create(workspace=workspace, member=og, role=30)
+
+    response = WorkspaceInvitationsViewset().create(
+        SimpleNamespace(
+            user=og,
+            data={"emails": [{"email": "invitee@plane.so", "role": 999}]},
+        ),
+        slug=workspace.slug,
+    )
+
+    assert response.status_code == 400
+    assert response.data["error"] == "Invalid workspace role"
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
 def test_project_settings_cannot_change_or_remove_og_access():
     og = UserFactory(email="project-og@plane.so", username="project-og@plane.so")
     workspace = WorkspaceFactory(slug="project-og-boundary", owner=og)
@@ -168,3 +250,36 @@ def test_project_settings_cannot_change_or_remove_og_access():
     assert remove_response.status_code == 403
     project_member.refresh_from_db()
     assert project_member.is_active is True
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_workspace_og_must_be_demoted_before_removal_or_leave():
+    requesting_og = UserFactory(email="requesting-og@plane.so", username="requesting-og@plane.so")
+    target_og = UserFactory(email="target-og@plane.so", username="target-og@plane.so")
+    workspace = WorkspaceFactory(slug="workspace-og-boundary", owner=requesting_og)
+    requesting_membership = WorkspaceMember.objects.create(workspace=workspace, member=requesting_og, role=30)
+    target_membership = WorkspaceMember.objects.create(workspace=workspace, member=target_og, role=30)
+    view = WorkSpaceMemberViewSet()
+
+    remove_response = view.destroy(
+        SimpleNamespace(user=requesting_og),
+        slug=workspace.slug,
+        pk=target_membership.id,
+    )
+    leave_response = view.leave(
+        SimpleNamespace(
+            user=requesting_og,
+            resolver_match=SimpleNamespace(kwargs={"slug": workspace.slug}),
+        ),
+        slug=workspace.slug,
+    )
+
+    assert remove_response.status_code == 400
+    assert remove_response.data["error"] == "Revoke the OG role before removing this member from the workspace"
+    assert leave_response.status_code == 400
+    assert leave_response.data["error"] == "An OG must be demoted by another OG before leaving the workspace"
+    requesting_membership.refresh_from_db()
+    target_membership.refresh_from_db()
+    assert requesting_membership.is_active is True
+    assert target_membership.is_active is True

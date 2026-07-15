@@ -10,6 +10,7 @@ from .workspace import (
     WorkspaceViewerPermission,
     WorkspaceUserPermission,
     WorkspaceMemberPermission,
+    WorkSpaceSuperAdminPermission,
 )
 from .project import (
     ProjectBasePermission,

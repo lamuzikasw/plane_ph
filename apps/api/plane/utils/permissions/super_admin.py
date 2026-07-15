@@ -19,18 +19,18 @@ def grant_workspace_super_admin_access(workspace, member):
         if membership:
             if not membership.is_active:
                 membership.is_active = True
-                membership.save(update_fields=["is_active", "updated_at"])
+                # This membership was reactivated only because of the OG role.
+                # Mark it as implicit access so revoking OG cannot accidentally
+                # leave a previously inactive project membership active.
+                membership.is_super_admin_access = True
+                membership.save(update_fields=["is_active", "is_super_admin_access", "updated_at"])
             continue
 
         # Reuse a soft-deleted membership instead of creating a duplicate. A
         # ProjectMember creates a ProjectUserProperty on first save, so blindly
         # recreating it can violate that property's uniqueness constraint when
         # the super-admin role is granted for a second time.
-        membership = (
-            ProjectMember.all_objects.filter(project=project, member=member)
-            .order_by("-created_at")
-            .first()
-        )
+        membership = ProjectMember.all_objects.filter(project=project, member=member).order_by("-created_at").first()
         if membership:
             membership.deleted_at = None
             membership.is_active = True

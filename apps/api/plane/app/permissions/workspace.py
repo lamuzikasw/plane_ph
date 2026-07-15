@@ -10,6 +10,7 @@ from plane.db.models import WorkspaceMember
 
 
 # Permission Mappings
+SuperAdmin = 30
 Admin = 20
 Member = 15
 Guest = 5
@@ -34,7 +35,7 @@ class WorkSpaceBasePermission(BasePermission):
             return WorkspaceMember.objects.filter(
                 member=request.user,
                 workspace__slug=view.workspace_slug,
-                role__in=[Admin, Member],
+                role__in=[SuperAdmin, Admin, Member],
                 is_active=True,
             ).exists()
 
@@ -43,7 +44,7 @@ class WorkSpaceBasePermission(BasePermission):
             return WorkspaceMember.objects.filter(
                 member=request.user,
                 workspace__slug=view.workspace_slug,
-                role=Admin,
+                role__in=[SuperAdmin, Admin],
                 is_active=True,
             ).exists()
 
@@ -54,7 +55,10 @@ class WorkspaceOwnerPermission(BasePermission):
             return False
 
         return WorkspaceMember.objects.filter(
-            workspace__slug=view.workspace_slug, member=request.user, role=Admin, is_active=True
+            workspace__slug=view.workspace_slug,
+            member=request.user,
+            role__in=[SuperAdmin, Admin],
+            is_active=True,
         ).exists()
 
 
@@ -66,7 +70,7 @@ class WorkSpaceAdminPermission(BasePermission):
         return WorkspaceMember.objects.filter(
             member=request.user,
             workspace__slug=view.workspace_slug,
-            role__in=[Admin, Member],
+            role__in=[SuperAdmin, Admin, Member],
             is_active=True,
         ).exists()
 
@@ -85,7 +89,22 @@ class WorkspaceEntityPermission(BasePermission):
         return WorkspaceMember.objects.filter(
             member=request.user,
             workspace__slug=view.workspace_slug,
-            role__in=[Admin, Member],
+            role__in=[SuperAdmin, Admin, Member],
+            is_active=True,
+        ).exists()
+
+
+class WorkSpaceSuperAdminPermission(BasePermission):
+    """Allows workspace-wide management data only to active OG users."""
+
+    def has_permission(self, request, view):
+        if request.user.is_anonymous:
+            return False
+
+        return WorkspaceMember.objects.filter(
+            member=request.user,
+            workspace__slug=view.workspace_slug,
+            role=SuperAdmin,
             is_active=True,
         ).exists()
 
@@ -130,8 +149,6 @@ class WorkspaceMemberPermission(BasePermission):
 
         slug = view.kwargs.get("slug")
         if slug:
-            return WorkspaceMember.objects.filter(
-                workspace__slug=slug, member=request.user, is_active=True
-            ).exists()
+            return WorkspaceMember.objects.filter(workspace__slug=slug, member=request.user, is_active=True).exists()
 
         return False

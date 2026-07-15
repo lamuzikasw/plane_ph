@@ -101,7 +101,7 @@ class AdvanceAnalyticsEndpoint(AdvanceAnalyticsBaseView):
             "completed_work_items": self.get_filtered_counts(base_queryset.filter(state__group="completed")),
         }
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def get(self, request: HttpRequest, slug: str) -> Response:
         self.initialize_workspace(slug, type="analytics")
         tab = request.GET.get("tab", "overview")
@@ -155,7 +155,7 @@ class AdvanceAnalyticsStatsEndpoint(AdvanceAnalyticsBaseView):
             .order_by("project_id")
         )
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def get(self, request: HttpRequest, slug: str) -> Response:
         self.initialize_workspace(slug, type="chart")
         type = request.GET.get("type", "work-items")
@@ -282,7 +282,7 @@ class AdvanceAnalyticsChartEndpoint(AdvanceAnalyticsBaseView):
 
         return {"data": data, "schema": schema}
 
-    @allow_permission([ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
+    @allow_permission([ROLE.SUPER_ADMIN], level="WORKSPACE")
     def get(self, request: HttpRequest, slug: str) -> Response:
         self.initialize_workspace(slug, type="chart")
         type = request.GET.get("type", "projects")

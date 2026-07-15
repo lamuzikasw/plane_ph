@@ -134,10 +134,45 @@ WEEKLY_SUMMARY_QUESTIONS = [
     "Игорь итогм недели пж",
 ]
 
+TEAM_SUMMARY_SUBJECTS = [
+    "команда",
+    "вся команда",
+    "наша команда",
+    "коллектив",
+    "ребята",
+    "сотрудники",
+    "разработчики",
+    "разрабы",
+    "отдел",
+    "мы",
+]
+
+TEAM_SUMMARY_TEMPLATES = [
+    "Собери недельный саммари: {subject}",
+    "Что {subject} сделали за прошлую неделю?",
+    "Подведи итоги за неделю — {subject}",
+    "Подготовь weekly report: {subject}",
+    "Дай отчёт за текущую неделю по группе «{subject}»",
+    "Какие результаты за семь дней показали {subject}?",
+    "Нужен пятничный отчёт: {subject}",
+    "Сделай рабочий дайджест за неделю — {subject}",
+    "Что закрыли на этой неделе: {subject}?",
+    "Игорь, дай recap за last week — {subject}",
+]
+
+TEAM_WEEKLY_SUMMARY_QUESTIONS = [
+    template.format(subject=subject) for subject in TEAM_SUMMARY_SUBJECTS for template in TEAM_SUMMARY_TEMPLATES
+]
+
 
 def test_weekly_summary_question_contract_contains_exactly_100_variants():
     assert len(WEEKLY_SUMMARY_QUESTIONS) == 100
     assert len(set(WEEKLY_SUMMARY_QUESTIONS)) == 100
+
+
+def test_team_weekly_summary_question_contract_contains_exactly_100_variants():
+    assert len(TEAM_WEEKLY_SUMMARY_QUESTIONS) == 100
+    assert len(set(TEAM_WEEKLY_SUMMARY_QUESTIONS)) == 100
 
 
 @pytest.mark.parametrize("message", WEEKLY_SUMMARY_QUESTIONS)
@@ -607,6 +642,7 @@ def test_manager_request_recognizes_report_subject_instead_of_treating_recipient
     assert context["intent"] == "weekly_summary"
     assert context["member"] == teammate
     assert context["scope"] == "member"
+    assert context["summary_subject"] == "member"
 
 
 @pytest.mark.unit
@@ -831,6 +867,166 @@ def test_manager_personal_two_project_and_all_project_scopes_are_distinct():
     assert len(all_projects_context["projects"]) == 3
     assert all_projects_context["member"] is None
     assert all_projects_metrics["completed"] == 6
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_og_collective_weekly_phrases_select_team_instead_of_personal_scope():
+    manager = UserFactory(email="team-scope-og@plane.so", username="team-scope-og@plane.so")
+    workspace = WorkspaceFactory(slug="igor-team-language", owner=manager, timezone="UTC")
+    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=30)
+    endpoint = IgorChatEndpoint()
+
+    team_phrases = [
+        "Дай мне недельный саммари по команде",
+        "Что команда успела за неделю?",
+        "Игорь, чё мы сделали?",
+        "Как отработали ребята за прошлую неделю?",
+        "Подготовь отчёт по сотрудникам за семь дней",
+        "Что закрыл отдел на этой неделе?",
+        "Дай team recap за прошлую неделю",
+        "Собери мой командный отчёт",
+    ]
+
+    for message in team_phrases:
+        context = endpoint._resolve_query_context(message, workspace, manager, [], {})
+        assert context["intent"] == "weekly_summary", message
+        assert context["scope"] == "all_projects", message
+        assert context["summary_subject"] == "team", message
+        assert context["member"] is None, message
+
+    personal_context = endpoint._resolve_query_context(
+        "Собери мой summary за прошлую неделю",
+        workspace,
+        manager,
+        [],
+        {},
+    )
+    assert personal_context["scope"] == "personal"
+    assert personal_context["summary_subject"] == "personal"
+    assert personal_context["member"] == manager
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_og_recognizes_100_team_weekly_summary_phrasings():
+    manager = UserFactory(email="team-100-og@plane.so", username="team-100-og@plane.so")
+    workspace = WorkspaceFactory(slug="igor-team-100", owner=manager, timezone="UTC")
+    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=30)
+    endpoint = IgorChatEndpoint()
+
+    for message in TEAM_WEEKLY_SUMMARY_QUESTIONS:
+        context = endpoint._resolve_query_context(message, workspace, manager, [], {})
+        assert context["intent"] == "weekly_summary", message
+        assert context["summary_subject"] == "team", message
+        assert context["scope"] == "all_projects", message
+        assert context["member"] is None, message
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_team_summary_follow_up_keeps_team_subject_until_user_explicitly_changes_it():
+    manager = UserFactory(email="team-follow-up-og@plane.so", username="team-follow-up-og@plane.so")
+    workspace = WorkspaceFactory(slug="igor-team-follow-up", owner=manager, timezone="UTC")
+    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=30)
+    endpoint = IgorChatEndpoint()
+
+    initial = endpoint._resolve_query_context(
+        "Собери недельный отчёт по команде",
+        workspace,
+        manager,
+        [],
+        {},
+    )
+    history = [{"role": "assistant", "text": "Готово", "context": endpoint._response_context(initial)}]
+    detailed = endpoint._resolve_query_context("А теперь подробнее", workspace, manager, history, {})
+    personal = endpoint._resolve_query_context("А теперь мой отчет", workspace, manager, history, {})
+
+    assert detailed["summary_subject"] == "team"
+    assert detailed["scope"] == "all_projects"
+    assert detailed["member"] is None
+    assert personal["summary_subject"] == "personal"
+    assert personal["scope"] == "personal"
+    assert personal["member"] == manager
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_team_summary_counts_unique_assigned_human_work_only(monkeypatch):
+    manager = UserFactory(
+        email="team-facts-og@plane.so",
+        username="team-facts-og@plane.so",
+        display_name="Илья",
+    )
+    teammate = UserFactory(
+        email="team-facts-member@plane.so",
+        username="team-facts-member@plane.so",
+        display_name="Сева",
+    )
+    inactive_member = UserFactory(email="team-facts-inactive@plane.so", username="team-facts-inactive@plane.so")
+    bot = UserFactory(email="team-facts-bot@plane.so", username="team-facts-bot@plane.so", is_bot=True)
+    workspace = WorkspaceFactory(slug="igor-team-facts", owner=manager, timezone="UTC")
+    WorkspaceMember.objects.create(workspace=workspace, member=manager, role=30)
+    WorkspaceMember.objects.create(workspace=workspace, member=teammate, role=15)
+    WorkspaceMember.objects.create(workspace=workspace, member=inactive_member, role=15, is_active=False)
+    WorkspaceMember.objects.create(workspace=workspace, member=bot, role=15)
+    project = Project.objects.create(
+        workspace=workspace,
+        name="Team Facts",
+        identifier="TF",
+        network=0,
+        project_lead=manager,
+    )
+    done = State.objects.create(
+        workspace=workspace,
+        project=project,
+        name="Done",
+        color="#46A758",
+        group="completed",
+    )
+    shared_issue = Issue.objects.create(project=project, state=done, name="Shared team result")
+    teammate_issue = Issue.objects.create(project=project, state=done, name="Teammate result")
+    unassigned_issue = Issue.objects.create(project=project, state=done, name="Unassigned result")
+    inactive_issue = Issue.objects.create(project=project, state=done, name="Inactive member result")
+    bot_issue = Issue.objects.create(project=project, state=done, name="Bot result")
+    IssueAssignee.objects.create(project=project, issue=shared_issue, assignee=manager)
+    IssueAssignee.objects.create(project=project, issue=shared_issue, assignee=teammate)
+    IssueAssignee.objects.create(project=project, issue=teammate_issue, assignee=teammate)
+    IssueAssignee.objects.create(project=project, issue=inactive_issue, assignee=inactive_member)
+    IssueAssignee.objects.create(project=project, issue=bot_issue, assignee=bot)
+
+    now = timezone.now()
+    endpoint = IgorChatEndpoint()
+    monkeypatch.setattr(endpoint, "_get_igor_llm_config", lambda: (None, "gpt-4o-mini", None, 8.0))
+    result = endpoint._build_weekly_summary(
+        workspace,
+        {
+            "intent": "weekly_summary",
+            "period_start": now - timedelta(days=1),
+            "period_end": now + timedelta(days=1),
+            "period_label": "тестовая неделя",
+            "member": None,
+            "projects": [project],
+            "summary_subject": "team",
+        },
+        manager,
+    )
+
+    metrics = {metric["key"]: metric["value"] for metric in result["widget"]["metrics"]}
+    completed_names = {
+        item["name"]
+        for section in result["widget"]["sections"]
+        if section["key"] == "completed"
+        for item in section["items"]
+    }
+    assert metrics["completed"] == 2
+    assert completed_names == {"Shared team result", "Teammate result"}
+    assert unassigned_issue.name not in result["widget"]["copy_text"]
+    assert inactive_issue.name not in result["widget"]["copy_text"]
+    assert bot_issue.name not in result["widget"]["copy_text"]
+    assert "Илья, Сева: Shared team result" in result["widget"]["copy_text"]
+    assert "Сева: Teammate result" in result["widget"]["copy_text"]
+    assert "активных сотрудников с указанным исполнителем" in result["widget"]["source_note"]
 
 
 @pytest.mark.unit

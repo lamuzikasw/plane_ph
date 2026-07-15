@@ -222,7 +222,7 @@ export const WORKSPACE_SIDEBAR_DYNAMIC_NAVIGATION_ITEMS: Record<string, IWorkspa
     key: "analytics",
     labelTranslationKey: "analytics",
     href: `/analytics/`,
-    access: [EUserWorkspaceRoles.ADMIN, EUserWorkspaceRoles.MEMBER],
+    access: [EUserWorkspaceRoles.SUPER_ADMIN],
     highlight: (pathname: string, url: string) => pathname.includes(url),
   },
   archives: {

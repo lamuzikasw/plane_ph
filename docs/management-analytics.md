@@ -8,7 +8,8 @@ Management Analytics extends the existing workspace Analytics area with CTO-orie
 - `ManagementAnalyticsService` owns formulas, filtering, risk scoring, data quality checks, and CSV export.
 - `ManagementAnalyticsSettings` stores workspace-specific thresholds and capacity settings.
 - Frontend tabs live in the existing `/:workspaceSlug/analytics/:tabId` route.
-- Existing permissions are reused: workspace members can read analytics; workspace admins and members can update settings/export.
+- Управленческая аналитика, её настройки и CSV-экспорт доступны только роли `OG`.
+- Обычные сотрудники получают только два личных drilldown-среза для страницы «Сегодня»: собственные активные и заблокированные задачи.
 
 ## Endpoints
 
@@ -23,6 +24,8 @@ Management Analytics extends the existing workspace Analytics area with CTO-orie
 - `GET /management-analytics/<section>/export/`
 
 All section endpoints accept shared query parameters: `period`, `start_date`, `end_date`, `project_ids`, `member_ids`, `assignee_ids`, `state_ids`, `priorities`, `label_ids`, `module_ids`, `cycle_ids`, and `planned`.
+
+Пользовательский период ограничен 366 днями. Неизвестные периоды, метрики, разделы и некорректные даты возвращают HTTP 400. Настройки принимают только известную схему и безопасные диапазоны значений. CSV-экспорт экранирует значения, которые Excel может интерпретировать как формулы.
 
 ## Formulas
 

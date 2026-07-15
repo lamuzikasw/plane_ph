@@ -110,15 +110,6 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
       })
   );
 
-  const { data: unassignedData, isLoading: unassignedLoading } = useSWR(
-    workspaceSlugString && canViewManagementAnalytics ? ["today-unassigned", workspaceSlugString] : null,
-    () =>
-      analyticsService.getManagementAnalyticsDrilldown(workspaceSlugString, {
-        metric: "missing_assignee",
-        period: currentPeriod,
-      })
-  );
-
   const { data: teamData, isLoading: teamLoading } = useSWR(
     workspaceSlugString && canViewManagementAnalytics ? ["today-team", workspaceSlugString] : null,
     () => analyticsService.getManagementAnalytics(workspaceSlugString, "team", { period: currentPeriod })
@@ -126,11 +117,12 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
 
   const activeRows = useMemo(() => (activeData?.rows ?? []) as TIssueRow[], [activeData?.rows]);
   const blockedRows = useMemo(() => (blockedData?.rows ?? []) as TIssueRow[], [blockedData?.rows]);
-  const unassignedRows = useMemo(() => (unassignedData?.rows ?? []) as TIssueRow[], [unassignedData?.rows]);
   const teamRows = useMemo(() => (teamData?.results ?? []) as TMemberRow[], [teamData?.results]);
 
-  const todayBucketRows = useMemo(() => mergeIssueRows(activeRows, unassignedRows), [activeRows, unassignedRows]);
-  const todayBuckets = useMemo(() => buildTodayBuckets(todayBucketRows, blockedRows), [todayBucketRows, blockedRows]);
+  // "Сегодня" is always a personal surface, including for OG users. Management
+  // access unlocks separate team panels, but must never broaden the task rows
+  // used by the personal cards or copied digest.
+  const todayBuckets = useMemo(() => buildTodayBuckets(activeRows, blockedRows), [activeRows, blockedRows]);
   const todayStatDetails = useMemo<Record<TTodayStatKey, TTodayStatDetail>>(
     () => ({
       dueToday: {
@@ -189,7 +181,9 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
     }
   };
 
-  const isLoading = activeLoading || blockedLoading || unassignedLoading || teamLoading;
+  // Team profiles are an optional OG-only panel and must not hold the personal
+  // digest in a loading state while its heavier analytics request is running.
+  const isLoading = activeLoading || blockedLoading;
 
   return (
     <>
@@ -207,7 +201,9 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
                     Фокус на день, {currentUser?.display_name || currentUser?.email || "коллега"}
                   </h1>
                   <p className="mt-1 max-w-2xl text-13 text-secondary">
-                    Короткая рабочая витрина: что горит, что нужно сделать сегодня, кто чем занят и где нужна помощь.
+                    {canViewManagementAnalytics
+                      ? "Короткая рабочая витрина: что горит, что нужно сделать сегодня, кто чем занят и где нужна помощь."
+                      : "Короткая рабочая витрина: что горит, что нужно сделать сегодня и где нужна помощь."}
                   </p>
                 </div>
                 <Button variant="neutral-primary" size="sm" onClick={copyDigest}>
@@ -268,7 +264,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
                     />
                     <IssuePanel
                       title="Ближайшее"
-                      description="Назначенные и незакрепленные задачи после сегодняшнего дня."
+                      description="Назначенные вам задачи после сегодняшнего дня."
                       emptyText="Ближайших задач со сроком нет."
                       rows={todayBuckets.upcoming.slice(0, 6)}
                       icon={<Clock3 className="h-4 w-4" />}
@@ -280,58 +276,69 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
                   <DigestCard digestText={digestText} onCopy={copyDigest} />
                 </section>
 
-                <section className="rounded border border-subtle bg-surface-1">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-subtle px-4 py-3">
-                    <div>
-                      <h2 className="text-15 font-semibold text-primary">Профили сотрудников</h2>
-                      <p className="mt-0.5 text-12 text-secondary">
-                        Быстрый ответ на вопрос: кто чем занимается и где есть риск.
-                      </p>
+                {canViewManagementAnalytics && (
+                  <section className="rounded border border-subtle bg-surface-1">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-subtle px-4 py-3">
+                      <div>
+                        <h2 className="text-15 font-semibold text-primary">Профили сотрудников</h2>
+                        <p className="mt-0.5 text-12 text-secondary">
+                          Быстрый ответ на вопрос: кто чем занимается и где есть риск.
+                        </p>
+                      </div>
+                      <label className="flex h-8 min-w-[280px] items-center gap-2 rounded border border-subtle bg-surface-2 px-2.5 text-12">
+                        <Search className="h-3.5 w-3.5 text-tertiary" />
+                        <input
+                          value={searchQuery}
+                          onChange={(event) => setSearchQuery(event.target.value)}
+                          placeholder="Найти сотрудника или задачу"
+                          className="h-full w-full bg-transparent text-primary outline-none placeholder:text-tertiary"
+                        />
+                      </label>
                     </div>
-                    <label className="flex h-8 min-w-[280px] items-center gap-2 rounded border border-subtle bg-surface-2 px-2.5 text-12">
-                      <Search className="h-3.5 w-3.5 text-tertiary" />
-                      <input
-                        value={searchQuery}
-                        onChange={(event) => setSearchQuery(event.target.value)}
-                        placeholder="Найти сотрудника или задачу"
-                        className="h-full w-full bg-transparent text-primary outline-none placeholder:text-tertiary"
-                      />
-                    </label>
-                  </div>
-                  <div className="divide-y divide-subtle">
-                    {teamSearchRows.map((member) => (
-                      <button
-                        key={member.id}
-                        type="button"
-                        className="grid w-full grid-cols-[minmax(180px,0.9fr)_minmax(220px,1.4fr)_repeat(4,minmax(80px,0.45fr))] items-center gap-3 px-4 py-3 text-left text-13 transition-colors hover:bg-surface-2"
-                        onClick={() => setSelectedMember(member)}
-                      >
-                        <MemberCell member={member} />
-                        <div className="min-w-0">
-                          <div className="truncate font-medium text-primary">
-                            {getMainIssueLabel(member.main_work_item)}
-                          </div>
-                          <div className="mt-0.5 text-11 text-tertiary">Основная задача</div>
-                        </div>
-                        <MetricPill label="Активно" value={member.active_work_items} />
-                        <MetricPill
-                          label="Блокеры"
-                          value={member.blocked_work_items}
-                          danger={member.blocked_work_items > 0}
-                        />
-                        <MetricPill
-                          label="Просрочка"
-                          value={member.overdue_work_items}
-                          danger={member.overdue_work_items > 0}
-                        />
-                        <MetricPill label="Загрузка" value={`${member.workload?.percent ?? 0}%`} />
-                      </button>
-                    ))}
-                    {teamSearchRows.length === 0 && (
-                      <div className="px-4 py-8 text-center text-13 text-tertiary">Ничего не найдено.</div>
+                    {teamLoading ? (
+                      <div className="p-4">
+                        <Loader className="space-y-3">
+                          <Loader.Item height="40px" />
+                          <Loader.Item height="40px" />
+                        </Loader>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-subtle">
+                        {teamSearchRows.map((member) => (
+                          <button
+                            key={member.id}
+                            type="button"
+                            className="grid w-full grid-cols-[minmax(180px,0.9fr)_minmax(220px,1.4fr)_repeat(4,minmax(80px,0.45fr))] items-center gap-3 px-4 py-3 text-left text-13 transition-colors hover:bg-surface-2"
+                            onClick={() => setSelectedMember(member)}
+                          >
+                            <MemberCell member={member} />
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-primary">
+                                {getMainIssueLabel(member.main_work_item)}
+                              </div>
+                              <div className="mt-0.5 text-11 text-tertiary">Основная задача</div>
+                            </div>
+                            <MetricPill label="Активно" value={member.active_work_items} />
+                            <MetricPill
+                              label="Блокеры"
+                              value={member.blocked_work_items}
+                              danger={member.blocked_work_items > 0}
+                            />
+                            <MetricPill
+                              label="Просрочка"
+                              value={member.overdue_work_items}
+                              danger={member.overdue_work_items > 0}
+                            />
+                            <MetricPill label="Загрузка" value={`${member.workload?.percent ?? 0}%`} />
+                          </button>
+                        ))}
+                        {teamSearchRows.length === 0 && (
+                          <div className="px-4 py-8 text-center text-13 text-tertiary">Ничего не найдено.</div>
+                        )}
+                      </div>
                     )}
-                  </div>
-                </section>
+                  </section>
+                )}
               </>
             )}
           </div>
@@ -339,7 +346,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
       </div>
       <EmployeeDrawer
         workspaceSlug={workspaceSlugString}
-        member={selectedMember}
+        member={canViewManagementAnalytics ? selectedMember : undefined}
         onClose={() => setSelectedMember(undefined)}
         onOpenIssue={openIssue}
       />
@@ -779,14 +786,6 @@ function buildTodayBuckets(activeRows: TIssueRow[], blockedRows: TIssueRow[]) {
       compareIssuesForFocus
     ),
   };
-}
-
-function mergeIssueRows(...groups: TIssueRow[][]) {
-  const issueMap = new Map<string, TIssueRow>();
-  groups.flat().forEach((issue) => {
-    issueMap.set(issue.id, issue);
-  });
-  return [...issueMap.values()];
 }
 
 function sortCopy<T>(rows: T[], compare: (a: T, b: T) => number) {

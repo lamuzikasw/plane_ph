@@ -84,6 +84,7 @@ def test_super_admin_grants_are_complete_and_revocation_preserves_explicit_membe
     workspace = WorkspaceFactory(slug="super-admin-access", owner=leader)
     WorkspaceMember.objects.create(workspace=workspace, member=leader, role=30)
     explicit_project, _ = _project(workspace, leader, "Explicit", "EXP")
+    inactive_project, _ = _project(workspace, leader, "Inactive explicit", "INACTIVE")
     implicit_project, _ = _project(workspace, leader, "Implicit", "IMP")
     explicit = ProjectMember.objects.create(
         workspace=workspace,
@@ -91,11 +92,21 @@ def test_super_admin_grants_are_complete_and_revocation_preserves_explicit_membe
         member=leader,
         role=20,
     )
+    inactive_explicit = ProjectMember.objects.create(
+        workspace=workspace,
+        project=inactive_project,
+        member=leader,
+        role=15,
+        is_active=False,
+    )
 
     grant_workspace_super_admin_access(workspace, leader)
 
     implicit = ProjectMember.objects.get(project=implicit_project, member=leader)
+    inactive_explicit.refresh_from_db()
     assert explicit.is_super_admin_access is False
+    assert inactive_explicit.is_active is True
+    assert inactive_explicit.is_super_admin_access is True
     assert implicit.is_super_admin_access is True
 
     new_project, _ = _project(workspace, leader, "New", "NEW")
@@ -109,7 +120,9 @@ def test_super_admin_grants_are_complete_and_revocation_preserves_explicit_membe
 
     revoke_workspace_super_admin_access(workspace, leader)
     explicit.refresh_from_db()
+    inactive_explicit.refresh_from_db()
     assert explicit.is_active is True
+    assert inactive_explicit.is_active is False
     assert not ProjectMember.objects.filter(member=leader, is_super_admin_access=True, is_active=True).exists()
 
     grant_workspace_super_admin_access(workspace, leader)
