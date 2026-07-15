@@ -88,6 +88,15 @@ export type TIgorCaptureCategoryItem = {
   source_id: string;
   summary: string;
   source_text: string;
+  section?: string | null;
+  section_path?: string[];
+};
+
+export type TIgorSpecSourceRef = {
+  id: string;
+  text: string;
+  section: string | null;
+  section_path: string[];
 };
 
 export type TIgorCaptureCategory = {
@@ -120,6 +129,33 @@ export type TIgorCaptureTask = {
     name: string;
     identifier: string;
   } | null;
+  kind?: "implementation" | "integration" | "content" | "testing" | "migration" | "observability" | "research";
+  fact_ids?: string[];
+  dependency_task_ids?: string[];
+  source_refs?: TIgorSpecSourceRef[];
+};
+
+export type TIgorSpecConstraint = {
+  id: string;
+  kind: "in_scope" | "out_of_scope" | "invariant" | "prohibition";
+  text: string;
+  source_ids: string[];
+};
+
+export type TIgorSpecQuestion = {
+  id: string;
+  question: string;
+  reason: string;
+  blocking: boolean;
+  source_ids: string[];
+  related_task_ids: string[];
+};
+
+export type TIgorSpecContradiction = {
+  id: string;
+  description: string;
+  source_ids: string[];
+  related_task_ids: string[];
 };
 
 export type TIgorCaptureWidget = {
@@ -144,6 +180,49 @@ export type TIgorCaptureWidget = {
     project_ids: string[];
   }[];
   source_note: string;
+  schema_version?: "igor.spec_decomposition.v2";
+  document?: {
+    type: "technical_spec" | "meeting_notes" | "project_brief" | "incident_report" | "mixed" | "unknown";
+    title: string;
+    goal: string;
+    summary: string;
+    source_ids: string[];
+  };
+  work_package?: {
+    title: string;
+    goal: string;
+    description: string;
+    source_ids: string[];
+  };
+  parent_task?: {
+    title: string;
+    goal: string;
+    description: string;
+    source_ids: string[];
+    source_refs: TIgorSpecSourceRef[];
+  };
+  spec_constraints?: TIgorSpecConstraint[];
+  spec_open_questions?: TIgorSpecQuestion[];
+  spec_contradictions?: TIgorSpecContradiction[];
+  analysis?: {
+    trace_id: string;
+    mode: "llm";
+    schema_version: "igor.spec_decomposition.v2";
+    prompt_version: string;
+    source_count: number;
+    linked_source_count: number;
+    unresolved_source_ids: string[];
+    task_count: number;
+    validation_warnings: string[];
+    quality_status?: "passed" | "review";
+    quality_warnings?: {
+      code: string;
+      message: string;
+      source_ids: string[];
+      task_ids: string[];
+    }[];
+    requires_human_review: boolean;
+  };
 };
 
 export type TIgorCaptureProcessingWidget = {
@@ -211,6 +290,13 @@ export type TIgorCaptureCreatePayload = {
   task_ids: string[];
   project_assignments: Record<string, string>;
   assignee_assignments: Record<string, string>;
+  create_parent: boolean;
+  parent_project_id: string;
+  parent_override: {
+    title: string;
+    goal: string;
+    description: string;
+  };
   task_overrides: Record<
     string,
     {
@@ -218,6 +304,7 @@ export type TIgorCaptureCreatePayload = {
       goal: string;
       description: string;
       acceptance_criteria: string[];
+      open_questions: string[];
       target_date: string | null;
       priority: TIgorCaptureTask["priority"];
     }

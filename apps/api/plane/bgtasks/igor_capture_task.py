@@ -70,6 +70,7 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
     projects = list(endpoint._capture_writable_projects(workspace, user))
     members = endpoint._capture_members(workspace, projects)
     batches = endpoint._capture_batches(units)
+    document_type = job.get("document_type") or "meeting_notes"
     batch_results = dict(job.get("batch_results") or {})
     batch_attempts = dict(job.get("batch_attempts") or {})
     failed_batches = {str(batch_id) for batch_id in job.get("failed_batches") or []}
@@ -86,10 +87,20 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
     with ThreadPoolExecutor(
         max_workers=endpoint.capture_job_parallelism, thread_name_prefix="igor-capture"
     ) as executor:
-        futures = {
-            executor.submit(endpoint._get_llm_capture_plan_strict, batch, projects, user, members): batch_id
-            for batch_id, batch in pending_batches
-        }
+        futures = {}
+        for batch_id, batch in pending_batches:
+            if document_type == "technical_spec":
+                future = executor.submit(
+                    endpoint._get_llm_spec_map_strict,
+                    batch,
+                    projects,
+                    user,
+                    members,
+                    int(batch_id),
+                )
+            else:
+                future = executor.submit(endpoint._get_llm_capture_plan_strict, batch, projects, user, members)
+            futures[future] = batch_id
         for future in as_completed(futures):
             batch_id = futures[future]
             try:
@@ -128,13 +139,34 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
         endpoint._cache_capture_job(cache_key, job)
         return
 
-    combined = {"items": [], "tasks": []}
-    for index in range(len(batches)):
-        plan = batch_results.get(str(index)) or {}
-        if isinstance(plan.get("items"), list):
-            combined["items"].extend(plan["items"])
-        if isinstance(plan.get("tasks"), list):
-            combined["tasks"].extend(plan["tasks"])
+    if document_type == "technical_spec":
+        try:
+            mapped = [batch_results.get(str(index)) or {} for index in range(len(batches))]
+            semantic_map = endpoint._normalize_spec_maps(mapped, units)
+            combined = endpoint._get_llm_spec_reduce_strict(units, semantic_map, projects, user, members)
+        except Exception as exception:
+            endpoint._log_safe_failure("capture-job-reduce", exception)
+            reduction_attempts = int(job.get("reduction_attempts") or 0) + 1
+            job["reduction_attempts"] = reduction_attempts
+            if reduction_attempts < endpoint.capture_job_max_attempts:
+                job["status"] = "retrying"
+                endpoint._cache_capture_job(cache_key, job)
+                raise task.retry(
+                    exc=RuntimeError("Igor specification reduction failed"),
+                    countdown=min(2**reduction_attempts, 30),
+                )
+            job["status"] = "failed"
+            job["error"] = "reduction_failed"
+            endpoint._cache_capture_job(cache_key, job)
+            return
+    else:
+        combined = {"items": [], "tasks": []}
+        for index in range(len(batches)):
+            plan = batch_results.get(str(index)) or {}
+            if isinstance(plan.get("items"), list):
+                combined["items"].extend(plan["items"])
+            if isinstance(plan.get("tasks"), list):
+                combined["tasks"].extend(plan["tasks"])
 
     try:
         result = endpoint._assemble_capture_review(
@@ -145,6 +177,7 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
             len(batches),
             writable_projects=projects,
             members=members,
+            document_type=document_type,
         )
     except Exception as exception:
         endpoint._log_safe_failure("capture-job-finalize", exception)

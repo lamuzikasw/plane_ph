@@ -61,8 +61,15 @@ type TIgorCaptureTaskOverride = {
   goal: string;
   description: string;
   acceptance_criteria: string[];
+  open_questions: string[];
   target_date: string | null;
   priority: TIgorCaptureWidgetData["tasks"][number]["priority"];
+};
+
+type TIgorParentTaskOverride = {
+  title: string;
+  goal: string;
+  description: string;
 };
 
 type Props = {
@@ -543,7 +550,10 @@ export function IgorChat({ workspaceSlug }: Props) {
     taskIds: string[],
     projectAssignments: Record<string, string>,
     assigneeAssignments: Record<string, string>,
-    taskOverrides: Record<string, TIgorCaptureTaskOverride>
+    taskOverrides: Record<string, TIgorCaptureTaskOverride>,
+    createParent: boolean,
+    parentProjectId: string,
+    parentOverride: TIgorParentTaskOverride
   ): Promise<boolean> => {
     if (!widget.token || isSubmitting) return false;
     const requestWorkspaceSlug = workspaceSlug;
@@ -555,6 +565,9 @@ export function IgorChat({ workspaceSlug }: Props) {
         task_ids: taskIds,
         project_assignments: projectAssignments,
         assignee_assignments: assigneeAssignments,
+        create_parent: createParent,
+        parent_project_id: parentProjectId,
+        parent_override: parentOverride,
         task_overrides: taskOverrides,
       });
       if (activeWorkspaceRef.current !== requestWorkspaceSlug) return false;
@@ -1272,7 +1285,10 @@ function IgorCaptureWidget({
     taskIds: string[],
     projectAssignments: Record<string, string>,
     assigneeAssignments: Record<string, string>,
-    taskOverrides: Record<string, TIgorCaptureTaskOverride>
+    taskOverrides: Record<string, TIgorCaptureTaskOverride>,
+    createParent: boolean,
+    parentProjectId: string,
+    parentOverride: TIgorParentTaskOverride
   ) => Promise<boolean>;
 }) {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(
@@ -1297,6 +1313,7 @@ function IgorCaptureWidget({
           goal: task.goal,
           description: task.description,
           acceptance_criteria: task.acceptance_criteria,
+          open_questions: task.open_questions,
           target_date: task.target_date,
           priority: task.priority,
         },
@@ -1305,6 +1322,15 @@ function IgorCaptureWidget({
   );
   const [isCreated, setIsCreated] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [createParent, setCreateParent] = useState(Boolean(widget.parent_task));
+  const [parentProjectId, setParentProjectId] = useState(
+    () => widget.tasks.find((task) => task.project_id)?.project_id ?? widget.projects[0]?.id ?? ""
+  );
+  const [parentOverride, setParentOverride] = useState<TIgorParentTaskOverride>(() => ({
+    title: widget.parent_task?.title ?? "",
+    goal: widget.parent_task?.goal ?? "",
+    description: widget.parent_task?.description ?? "",
+  }));
 
   useEffect(() => {
     setSelectedTaskIds(new Set(widget.tasks.filter((task) => !task.duplicate_issue).map((task) => task.id)));
@@ -1327,6 +1353,7 @@ function IgorCaptureWidget({
             goal: task.goal,
             description: task.description,
             acceptance_criteria: task.acceptance_criteria,
+            open_questions: task.open_questions,
             target_date: task.target_date,
             priority: task.priority,
           },
@@ -1335,6 +1362,13 @@ function IgorCaptureWidget({
     );
     setIsCreated(false);
     setExpandedTaskId(null);
+    setCreateParent(Boolean(widget.parent_task));
+    setParentProjectId(widget.tasks.find((task) => task.project_id)?.project_id ?? widget.projects[0]?.id ?? "");
+    setParentOverride({
+      title: widget.parent_task?.title ?? "",
+      goal: widget.parent_task?.goal ?? "",
+      description: widget.parent_task?.description ?? "",
+    });
   }, [widget]);
 
   const selectedTasks = widget.tasks.filter((task) => selectedTaskIds.has(task.id));
@@ -1344,6 +1378,7 @@ function IgorCaptureWidget({
     !isCreated &&
     selectedTasks.length > 0 &&
     tasksWithoutProject.length === 0 &&
+    (!createParent || Boolean(parentProjectId && parentOverride.title.trim() && parentOverride.description.trim())) &&
     selectedTasks.every((task) => taskOverrides[task.id]?.title.trim() && taskOverrides[task.id]?.description.trim());
 
   const toggleTask = (taskId: string) => {
@@ -1395,6 +1430,18 @@ function IgorCaptureWidget({
           <span className="rounded bg-[#0b6ea8]/10 px-2 py-1 font-medium text-[#0b6ea8]">
             {widget.tasks.length} задач
           </span>
+          {widget.analysis?.quality_status && (
+            <span
+              className={cn(
+                "rounded px-2 py-1 font-medium",
+                widget.analysis.quality_status === "passed"
+                  ? "bg-green-500/10 text-green-700"
+                  : "bg-amber-500/10 text-amber-700"
+              )}
+            >
+              {widget.analysis.quality_status === "passed" ? "Проверка качества пройдена" : "Нужна проверка качества"}
+            </span>
+          )}
           {widget.action_count > 0 && (
             <span
               className={cn(
@@ -1418,8 +1465,169 @@ function IgorCaptureWidget({
           {categoryCount("decision") > 0 && (
             <span className="rounded bg-surface-2 px-2 py-1 text-secondary">{categoryCount("decision")} решений</span>
           )}
+          {(widget.spec_constraints?.filter((item) => item.kind === "out_of_scope").length ?? 0) > 0 && (
+            <span className="rounded bg-surface-2 px-2 py-1 text-secondary">
+              Не входит: {widget.spec_constraints?.filter((item) => item.kind === "out_of_scope").length}
+            </span>
+          )}
         </div>
       </div>
+
+      {widget.parent_task && (
+        <details open className="group border-b border-subtle bg-[#0b6ea8]/[0.025]">
+          <summary className="cursor-pointer list-none px-3 py-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30 focus-visible:ring-inset">
+            <div className="flex items-start gap-2.5">
+              <label className="mt-0.5 flex shrink-0 items-center" onClick={(event) => event.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={createParent}
+                  onChange={(event) => setCreateParent(event.target.checked)}
+                  disabled={isSubmitting}
+                  aria-label="Создать родительскую задачу"
+                  className="h-4 w-4 accent-[#0b6ea8]"
+                />
+              </label>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-semibold tracking-wide text-[#0b6ea8] uppercase">
+                    Родительская задача
+                  </span>
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-tertiary">
+                    {widget.tasks.length} дочерних
+                  </span>
+                </div>
+                <div className="mt-1 text-[13px] font-semibold text-primary">{parentOverride.title}</div>
+                <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-secondary">
+                  {parentOverride.goal || parentOverride.description}
+                </div>
+              </div>
+              <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-tertiary transition group-open:rotate-180" />
+            </div>
+          </summary>
+          <div className="grid gap-2 border-t border-subtle px-3 py-3">
+            <div className="text-[11px] leading-4 text-secondary">
+              Родитель объединит выбранные результаты в один рабочий пакет. Его можно отключить — тогда создадутся
+              только обычные задачи.
+            </div>
+            <label className="text-xs grid gap-1 text-secondary">
+              Название
+              <input
+                type="text"
+                value={parentOverride.title}
+                maxLength={255}
+                onChange={(event) => setParentOverride((current) => ({ ...current, title: event.target.value }))}
+                disabled={isSubmitting || !createParent}
+                className="h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none focus:border-[#0b6ea8] disabled:opacity-60"
+              />
+            </label>
+            <label className="text-xs grid gap-1 text-secondary">
+              Зачем нужен рабочий пакет
+              <textarea
+                value={parentOverride.goal}
+                rows={2}
+                maxLength={1200}
+                onChange={(event) => setParentOverride((current) => ({ ...current, goal: event.target.value }))}
+                disabled={isSubmitting || !createParent}
+                className="min-h-16 resize-y rounded border border-subtle bg-surface-1 px-2 py-1.5 text-primary outline-none focus:border-[#0b6ea8] disabled:opacity-60"
+              />
+            </label>
+            <label className="text-xs grid gap-1 text-secondary">
+              Описание результата
+              <textarea
+                value={parentOverride.description}
+                rows={3}
+                maxLength={3000}
+                onChange={(event) => setParentOverride((current) => ({ ...current, description: event.target.value }))}
+                disabled={isSubmitting || !createParent}
+                className="min-h-20 resize-y rounded border border-subtle bg-surface-1 px-2 py-1.5 text-primary outline-none focus:border-[#0b6ea8] disabled:opacity-60"
+              />
+            </label>
+            <label className="text-xs grid gap-1 text-secondary">
+              Проект родительской задачи
+              <select
+                value={parentProjectId}
+                onChange={(event) => setParentProjectId(event.target.value)}
+                disabled={isSubmitting || !createParent}
+                className="h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none focus:border-[#0b6ea8] disabled:opacity-60"
+              >
+                <option value="">Выбрать проект</option>
+                {widget.projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.identifier} · {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </details>
+      )}
+
+      {((widget.spec_constraints?.length ?? 0) > 0 ||
+        (widget.spec_open_questions?.length ?? 0) > 0 ||
+        (widget.spec_contradictions?.length ?? 0) > 0) && (
+        <details className="group border-b border-subtle">
+          <summary className="cursor-pointer list-none px-3 py-2 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30 focus-visible:ring-inset">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold text-primary">Рамки и вопросы до начала работы</span>
+              <span className="flex items-center gap-1.5 text-[11px] text-tertiary">
+                {(widget.spec_constraints?.length ?? 0) +
+                  (widget.spec_open_questions?.length ?? 0) +
+                  (widget.spec_contradictions?.length ?? 0)}
+                <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+              </span>
+            </div>
+          </summary>
+          <div className="space-y-3 border-t border-subtle bg-surface-2/40 px-3 py-2.5">
+            {(widget.spec_constraints?.length ?? 0) > 0 && (
+              <div>
+                <div className="text-[11px] font-semibold text-primary">Ограничения и не входит</div>
+                <ul className="mt-1 space-y-1 text-[11px] leading-4 text-secondary">
+                  {widget.spec_constraints?.map((constraint) => (
+                    <li key={constraint.id} className="flex items-start gap-1.5">
+                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#0b6ea8]" />
+                      <span>
+                        {constraint.kind === "out_of_scope" && (
+                          <span className="font-medium text-primary">Не входит: </span>
+                        )}
+                        {constraint.kind === "prohibition" && (
+                          <span className="font-medium text-primary">Нельзя: </span>
+                        )}
+                        {constraint.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(widget.spec_open_questions?.length ?? 0) > 0 && (
+              <div>
+                <div className="text-[11px] font-semibold text-primary">Открытые вопросы</div>
+                <ul className="mt-1 space-y-1.5 text-[11px] leading-4 text-secondary">
+                  {widget.spec_open_questions?.map((question) => (
+                    <li key={question.id}>
+                      <span className={question.blocking ? "text-amber-700 font-medium" : "font-medium text-primary"}>
+                        {question.blocking ? "Блокирует: " : "Уточнить: "}
+                      </span>
+                      {question.question}
+                      {question.reason && <span className="text-tertiary"> — {question.reason}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(widget.spec_contradictions?.length ?? 0) > 0 && (
+              <div className="border-amber-500/20 bg-amber-500/5 rounded border px-2 py-2">
+                <div className="text-amber-700 text-[11px] font-semibold">Противоречия в ТЗ</div>
+                <ul className="mt-1 list-disc space-y-1 pl-4 text-[11px] leading-4 text-secondary">
+                  {widget.spec_contradictions?.map((contradiction) => (
+                    <li key={contradiction.id}>{contradiction.description}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </details>
+      )}
 
       <details className="group border-b border-subtle">
         <summary className="cursor-pointer list-none px-3 py-2 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30 focus-visible:ring-inset">
@@ -1447,10 +1655,21 @@ function IgorCaptureWidget({
               </summary>
               <div className="space-y-1 border-t border-subtle bg-surface-2/40 px-3 py-2">
                 {category.items.map((item) => (
-                  <div key={item.source_id} className="rounded border border-subtle bg-surface-1 px-2 py-1.5">
+                  <div
+                    key={item.source_id}
+                    id={`igor-source-${item.source_id}`}
+                    className="scroll-m-24 rounded border border-subtle bg-surface-1 px-2 py-1.5 transition target:border-[#0b6ea8]"
+                  >
                     <div className="flex items-start gap-2 text-[11px] leading-4">
                       <span className="shrink-0 font-medium text-[#0b6ea8]">{item.source_id}</span>
-                      <span className="font-medium text-primary">{item.summary}</span>
+                      <span className="min-w-0 font-medium text-primary">
+                        {item.section_path && item.section_path.length > 0 && (
+                          <span className="font-normal mb-0.5 block text-[10px] text-tertiary">
+                            {item.section_path.join(" / ")}
+                          </span>
+                        )}
+                        {item.summary}
+                      </span>
                     </div>
                     {item.summary.trim() !== item.source_text.trim() && (
                       <div className="mt-1 border-l border-subtle pl-2 text-[11px] leading-4 text-tertiary">
@@ -1513,6 +1732,7 @@ function IgorCaptureWidget({
                 goal: task.goal,
                 description: task.description,
                 acceptance_criteria: task.acceptance_criteria,
+                open_questions: task.open_questions,
                 target_date: task.target_date,
                 priority: task.priority,
               };
@@ -1555,10 +1775,11 @@ function IgorCaptureWidget({
                           <span className="font-medium text-primary">Что сделать:</span> {override.description}
                         </span>
                       )}
-                      {(override.acceptance_criteria.some((item) => item.trim()) || task.open_questions.length > 0) && (
+                      {(override.acceptance_criteria.some((item) => item.trim()) ||
+                        override.open_questions.length > 0) && (
                         <span className="mt-1 block text-[10px] text-tertiary">
                           Критериев: {override.acceptance_criteria.filter((item) => item.trim()).length} · Вопросов:{" "}
-                          {task.open_questions.length}
+                          {override.open_questions.filter((item) => item.trim()).length}
                         </span>
                       )}
                       <span className="mt-0.5 block text-[11px] leading-4 text-tertiary">
@@ -1671,15 +1892,57 @@ function IgorCaptureWidget({
                           className="min-h-20 resize-y rounded border border-subtle bg-surface-1 px-2 py-1.5 text-primary outline-none focus:border-[#0b6ea8]"
                         />
                       </label>
-                      {task.open_questions.length > 0 && (
-                        <div className="border-amber-500/20 bg-amber-500/5 rounded border px-2 py-2 text-[11px] text-secondary">
-                          <div className="font-medium text-primary">Нужно уточнить перед работой</div>
-                          <ul className="mt-1 list-disc space-y-1 pl-4">
-                            {task.open_questions.map((question) => (
-                              <li key={question}>{question}</li>
+                      <label className="text-xs grid gap-1 text-secondary">
+                        Вопросы перед работой <span className="font-normal text-tertiary">по одному на строку</span>
+                        <textarea
+                          value={override.open_questions.join("\n")}
+                          maxLength={5000}
+                          rows={Math.max(2, Math.min(4, override.open_questions.length + 1))}
+                          placeholder="Если неоднозначностей нет, оставь поле пустым."
+                          onChange={(event) =>
+                            setTaskOverrides((current) => ({
+                              ...current,
+                              [task.id]: {
+                                ...override,
+                                open_questions: event.target.value.split("\n").slice(0, 20),
+                              },
+                            }))
+                          }
+                          disabled={isSubmitting}
+                          className="min-h-16 resize-y rounded border border-subtle bg-surface-1 px-2 py-1.5 text-primary outline-none focus:border-[#0b6ea8]"
+                        />
+                      </label>
+                      {(task.source_refs?.length ?? 0) > 0 && (
+                        <details className="rounded border border-subtle bg-surface-2/50">
+                          <summary className="cursor-pointer list-none px-2 py-2 text-[11px] font-medium text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30">
+                            Источники из ТЗ · {task.source_refs?.length}
+                          </summary>
+                          <div className="space-y-1 border-t border-subtle px-2 py-2">
+                            {task.source_refs?.map((source) => (
+                              <button
+                                key={source.id}
+                                type="button"
+                                onClick={() =>
+                                  document.getElementById(`igor-source-${source.id}`)?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "center",
+                                  })
+                                }
+                                className="block w-full rounded border border-subtle bg-surface-1 px-2 py-1.5 text-left hover:border-[#0b6ea8]/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30"
+                              >
+                                <span className="text-[10px] font-medium text-[#0b6ea8]">{source.id}</span>
+                                {source.section_path.length > 0 && (
+                                  <span className="ml-1.5 text-[10px] text-tertiary">
+                                    {source.section_path.join(" / ")}
+                                  </span>
+                                )}
+                                <span className="mt-0.5 line-clamp-2 block text-[11px] leading-4 text-secondary">
+                                  {source.text}
+                                </span>
+                              </button>
                             ))}
-                          </ul>
-                        </div>
+                          </div>
+                        </details>
                       )}
                       <label className="text-xs grid gap-1 text-secondary">
                         Проект <span className="text-red-500">обязательно</span>
@@ -1805,7 +2068,10 @@ function IgorCaptureWidget({
                   selectedTasks.map((task) => task.id),
                   projectAssignments,
                   assigneeAssignments,
-                  taskOverrides
+                  taskOverrides,
+                  createParent,
+                  parentProjectId,
+                  parentOverride
                 );
                 if (created) setIsCreated(true);
               }}
@@ -1813,7 +2079,9 @@ function IgorCaptureWidget({
               className="text-xs flex w-full items-center justify-center gap-2 rounded bg-[#0b6ea8] px-3 py-2 font-medium text-white transition hover:bg-[#095d91] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {isCreated ? "Задачи уже созданы" : `Создать выбранные задачи · ${selectedTasks.length}`}
+              {isCreated
+                ? "Задачи уже созданы"
+                : `Создать ${createParent ? "рабочий пакет и " : ""}${selectedTasks.length} задач`}
             </button>
           </div>
         )}
