@@ -11,6 +11,7 @@ import {
   LATEST_RELEASE,
   PATCH_1_0,
   PATCH_1_1,
+  PATCH_1_2,
   PRODUCT_RELEASES,
   shouldResetReleaseScroll,
   WHATS_NEW_LAST_SEEN_STORAGE_KEY,
@@ -18,10 +19,11 @@ import {
 
 describe("release archive", () => {
   it("keeps the newest release first and resolves release URLs", () => {
-    expect(PRODUCT_RELEASES.map((release) => release.slug)).toEqual(["1-1", "1-0"]);
-    expect(LATEST_RELEASE).toBe(PATCH_1_1);
+    expect(PRODUCT_RELEASES.map((release) => release.slug)).toEqual(["1-2", "1-1", "1-0"]);
+    expect(LATEST_RELEASE).toBe(PATCH_1_2);
     expect(getReleaseBySlug("1-0")).toBe(PATCH_1_0);
-    expect(getReleaseBySlug("unknown")).toBe(PATCH_1_1);
+    expect(getReleaseBySlug("1-1")).toBe(PATCH_1_1);
+    expect(getReleaseBySlug("unknown")).toBe(PATCH_1_2);
   });
 
   it("uses one browser-wide marker for the application release", () => {
@@ -31,13 +33,57 @@ describe("release archive", () => {
   it("shows the indicator until the latest release has been viewed", () => {
     expect(hasUnseenRelease(null)).toBe(true);
     expect(hasUnseenRelease("1-0")).toBe(true);
-    expect(hasUnseenRelease("1-1")).toBe(false);
+    expect(hasUnseenRelease("1-1")).toBe(true);
+    expect(hasUnseenRelease("1-2")).toBe(false);
   });
 
   it("resets the page position only when the selected release changes", () => {
     expect(shouldResetReleaseScroll(null, "1-1")).toBe(false);
     expect(shouldResetReleaseScroll("1-1", "1-1")).toBe(false);
     expect(shouldResetReleaseScroll("1-0", "1-1")).toBe(true);
+  });
+});
+
+describe("patch 1.2 release content", () => {
+  it("covers the complete Igor, quality, OG, security, and reliability release", () => {
+    expect(PATCH_1_2.features.map((feature) => feature.id)).toEqual([
+      "specifications",
+      "weekly-reports",
+      "task-search",
+      "igor-interface",
+      "completion-quality",
+      "og-management",
+      "security",
+      "reliability",
+    ]);
+
+    const releaseText = PATCH_1_2.features
+      .flatMap((feature) => [feature.title, feature.description, ...feature.highlights])
+      .join(" ");
+
+    expect(releaseText).toContain("80 000");
+    expect(releaseText).toContain("1 200");
+    expect(releaseText).toContain("100 разговорных формулировок");
+    expect(releaseText).toContain("crm_url");
+    expect(releaseText).toContain("Done");
+    expect(releaseText).toContain("00:00");
+    expect(releaseText).toContain("OG");
+    expect(releaseText).toContain("SECRET_KEY");
+  });
+
+  it("explains the implementation without cluttering the employee copy", () => {
+    for (const feature of PATCH_1_2.features) {
+      expect(feature.action.href || feature.action.event).toBeTruthy();
+      expect(feature.highlights.length).toBeGreaterThanOrEqual(4);
+      expect(feature.technicalDetails?.title.length).toBeGreaterThan(0);
+      expect(feature.technicalDetails?.description.length).toBeGreaterThan(0);
+      expect(feature.technicalDetails?.tools.length).toBeGreaterThanOrEqual(4);
+    }
+
+    const specificationTools = PATCH_1_2.features.find((feature) => feature.id === "specifications")?.technicalDetails
+      ?.tools;
+
+    expect(specificationTools).toEqual(expect.arrayContaining(["Django", "LLM", "Celery", "Redis"]));
   });
 });
 

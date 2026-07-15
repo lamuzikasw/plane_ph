@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { Popover } from "@headlessui/react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -17,10 +18,17 @@ import {
   CalendarCheck,
   CalendarRange,
   Check,
+  Code2,
+  FileText,
   Gauge,
   Link2,
+  ListChecks,
   Megaphone,
+  PanelRightOpen,
+  Search,
   Send,
+  ServerCog,
+  ShieldCheck,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -40,9 +48,15 @@ import {
 const FEATURE_ICONS: Record<TReleaseFeatureIcon, LucideIcon> = {
   ai: Bot,
   analytics: BarChart3,
+  interface: PanelRightOpen,
   performance: Gauge,
   planning: CalendarRange,
+  quality: ListChecks,
   relations: Link2,
+  reliability: ServerCog,
+  reports: FileText,
+  search: Search,
+  security: ShieldCheck,
   tasks: ArrowRightLeft,
   today: CalendarCheck,
   updates: Megaphone,
@@ -173,7 +187,13 @@ export function WorkspaceWhatsNewRoot() {
             </div>
 
             <div className="border-t border-subtle bg-layer-1/50 p-5 sm:p-7 lg:border-t-0 lg:border-l">
-              {release.preview === "igor" ? <IgorPreview /> : <GanttPreview />}
+              {release.preview === "igor" ? (
+                <IgorPreview />
+              ) : release.preview === "igor-specification" ? (
+                <IgorSpecificationPreview />
+              ) : (
+                <GanttPreview />
+              )}
             </div>
           </div>
         </section>
@@ -253,7 +273,10 @@ function ReleaseFeatureCard({ feature, workspaceSlug }: { feature: TReleaseFeatu
         </span>
       </div>
 
-      <h3 className="text-lg mt-5 leading-6 font-semibold text-primary">{feature.title}</h3>
+      <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <h3 className="text-lg leading-6 font-semibold text-primary">{feature.title}</h3>
+        {feature.technicalDetails && <ReleaseTechnicalDetails details={feature.technicalDetails} />}
+      </div>
       <p className="mt-2 text-13 leading-5 text-secondary">{feature.description}</p>
 
       <ul className="mt-4 flex flex-col gap-2.5">
@@ -271,6 +294,43 @@ function ReleaseFeatureCard({ feature, workspaceSlug }: { feature: TReleaseFeatu
         <ReleaseAction action={feature.action} workspaceSlug={workspaceSlug} variant="text" />
       </div>
     </article>
+  );
+}
+
+function ReleaseTechnicalDetails({ details }: { details: NonNullable<TReleaseFeature["technicalDetails"]> }) {
+  return (
+    <Popover className="relative inline-flex">
+      <Popover.Button className="group/technical border-accent-primary/20 hover:border-accent-primary/40 inline-flex h-6 items-center gap-1 rounded-sm border bg-accent-primary/5 px-2 text-10 font-semibold whitespace-nowrap text-accent-primary transition-colors outline-none hover:bg-accent-primary/10 focus-visible:ring-2 focus-visible:ring-accent-strong">
+        <Code2 className="size-3 stroke-[1.8]" aria-hidden="true" />
+        Под капотом
+      </Popover.Button>
+
+      <Popover.Panel className="shadow-lg absolute top-full left-0 z-30 mt-2 w-72 max-w-[calc(100vw-4rem)] rounded-md border border-strong bg-surface-1 p-4 sm:right-0 sm:left-auto sm:w-80">
+        <div className="flex items-start gap-2.5">
+          <span className="grid size-7 flex-none place-items-center rounded-sm bg-accent-primary/10 text-accent-primary">
+            <Code2 className="size-4 stroke-[1.8]" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-12 font-semibold text-primary">{details.title}</p>
+            <p className="mt-1.5 text-11 leading-5 text-secondary">{details.description}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 border-t border-subtle pt-3">
+          <p className="text-9 font-semibold tracking-wide text-tertiary uppercase">Инструменты</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {details.tools.map((tool) => (
+              <span
+                key={tool}
+                className="font-mono rounded-sm border border-subtle bg-layer-1 px-1.5 py-1 text-9 text-secondary"
+              >
+                {tool}
+              </span>
+            ))}
+          </div>
+        </div>
+      </Popover.Panel>
+    </Popover>
   );
 }
 
@@ -359,6 +419,81 @@ function IgorPreview() {
       <div className="mt-3 flex items-center gap-1.5 text-10 text-tertiary">
         <Activity className="size-3" aria-hidden="true" />
         Ответ собран из актуальных данных рабочего пространства
+      </div>
+    </div>
+  );
+}
+
+function IgorSpecificationPreview() {
+  const proposedTasks = [
+    { code: "01", title: "Подготовить B2B-страницу", meta: "Цель и 4 критерия готовности" },
+    { code: "02", title: "Настроить почтовые уведомления", meta: "Логика, события и открытые вопросы" },
+    { code: "03", title: "Выбрать хранение документов", meta: "3 варианта для сравнения" },
+  ];
+
+  return (
+    <div
+      className="flex h-full flex-col justify-center"
+      role="img"
+      aria-label="Пример разбора технического задания Игорем"
+    >
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="border-accent-primary/20 grid size-8 place-items-center rounded-md border bg-accent-primary/10 text-accent-primary">
+            <Bot className="size-4 stroke-[1.8]" aria-hidden="true" />
+          </div>
+          <div>
+            <p className="text-12 font-semibold text-primary">Разбор технического задания</p>
+            <p className="mt-0.5 text-10 text-tertiary">Игорь сохраняет связь с исходными пунктами</p>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-1.5 text-10 font-medium text-success-primary">
+          <Check className="size-3.5" aria-hidden="true" />
+          Готово
+        </span>
+      </div>
+
+      <div className="shadow-sm overflow-hidden rounded-md border border-subtle bg-surface-1">
+        <div className="border-b border-subtle bg-layer-1/50 p-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-11 font-semibold text-primary">Саммари встречи по запуску B2B</p>
+              <p className="mt-0.5 text-9 text-secondary">34 исходных пункта · ничего не потеряно</p>
+            </div>
+            <span className="rounded-sm bg-success-subtle px-2 py-1 text-9 font-semibold text-success-primary">
+              34 / 34
+            </span>
+          </div>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-layer-1">
+            <span className="block h-full w-full rounded-full bg-accent-primary" />
+          </div>
+        </div>
+
+        <div className="p-3.5">
+          <div className="mb-2.5 flex items-center justify-between gap-3">
+            <p className="text-10 font-semibold text-secondary">Предложенные задачи</p>
+            <span className="text-9 text-tertiary">проверка перед созданием</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {proposedTasks.map((task) => (
+              <div key={task.code} className="flex items-start gap-2.5 rounded-sm border border-subtle px-3 py-2">
+                <span className="font-mono grid size-5 flex-none place-items-center rounded-sm bg-accent-primary/10 text-9 font-semibold text-accent-primary">
+                  {task.code}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-10 font-semibold text-primary">{task.title}</p>
+                  <p className="mt-0.5 truncate text-9 text-secondary">{task.meta}</p>
+                </div>
+                <Check className="ml-auto size-3.5 flex-none text-success-primary" aria-hidden="true" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 border-t border-subtle bg-layer-1/40 px-3.5 py-2.5 text-9 text-tertiary">
+          <Code2 className="size-3.5 text-accent-primary" aria-hidden="true" />
+          Цель · работы · критерии · вопросы
+        </div>
       </div>
     </div>
   );
