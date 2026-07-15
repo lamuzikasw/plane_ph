@@ -100,7 +100,12 @@ export type TIgorCaptureCategory = {
 export type TIgorCaptureTask = {
   id: string;
   title: string;
+  goal: string;
   description: string;
+  acceptance_criteria: string[];
+  open_questions: string[];
+  confidence: "high" | "medium" | "low";
+  section: string | null;
   source_ids: string[];
   project_id: string | null;
   project_name: string | null;
@@ -109,7 +114,7 @@ export type TIgorCaptureTask = {
   assignee_hint: string | null;
   target_date: string | null;
   priority: "none" | "urgent" | "high" | "medium" | "low";
-  missing_fields: ("project" | "assignee" | "target_date" | "priority")[];
+  missing_fields: ("project" | "assignee" | "target_date" | "priority" | "goal" | "acceptance_criteria")[];
   duplicate_issue: {
     id: string;
     name: string;
@@ -123,6 +128,9 @@ export type TIgorCaptureWidget = {
   token: string | null;
   source_count: number;
   covered_count: number;
+  action_count: number;
+  task_covered_count: number;
+  batch_count: number;
   categories: TIgorCaptureCategory[];
   tasks: TIgorCaptureTask[];
   projects: {
@@ -136,6 +144,19 @@ export type TIgorCaptureWidget = {
     project_ids: string[];
   }[];
   source_note: string;
+};
+
+export type TIgorCaptureProcessingWidget = {
+  type: "capture_processing";
+  title: string;
+  job_id: string;
+  status: "queued" | "processing" | "retrying" | "failed";
+  source_count: number;
+  total_batches: number;
+  completed_batches: number;
+  failed_batches: number;
+  progress: number;
+  can_retry: boolean;
 };
 
 export type TIgorChatContext = {
@@ -171,7 +192,8 @@ export type TIgorChatResponse = {
     end: string | null;
   };
   context: TIgorChatContext;
-  widgets: (TIgorWorkItemsWidget | TIgorWeeklySummaryWidget | TIgorCaptureWidget)[];
+  capture_job_id?: string | null;
+  widgets: (TIgorWorkItemsWidget | TIgorWeeklySummaryWidget | TIgorCaptureWidget | TIgorCaptureProcessingWidget)[];
   suggestions: string[];
 };
 
@@ -193,10 +215,18 @@ export type TIgorCaptureCreatePayload = {
     string,
     {
       title: string;
+      goal: string;
+      description: string;
+      acceptance_criteria: string[];
       target_date: string | null;
       priority: TIgorCaptureTask["priority"];
     }
   >;
+};
+
+export type TIgorCaptureJobPayload = {
+  action: "get_capture_job" | "retry_capture_job";
+  job_id?: string;
 };
 
 export class AIService extends APIService {
@@ -222,6 +252,28 @@ export class AIService extends APIService {
 
   async createIgorCaptureTasks(workspaceSlug: string, data: TIgorCaptureCreatePayload): Promise<TIgorChatResponse> {
     return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response;
+      });
+  }
+
+  async getIgorCaptureJob(workspaceSlug: string, jobId?: string): Promise<TIgorChatResponse> {
+    return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, {
+      action: "get_capture_job",
+      ...(jobId ? { job_id: jobId } : {}),
+    } satisfies TIgorCaptureJobPayload)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response;
+      });
+  }
+
+  async retryIgorCaptureJob(workspaceSlug: string, jobId: string): Promise<TIgorChatResponse> {
+    return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, {
+      action: "retry_capture_job",
+      job_id: jobId,
+    } satisfies TIgorCaptureJobPayload)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response;

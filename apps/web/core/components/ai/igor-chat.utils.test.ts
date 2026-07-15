@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import type { TIgorChatContext } from "@/services/ai.service";
+import type { TIgorChatContext, TIgorChatResponse } from "@/services/ai.service";
 
 import {
   clampIgorComposerHeight,
+  getIgorCaptureJobStorageKey,
+  getIgorCapturePollDelay,
+  getIgorCaptureProcessingWidget,
   getIgorContextSegments,
+  getIgorMessageLimit,
+  IGOR_CAPTURE_MESSAGE_LENGTH,
   IGOR_COMPOSER_MAX_HEIGHT,
   IGOR_COMPOSER_MIN_HEIGHT,
+  IGOR_REGULAR_MESSAGE_LENGTH,
   resolveIgorSuggestions,
+  type TIgorMessage,
+  upsertIgorCaptureJobMessage,
 } from "./igor-chat.utils";
 
 const createContext = (overrides: Partial<TIgorChatContext> = {}): TIgorChatContext => ({
@@ -24,6 +32,18 @@ const createContext = (overrides: Partial<TIgorChatContext> = {}): TIgorChatCont
   scope: "personal",
   summary_format: "standard",
   summary_audience: "self",
+  ...overrides,
+});
+
+const createResponse = (overrides: Partial<TIgorChatResponse> = {}): TIgorChatResponse => ({
+  assistant: "Игорь",
+  intent: "capture_processing",
+  answer: "Разбираю ТЗ",
+  capture_job_id: "job_12345678901234567890",
+  period: { label: "", start: null, end: null },
+  context: createContext({ intent: "capture_processing", period_label: null }),
+  widgets: [],
+  suggestions: [],
   ...overrides,
 });
 
@@ -74,5 +94,100 @@ describe("resolveIgorSuggestions", () => {
 
   it("uses initial suggestions only when the API did not provide them", () => {
     expect(resolveIgorSuggestions(undefined, ["Собери мой summary"])).toEqual(["Собери мой summary"]);
+  });
+});
+
+describe("getIgorMessageLimit", () => {
+  it("keeps ordinary questions within the regular chat limit", () => {
+    expect(getIgorMessageLimit("Покажи мои задачи")).toBe(IGOR_REGULAR_MESSAGE_LENGTH);
+  });
+
+  it("accepts an explicitly requested large specification", () => {
+    expect(getIgorMessageLimit("Разбери ТЗ и предложи задачи:\n" + "Требование\n".repeat(800))).toBe(
+      IGOR_CAPTURE_MESSAGE_LENGTH
+    );
+  });
+
+  it("recognizes a pasted multi-line specification without a command", () => {
+    const specification = Array.from({ length: 10 }, (_, index) => `${index + 1}. ${"Требование ".repeat(60)}`).join(
+      "\n"
+    );
+    expect(specification.length).toBeGreaterThan(IGOR_REGULAR_MESSAGE_LENGTH);
+    expect(getIgorMessageLimit(specification)).toBe(IGOR_CAPTURE_MESSAGE_LENGTH);
+  });
+});
+
+describe("capture job recovery", () => {
+  it("isolates persisted jobs by workspace", () => {
+    expect(getIgorCaptureJobStorageKey("payholder")).toBe("plane:igor:capture-job:payholder");
+    expect(getIgorCaptureJobStorageKey("devops")).not.toBe(getIgorCaptureJobStorageKey("payholder"));
+  });
+
+  it("restores a missing progress message after reload", () => {
+    const response = createResponse();
+    const messages = upsertIgorCaptureJobMessage([], response.capture_job_id as string, response);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      id: `assistant-job-${response.capture_job_id}`,
+      role: "assistant",
+      text: "Разбираю ТЗ",
+      response,
+    });
+  });
+
+  it("updates the same job without duplicating the message or losing request context", () => {
+    const jobId = "job_12345678901234567890";
+    const initialResponse = createResponse({ answer: "Принял ТЗ", capture_job_id: jobId });
+    const initialMessage: TIgorMessage = {
+      id: "assistant-original",
+      role: "assistant",
+      text: initialResponse.answer,
+      response: initialResponse,
+      request: { message: "Разбери ТЗ", history: [] },
+    };
+    const completedResponse = createResponse({
+      answer: "ТЗ разобрано",
+      capture_job_id: jobId,
+      intent: "capture_review",
+    });
+
+    const messages = upsertIgorCaptureJobMessage([initialMessage], jobId, completedResponse);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      id: "assistant-original",
+      text: "ТЗ разобрано",
+      request: initialMessage.request,
+      response: completedResponse,
+    });
+  });
+
+  it("uses slower polling for a failed job and backs off after network errors", () => {
+    expect(getIgorCapturePollDelay("processing")).toBe(2500);
+    expect(getIgorCapturePollDelay("failed")).toBe(10000);
+    expect(getIgorCapturePollDelay(undefined, true)).toBe(5000);
+  });
+
+  it("finds a processing widget and treats a review response as terminal", () => {
+    const processingResponse = createResponse({
+      widgets: [
+        {
+          type: "capture_processing",
+          title: "Разбор большого ТЗ",
+          job_id: "job_12345678901234567890",
+          status: "processing",
+          source_count: 150,
+          total_batches: 6,
+          completed_batches: 2,
+          failed_batches: 0,
+          progress: 33,
+          can_retry: false,
+        },
+      ],
+    });
+
+    expect(getIgorCaptureProcessingWidget(processingResponse)?.progress).toBe(33);
+    expect(getIgorCaptureProcessingWidget(createResponse({ intent: "capture_review", widgets: [] }))).toBeUndefined();
   });
 });

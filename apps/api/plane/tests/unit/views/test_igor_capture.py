@@ -3,6 +3,8 @@
 # See the LICENSE file for details.
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -32,8 +34,12 @@ from plane.tests.factories import UserFactory, WorkspaceFactory
         "Сделай задачи из итогов созвона",
         "Обработай заметки планёрки",
         "Структурируй протокол встречи",
+        "Разбери ТЗ и предложи задачи",
+        "Декомпозируй техническое задание",
+        "Создай задачи по ТЗ",
         "Extract action items from meeting notes",
         "Turn this into tasks",
+        "Break down this spec into tasks",
         "Categorize these notes",
     ],
 )
@@ -191,6 +197,94 @@ def test_fallback_capture_plan_classifies_all_units_without_external_llm():
 
     assert [item["category"] for item in plan["items"]] == ["action", "decision", "risk", "question", "context"]
     assert plan["tasks"][0]["source_ids"] == ["S1"]
+
+
+def test_capture_batches_large_spec_without_losing_sources(monkeypatch):
+    endpoint = IgorChatEndpoint()
+    endpoint.capture_llm_batch_size = 40
+    units = [{"id": f"S{index}", "text": f"Нужно выполнить требование {index}"} for index in range(1, 96)]
+    calls = []
+
+    def fake_plan(batch, *_args):
+        calls.append([unit["id"] for unit in batch])
+        return {
+            "items": [{"source_id": unit["id"], "category": "action", "summary": unit["text"]} for unit in batch],
+            "tasks": [
+                {
+                    "title": f"Выполнить требование {unit['id']}",
+                    "description": unit["text"],
+                    "source_ids": [unit["id"]],
+                }
+                for unit in batch
+            ],
+        }
+
+    monkeypatch.setattr(endpoint, "_get_llm_capture_plan", fake_plan)
+
+    plan, batch_count = endpoint._get_llm_capture_plan_batched(units, [], SimpleNamespace())
+
+    assert batch_count == 3
+    assert [len(call) for call in calls] == [40, 40, 21]
+    assert calls[0][-3:] == calls[1][:3]
+    assert calls[1][-3:] == calls[2][:3]
+    assert {item["source_id"] for item in plan["items"]} == {unit["id"] for unit in units}
+    assert {source_id for task in plan["tasks"] for source_id in task["source_ids"]} == {unit["id"] for unit in units}
+
+
+def test_capture_task_contains_goal_description_criteria_and_questions():
+    endpoint = IgorChatEndpoint()
+    units = [
+        {
+            "id": "S1",
+            "text": "Нужно сохранять ссылку на сделку Bitrix24 в crm_url при создании custom payment",
+            "section": "Автоответы",
+        }
+    ]
+    plan = {
+        "items": [{"source_id": "S1", "category": "action", "summary": "Сохранять crm_url"}],
+        "tasks": [
+            {
+                "title": "Автоответы: сохранять crm_url при создании custom payment",
+                "goal": "Сохранить связь платежа с исходной сделкой Bitrix24.",
+                "description": "Передавать ссылку на сделку в поле crm_url в личном кабинете и боте.",
+                "acceptance_criteria": [
+                    "Custom payment получает ссылку на связанную сделку в crm_url.",
+                    "Одинаковое поведение работает в личном кабинете и боте.",
+                ],
+                "open_questions": ["Что делать, если ссылка на сделку отсутствует?"],
+                "confidence": "high",
+                "source_ids": ["S1"],
+            }
+        ],
+    }
+
+    task = endpoint._sanitize_capture_plan(units, plan, [], SimpleNamespace())["tasks"][0]
+
+    assert task["goal"].startswith("Сохранить связь")
+    assert "crm_url" in task["description"]
+    assert len(task["acceptance_criteria"]) == 2
+    assert task["open_questions"] == ["Что делать, если ссылка на сделку отсутствует?"]
+    assert task["confidence"] == "high"
+    assert task["section"] == "Автоответы"
+    assert "goal" not in task["missing_fields"]
+    assert "acceptance_criteria" not in task["missing_fields"]
+
+
+def test_capture_marks_missing_goal_and_criteria_without_inventing_them():
+    endpoint = IgorChatEndpoint()
+    units = [{"id": "S1", "text": "Добавить поле crm_url"}]
+    plan = {
+        "items": [{"source_id": "S1", "category": "action", "summary": "Добавить поле crm_url"}],
+        "tasks": [{"title": "Добавить поле crm_url", "source_ids": ["S1"]}],
+    }
+
+    task = endpoint._sanitize_capture_plan(units, plan, [], SimpleNamespace())["tasks"][0]
+
+    assert task["description"] == "Добавить поле crm_url"
+    assert task["goal"] == ""
+    assert task["acceptance_criteria"] == []
+    assert "goal" in task["missing_fields"]
+    assert "acceptance_criteria" in task["missing_fields"]
 
 
 B2B_MEETING_NOTES = """Саммари встречи по запуску B2B-направления
@@ -429,6 +523,28 @@ def test_capture_endpoint_returns_complete_review_and_only_writable_projects(mon
 
 @pytest.mark.unit
 @pytest.mark.django_db
+def test_capture_marks_semantically_similar_open_issue_as_duplicate():
+    _user, workspace, project = _capture_workspace("capture-fuzzy-duplicate")
+    existing_issue = Issue.objects.create(
+        workspace=workspace,
+        project=project,
+        name="Настроить передачу crm_url при создании custom payment",
+    )
+    tasks = [
+        {
+            "title": "Настройка передачи crm_url при создании custom payment",
+            "project_id": str(project.id),
+        }
+    ]
+
+    IgorChatEndpoint()._mark_capture_duplicates(tasks, workspace)
+
+    assert tasks[0]["duplicate_issue"]["id"] == str(existing_issue.id)
+    assert tasks[0]["duplicate_issue"]["identifier"] == f"{project.identifier}-{existing_issue.sequence_id}"
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
 def test_capture_endpoint_refuses_secret_material_before_llm(monkeypatch):
     user, workspace, _project = _capture_workspace("capture-secret")
     fake_key = "sk-proj-" + "A" * 32
@@ -467,19 +583,348 @@ def test_capture_endpoint_refuses_generic_password_assignment_before_llm(monkeyp
 
 @pytest.mark.unit
 @pytest.mark.django_db
-def test_capture_endpoint_returns_clear_error_for_more_than_eighty_units(monkeypatch):
+def test_capture_endpoint_processes_more_than_eighty_units_in_batches(monkeypatch):
     user, workspace, _project = _capture_workspace("capture-too-large")
-    monkeypatch.setattr(
-        IgorChatEndpoint,
-        "_get_llm_capture_plan",
-        lambda *_args: pytest.fail("Oversized source must not reach the LLM"),
-    )
+
+    def classify_batch(_self, units, *_args):
+        return {
+            "items": [{"source_id": unit["id"], "category": "context", "summary": unit["text"]} for unit in units],
+            "tasks": [],
+        }
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_capture_plan", classify_batch)
     notes = "\n".join(f"- Пункт {index}" for index in range(81))
 
     response = _post_igor(user, workspace, {"message": f"Разбери заметки встречи:\n{notes}"})
 
-    assert response.status_code == 400
-    assert "больше 80" in response.data["answer"]
+    assert response.status_code == 200
+    widget = response.data["widgets"][0]
+    assert widget["source_count"] == widget["covered_count"] == 81
+    assert widget["batch_count"] == 3
+    assert widget["tasks"] == []
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_large_capture_is_queued_and_scoped_to_requesting_user(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-background")
+    queued = []
+    monkeypatch.setattr(IgorChatEndpoint, "capture_async_unit_threshold", 2)
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda workspace_id, user_id, job_id: queued.append((workspace_id, user_id, job_id)),
+    )
+
+    response = _post_igor(
+        user,
+        workspace,
+        {"message": "Разбери ТЗ:\n- Создать API.\n- Добавить тесты.\n- Обновить документацию."},
+    )
+
+    assert response.status_code == 200
+    assert response.data["intent"] == "capture_processing"
+    widget = response.data["widgets"][0]
+    assert widget["type"] == "capture_processing"
+    assert widget["source_count"] == 3
+    assert queued == [(str(workspace.id), str(user.id), widget["job_id"])]
+
+    poll_response = _post_igor(
+        user,
+        workspace,
+        {"action": "get_capture_job", "job_id": widget["job_id"]},
+    )
+    assert poll_response.status_code == 200
+    assert poll_response.data["capture_job_id"] == widget["job_id"]
+
+    other_user = UserFactory()
+    WorkspaceMember.objects.create(workspace=workspace, member=other_user, role=15)
+    forbidden_poll = _post_igor(
+        other_user,
+        workspace,
+        {"action": "get_capture_job", "job_id": widget["job_id"]},
+    )
+    assert forbidden_poll.status_code == 410
+    assert "widget" not in forbidden_poll.data
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_concurrent_large_capture_requests_share_one_active_job(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-background-race")
+    endpoint = IgorChatEndpoint()
+    units = endpoint._capture_units("- Создать API.\n- Добавить тесты.\n- Обновить документацию.")
+    queued = []
+    active_key = endpoint._capture_active_job_key(workspace, user)
+    barrier = threading.Barrier(2)
+    original_add = cache.add
+
+    def racing_add(key, value, timeout):
+        if key == active_key:
+            barrier.wait(timeout=5)
+        return original_add(key, value, timeout=timeout)
+
+    monkeypatch.setattr(cache, "add", racing_add)
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda workspace_id, user_id, job_id: queued.append((workspace_id, user_id, job_id)),
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _index: endpoint._enqueue_capture_review(units, workspace, user), range(2)))
+
+    assert len(queued) == 1
+    assert {result["job_id"] for result in results} == {queued[0][2]}
+    assert all(result["widget"]["status"] == "queued" for result in results)
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_background_capture_finishes_from_saved_batches(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-background-complete")
+    endpoint = IgorChatEndpoint()
+    units = endpoint._capture_units("- Создать API.\n- Добавить тесты.")
+    queued = []
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda workspace_id, user_id, job_id: queued.append((workspace_id, user_id, job_id)),
+    )
+    capture = endpoint._enqueue_capture_review(units, workspace, user)
+    job_id = capture["job_id"]
+
+    def make_plan(_self, batch, *_args):
+        return {
+            "items": [{"source_id": unit["id"], "category": "action", "summary": unit["text"]} for unit in batch],
+            "tasks": [
+                {
+                    "title": unit["text"],
+                    "goal": "Выполнить требование ТЗ.",
+                    "description": unit["text"],
+                    "acceptance_criteria": ["Результат проверен."],
+                    "source_ids": [unit["id"]],
+                }
+                for unit in batch
+            ],
+        }
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_capture_plan_strict", make_plan)
+    from plane.bgtasks.igor_capture_task import process_igor_capture_job
+
+    process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+
+    job = cache.get(endpoint._capture_job_cache_key(workspace, user, job_id))
+    assert job["status"] == "completed"
+    assert len(job["batch_results"]) == 1
+    assert job["result"]["widget"]["type"] == "capture_review"
+    assert len(job["result"]["widget"]["tasks"]) == 2
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_background_capture_stops_when_workspace_access_is_revoked(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-background-revoked")
+    endpoint = IgorChatEndpoint()
+    job_id = "revoked_access_identifier_12345"
+    cache_key = endpoint._capture_job_cache_key(workspace, user, job_id)
+    cache.set(
+        cache_key,
+        {
+            "job_id": job_id,
+            "status": "queued",
+            "source_count": 1,
+            "total_batches": 1,
+            "units": [{"id": "S1", "text": "Нужно создать API"}],
+            "batch_results": {},
+            "batch_attempts": {},
+            "failed_batches": [],
+        },
+        timeout=endpoint.capture_job_timeout,
+    )
+    WorkspaceMember.objects.filter(workspace=workspace, member=user).update(is_active=False)
+
+    def must_not_call_llm(*_args):
+        raise AssertionError("LLM must not receive a revoked user's specification")
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_capture_plan_strict", must_not_call_llm)
+    from plane.bgtasks.igor_capture_task import process_igor_capture_job
+
+    process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+
+    saved = cache.get(cache_key)
+    assert saved["status"] == "failed"
+    assert saved["error"] == "access_unavailable"
+    assert saved["batch_results"] == {}
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_retry_preserves_completed_batches_and_resets_only_failed(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-background-retry")
+    endpoint = IgorChatEndpoint()
+    job_id = "retry_job_identifier_123456"
+    cache_key = endpoint._capture_job_cache_key(workspace, user, job_id)
+    completed_plan = {"items": [{"source_id": "S1", "category": "context"}], "tasks": []}
+    job = {
+        "job_id": job_id,
+        "status": "failed",
+        "source_count": 2,
+        "total_batches": 2,
+        "units": [{"id": "S1", "text": "Факт"}, {"id": "S2", "text": "Нужно сделать"}],
+        "batch_results": {"0": completed_plan},
+        "batch_attempts": {"0": 1, "1": 3},
+        "failed_batches": ["1"],
+    }
+    cache.set(cache_key, job, timeout=endpoint.capture_job_timeout)
+    queued = []
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda workspace_id, user_id, queued_job_id: queued.append((workspace_id, user_id, queued_job_id)),
+    )
+
+    response = _post_igor(
+        user,
+        workspace,
+        {"action": "retry_capture_job", "job_id": job_id},
+    )
+
+    assert response.status_code == 200
+    saved = cache.get(cache_key)
+    assert saved["status"] == "queued"
+    assert saved["batch_results"] == {"0": completed_plan}
+    assert saved["batch_attempts"] == {"0": 1, "1": 0}
+    assert saved["failed_batches"] == []
+    assert queued == [(str(workspace.id), str(user.id), job_id)]
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_background_worker_saves_failed_attempt_before_retry(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-background-worker-retry")
+    endpoint = IgorChatEndpoint()
+    job_id = "worker_retry_identifier_12345"
+    cache_key = endpoint._capture_job_cache_key(workspace, user, job_id)
+    cache.set(
+        cache_key,
+        {
+            "job_id": job_id,
+            "status": "queued",
+            "source_count": 1,
+            "total_batches": 1,
+            "units": [{"id": "S1", "text": "Нужно создать API"}],
+            "batch_results": {},
+            "batch_attempts": {},
+            "failed_batches": [],
+        },
+        timeout=endpoint.capture_job_timeout,
+    )
+
+    def fail_batch(*_args):
+        raise TimeoutError("LLM timeout")
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_capture_plan_strict", fail_batch)
+    from celery.exceptions import Retry
+    from plane.bgtasks.igor_capture_task import process_igor_capture_job
+
+    def raise_retry(**_kwargs):
+        raise Retry("retry scheduled")
+
+    monkeypatch.setattr(process_igor_capture_job, "retry", raise_retry)
+    with pytest.raises(Retry):
+        process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+
+    saved = cache.get(cache_key)
+    assert saved["status"] == "retrying"
+    assert saved["batch_attempts"] == {"0": 1}
+    assert saved["batch_results"] == {}
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_background_worker_does_not_process_same_job_concurrently(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-background-lock")
+    endpoint = IgorChatEndpoint()
+    job_id = "worker_lock_identifier_123456"
+    cache_key = endpoint._capture_job_cache_key(workspace, user, job_id)
+    cache.set(
+        cache_key,
+        {
+            "job_id": job_id,
+            "status": "queued",
+            "source_count": 1,
+            "total_batches": 1,
+            "units": [{"id": "S1", "text": "Нужно создать API"}],
+            "batch_results": {},
+            "batch_attempts": {},
+            "failed_batches": [],
+        },
+        timeout=endpoint.capture_job_timeout,
+    )
+    cache.set(
+        f"{cache_key}:worker-lock",
+        "another-worker",
+        timeout=endpoint.capture_job_lock_timeout,
+    )
+
+    def must_not_call_llm(*_args):
+        raise AssertionError("A second worker must not send the same batch to the LLM")
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_capture_plan_strict", must_not_call_llm)
+    from plane.bgtasks.igor_capture_task import process_igor_capture_job
+
+    process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+
+    saved = cache.get(cache_key)
+    assert saved["status"] == "queued"
+    assert saved["batch_results"] == {}
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_capture_job_retry_is_offered_only_for_recoverable_failures():
+    endpoint = IgorChatEndpoint()
+
+    revoked = endpoint._capture_job_result(
+        {
+            "job_id": "revoked_job_identifier_12345",
+            "status": "failed",
+            "error": "access_unavailable",
+            "source_count": 1,
+            "total_batches": 1,
+        }
+    )
+    llm_failure = endpoint._capture_job_result(
+        {
+            "job_id": "failed_job_identifier_123456",
+            "status": "failed",
+            "error": "batch_processing_failed",
+            "source_count": 1,
+            "total_batches": 1,
+            "failed_batches": ["0"],
+        }
+    )
+
+    assert revoked["widget"]["can_retry"] is False
+    assert llm_failure["widget"]["can_retry"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_capture_accepts_eighty_thousand_characters_and_rejects_more(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-80k")
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda *_args: None,
+    )
+    prefix = "Разбери ТЗ:\n"
+    at_limit = prefix + ("Добавить проверку " * 5000)[: IgorChatEndpoint.capture_message_limit - len(prefix)]
+
+    accepted = _post_igor(user, workspace, {"message": at_limit})
+    rejected = _post_igor(user, workspace, {"message": f"{at_limit}X"})
+
+    assert len(at_limit) == 80000
+    assert accepted.status_code == 200
+    assert accepted.data["intent"] == "capture_processing"
+    assert rejected.status_code == 400
+    assert "80000" in rejected.data["answer"]
 
 
 @pytest.mark.unit
@@ -500,6 +945,9 @@ def test_capture_creation_is_confirmed_scoped_and_idempotent(monkeypatch):
                     "id": "T1",
                     "title": "Проверить авторизацию",
                     "description": "Проверить вход и восстановление пароля.",
+                    "goal": "Не допустить блокирующей ошибки авторизации после релиза.",
+                    "acceptance_criteria": ["Вход и восстановление пароля проходят успешно."],
+                    "open_questions": ["Нужно ли проверять SSO?"],
                     "source_ids": ["S1"],
                     "project_id": str(project.id),
                     "project_name": project.name,
@@ -522,6 +970,9 @@ def test_capture_creation_is_confirmed_scoped_and_idempotent(monkeypatch):
         "task_overrides": {
             "T1": {
                 "title": "Проверить авторизацию перед релизом",
+                "goal": "Убедиться, что пользователи смогут войти после релиза.",
+                "description": "Проверить вход, выход и восстановление пароля перед публикацией.",
+                "acceptance_criteria": ["Вход, выход и восстановление пароля проходят без ошибок."],
                 "target_date": target_date,
                 "priority": "urgent",
             }
@@ -539,6 +990,9 @@ def test_capture_creation_is_confirmed_scoped_and_idempotent(monkeypatch):
     assert issue.project == project
     assert issue.priority == "urgent"
     assert issue.assignees.filter(id=user.id).exists()
+    assert "Убедиться, что пользователи смогут войти" in issue.description_stripped
+    assert "Вход, выход и восстановление пароля проходят без ошибок" in issue.description_stripped
+    assert "Нужно ли проверять SSO" in issue.description_stripped
     assert "Нужно проверить авторизацию" in issue.description_stripped
     assert first_response.data["widgets"][0]["items"][0]["id"] == str(issue.id)
     assert second_response.data["widgets"][0]["items"][0]["id"] == str(issue.id)

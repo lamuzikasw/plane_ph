@@ -246,6 +246,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         "weekly_summary",
         "task_search",
         "capture_review",
+        "capture_processing",
         "capture_create",
     }
     default_limit = 12
@@ -257,6 +258,33 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
     weekly_copy_max_chars = 1400
     weekly_copy_cache_seconds = 900
 
+    def _capture_chat_response(self, capture, user):
+        intent = "capture_processing" if capture.get("pending") else "capture_review"
+        return {
+            "assistant": self.assistant_name,
+            "intent": intent,
+            "answer": capture["answer"],
+            "capture_job_id": capture.get("job_id"),
+            "period": {"label": "", "start": None, "end": None},
+            "context": {
+                "intent": intent,
+                "project_id": None,
+                "project_name": None,
+                "project_ids": [],
+                "project_names": [],
+                "member_id": str(user.id),
+                "member_name": self._member_name(user),
+                "period_label": "",
+                "period_start": None,
+                "period_end": None,
+                "scope": "personal",
+                "summary_format": "standard",
+                "summary_audience": "self",
+            },
+            "widgets": [capture["widget"]],
+            "suggestions": ["Разбери ещё одно ТЗ", "Собери мой summary за прошлую неделю"],
+        }
+
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
         action = request.data.get("action")
@@ -265,6 +293,13 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             return Response({"error": "Message must be a string"}, status=status.HTTP_400_BAD_REQUEST)
         message = (raw_message or "").strip()
         workspace = Workspace.objects.get(slug=slug)
+
+        if action == "get_capture_job":
+            payload, response_status = self._get_capture_job(request, workspace)
+            if response_status == 200:
+                payload = self._capture_chat_response(payload, request.user)
+            return Response(payload, status=response_status)
+
         if self._is_rate_limited(workspace, request.user):
             return Response(
                 {
@@ -275,9 +310,14 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             )
 
         if action:
-            if action != "create_capture_tasks":
+            if action == "create_capture_tasks":
+                payload, response_status = self._create_capture_tasks(request, workspace)
+            elif action == "retry_capture_job":
+                payload, response_status = self._retry_capture_job(request, workspace)
+                if response_status == 200:
+                    payload = self._capture_chat_response(payload, request.user)
+            else:
                 return Response({"error": "Unsupported Igor action"}, status=status.HTTP_400_BAD_REQUEST)
-            payload, response_status = self._create_capture_tasks(request, workspace)
             return Response(payload, status=response_status)
 
         if not message:
@@ -329,33 +369,8 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         if is_capture_request:
             capture = self._build_capture_review(message, workspace, request.user)
             if capture.get("error"):
-                return Response(capture, status=status.HTTP_400_BAD_REQUEST)
-            return Response(
-                {
-                    "assistant": self.assistant_name,
-                    "intent": "capture_review",
-                    "answer": capture["answer"],
-                    "period": {"label": "", "start": None, "end": None},
-                    "context": {
-                        "intent": "capture_review",
-                        "project_id": None,
-                        "project_name": None,
-                        "project_ids": [],
-                        "project_names": [],
-                        "member_id": str(request.user.id),
-                        "member_name": self._member_name(request.user),
-                        "period_label": "",
-                        "period_start": None,
-                        "period_end": None,
-                        "scope": "personal",
-                        "summary_format": "standard",
-                        "summary_audience": "self",
-                    },
-                    "widgets": [capture["widget"]],
-                    "suggestions": ["Разбери ещё одни заметки", "Собери мой summary за прошлую неделю"],
-                },
-                status=status.HTTP_200_OK,
-            )
+                return Response(capture, status=capture.get("status", status.HTTP_400_BAD_REQUEST))
+            return Response(self._capture_chat_response(capture, request.user), status=status.HTTP_200_OK)
 
         query_context = self._resolve_query_context(message, workspace, request.user, history, request_context)
         if query_context.get("access_denied"):

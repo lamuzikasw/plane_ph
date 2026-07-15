@@ -32,33 +32,37 @@ import { cn, generateWorkItemLink } from "@plane/utils";
 // services
 import {
   AIService,
+  type TIgorCaptureProcessingWidget as TIgorCaptureProcessingWidgetData,
   type TIgorCaptureWidget as TIgorCaptureWidgetData,
   type TIgorChatContext,
   type TIgorChatHistoryItem,
-  type TIgorChatResponse,
   type TIgorChatWorkItem,
   type TIgorWeeklySummaryWidget as TIgorWeeklySummaryWidgetData,
 } from "@/services/ai.service";
 
 import {
   clampIgorComposerHeight,
+  getIgorCaptureJobStorageKey,
+  getIgorCapturePollDelay,
+  getIgorCaptureProcessingWidget,
   getIgorContextSegments,
+  getIgorMessageLimit,
+  IGOR_CAPTURE_MESSAGE_LENGTH,
   IGOR_COMPOSER_DEFAULT_HEIGHT,
   IGOR_COMPOSER_MAX_HEIGHT,
   IGOR_COMPOSER_MIN_HEIGHT,
   resolveIgorSuggestions,
+  type TIgorMessage,
+  upsertIgorCaptureJobMessage,
 } from "./igor-chat.utils";
 
-type TIgorMessage = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  response?: TIgorChatResponse;
-  request?: {
-    message: string;
-    history: TIgorChatHistoryItem[];
-    context?: Partial<TIgorChatContext> | null;
-  };
+type TIgorCaptureTaskOverride = {
+  title: string;
+  goal: string;
+  description: string;
+  acceptance_criteria: string[];
+  target_date: string | null;
+  priority: TIgorCaptureWidgetData["tasks"][number]["priority"];
 };
 
 type Props = {
@@ -66,8 +70,6 @@ type Props = {
 };
 
 const aiService = new AIService();
-const REGULAR_MESSAGE_LENGTH = 5000;
-const CAPTURE_MESSAGE_LENGTH = 8000;
 const PANEL_STORAGE_KEY = "plane:igor:panel-size";
 const COMPOSER_STORAGE_KEY = "plane:igor:composer-height";
 const DEFAULT_PANEL_SIZE = { width: 480, height: 720 };
@@ -78,6 +80,7 @@ const INITIAL_SUGGESTIONS = [
   "Собери мой summary за прошлую неделю",
   "Подготовь короткий отчёт руководителю за прошлую неделю",
   "Собери подробные итоги за текущую неделю",
+  "Разбери ТЗ и предложи задачи",
   "Разбери заметки встречи и предложи задачи",
   "Покажи мои просроченные задачи",
 ];
@@ -100,9 +103,9 @@ const QUICK_ACTIONS: TIgorQuickAction[] = [
   },
   {
     id: "meeting",
-    title: "Разобрать встречу",
-    description: "Решения, риски и задачи",
-    prompt: "Разбери заметки встречи и предложи задачи:\n\n",
+    title: "Разобрать ТЗ",
+    description: "Требования или заметки встречи",
+    prompt: "Разбери ТЗ и предложи задачи:\n\n",
     mode: "draft",
   },
   {
@@ -149,13 +152,6 @@ const clampPanelSize = ({ width, height }: TIgorPanelSize): TIgorPanelSize => {
   };
 };
 
-const getMessageLimit = (message: string) =>
-  /разбер|обработ|структур|разлож|преврат|вытащ|выдел|предлож|поручен|договорен|задач.*из|meeting notes|action items|turn this into tasks|categorize these notes/i.test(
-    message
-  )
-    ? CAPTURE_MESSAGE_LENGTH
-    : REGULAR_MESSAGE_LENGTH;
-
 const stateLabels: Record<string, string> = {
   backlog: "Backlog",
   unstarted: "Todo",
@@ -167,7 +163,7 @@ const stateLabels: Record<string, string> = {
 const buildHistoryPayload = (messages: TIgorMessage[]): TIgorChatHistoryItem[] =>
   messages.slice(-8).map((message) => ({
     role: message.role,
-    text: message.text,
+    text: message.text.slice(0, 2000),
     context: message.response?.context ?? null,
   }));
 
@@ -181,6 +177,8 @@ export function IgorChat({ workspaceSlug }: Props) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isComposerResizing, setIsComposerResizing] = useState(false);
+  const [activeCaptureJobId, setActiveCaptureJobId] = useState<string | null>(null);
+  const [capturePollVersion, setCapturePollVersion] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const resizeSessionRef = useRef<TIgorResizeSession | null>(null);
@@ -188,7 +186,7 @@ export function IgorChat({ workspaceSlug }: Props) {
   const panelSizeRef = useRef<TIgorPanelSize>(panelSize);
   const composerHeightRef = useRef(composerHeight);
   const activeWorkspaceRef = useRef(workspaceSlug);
-  const currentMessageLimit = getMessageLimit(input);
+  const currentMessageLimit = getIgorMessageLimit(input);
 
   panelSizeRef.current = panelSize;
   composerHeightRef.current = composerHeight;
@@ -243,7 +241,61 @@ export function IgorChat({ workspaceSlug }: Props) {
     setInput("");
     setIsSubmitting(false);
     setIsOpen(false);
+    try {
+      setActiveCaptureJobId(window.localStorage.getItem(getIgorCaptureJobStorageKey(workspaceSlug)));
+    } catch {
+      setActiveCaptureJobId(null);
+    }
   }, [workspaceSlug]);
+
+  useEffect(() => {
+    if (!activeCaptureJobId) return;
+    let cancelled = false;
+    let pollTimer: number | undefined;
+
+    const clearActiveJob = () => {
+      setActiveCaptureJobId(null);
+      try {
+        window.localStorage.removeItem(getIgorCaptureJobStorageKey(workspaceSlug));
+      } catch {
+        // Polling still stops when local storage is unavailable.
+      }
+    };
+
+    const poll = async () => {
+      try {
+        const response = await aiService.getIgorCaptureJob(workspaceSlug, activeCaptureJobId);
+        if (cancelled || activeWorkspaceRef.current !== workspaceSlug) return;
+        setMessages((currentMessages) => upsertIgorCaptureJobMessage(currentMessages, activeCaptureJobId, response));
+
+        const processingWidget = getIgorCaptureProcessingWidget(response);
+        if (!processingWidget) {
+          clearActiveJob();
+          setToast({
+            type: TOAST_TYPE.SUCCESS,
+            title: "ТЗ разобрано",
+            message: "Игорь подготовил задачи — проверь их перед созданием.",
+          });
+          return;
+        }
+        pollTimer = window.setTimeout(poll, getIgorCapturePollDelay(processingWidget.status));
+      } catch (error) {
+        if (cancelled) return;
+        const responseStatus = (error as { status?: number } | undefined)?.status;
+        if (responseStatus === 404 || responseStatus === 410) {
+          clearActiveJob();
+          return;
+        }
+        pollTimer = window.setTimeout(poll, getIgorCapturePollDelay(undefined, true));
+      }
+    };
+
+    pollTimer = window.setTimeout(poll, 600);
+    return () => {
+      cancelled = true;
+      if (pollTimer) window.clearTimeout(pollTimer);
+    };
+  }, [activeCaptureJobId, capturePollVersion, workspaceSlug]);
 
   useEffect(() => {
     const handleOpenIgor = () => setIsOpen(true);
@@ -412,7 +464,7 @@ export function IgorChat({ workspaceSlug }: Props) {
   const askIgor = async (messageText: string) => {
     const trimmedMessage = messageText.trim();
     if (!trimmedMessage || isSubmitting) return;
-    const messageLimit = getMessageLimit(trimmedMessage);
+    const messageLimit = getIgorMessageLimit(trimmedMessage);
     if (trimmedMessage.length > messageLimit) {
       setToast({
         type: TOAST_TYPE.ERROR,
@@ -438,6 +490,15 @@ export function IgorChat({ workspaceSlug }: Props) {
     try {
       const response = await aiService.askIgor(workspaceSlug, { message: trimmedMessage, history: historyPayload });
       if (activeWorkspaceRef.current !== requestWorkspaceSlug) return;
+      const processingWidget = getIgorCaptureProcessingWidget(response);
+      if (processingWidget) {
+        setActiveCaptureJobId(processingWidget.job_id);
+        try {
+          window.localStorage.setItem(getIgorCaptureJobStorageKey(workspaceSlug), processingWidget.job_id);
+        } catch {
+          // The current tab still keeps polling when local storage is unavailable.
+        }
+      }
       setMessages((currentMessages) => [
         ...currentMessages,
         {
@@ -482,14 +543,7 @@ export function IgorChat({ workspaceSlug }: Props) {
     taskIds: string[],
     projectAssignments: Record<string, string>,
     assigneeAssignments: Record<string, string>,
-    taskOverrides: Record<
-      string,
-      {
-        title: string;
-        target_date: string | null;
-        priority: TIgorCaptureWidgetData["tasks"][number]["priority"];
-      }
-    >
+    taskOverrides: Record<string, TIgorCaptureTaskOverride>
   ): Promise<boolean> => {
     if (!widget.token || isSubmitting) return false;
     const requestWorkspaceSlug = workspaceSlug;
@@ -530,6 +584,36 @@ export function IgorChat({ workspaceSlug }: Props) {
       return false;
     } finally {
       if (activeWorkspaceRef.current === requestWorkspaceSlug) setIsSubmitting(false);
+    }
+  };
+
+  const retryCaptureJob = async (jobId: string) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const response = await aiService.retryIgorCaptureJob(workspaceSlug, jobId);
+      if (activeWorkspaceRef.current !== workspaceSlug) return;
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.response?.capture_job_id === jobId ? { ...message, text: response.answer, response } : message
+        )
+      );
+      setActiveCaptureJobId(jobId);
+      setCapturePollVersion((current) => current + 1);
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: "Повтор запущен",
+        message: "Игорь повторит только пакеты, которые не обработались.",
+      });
+    } catch (error) {
+      const serverAnswer = (error as { data?: { answer?: unknown } } | undefined)?.data?.answer;
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Не удалось продолжить разбор",
+        message: typeof serverAnswer === "string" ? serverAnswer : "Попробуй ещё раз через минуту.",
+      });
+    } finally {
+      if (activeWorkspaceRef.current === workspaceSlug) setIsSubmitting(false);
     }
   };
 
@@ -661,13 +745,20 @@ export function IgorChat({ workspaceSlug }: Props) {
                         </div>
                       )}
                       {message.response?.context && <IgorContextStrip context={message.response.context} />}
-                      <p className="max-w-[68ch] whitespace-pre-wrap text-primary">{message.text}</p>
+                      <IgorMessageText text={message.text} collapsible={message.role === "user"} />
                       {message.response?.widgets?.map((widget) =>
                         widget.type === "weekly_summary" ? (
                           <IgorWeeklySummaryWidget
                             key={`${message.id}-${widget.type}-${widget.title}`}
                             widget={widget}
                             workspaceSlug={workspaceSlug}
+                          />
+                        ) : widget.type === "capture_processing" ? (
+                          <IgorCaptureProcessingWidget
+                            key={`${message.id}-${widget.type}-${widget.job_id}`}
+                            widget={widget}
+                            isSubmitting={isSubmitting}
+                            onRetry={retryCaptureJob}
                           />
                         ) : widget.type === "capture_review" ? (
                           <IgorCaptureWidget
@@ -764,8 +855,8 @@ export function IgorChat({ workspaceSlug }: Props) {
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Спросите Игоря о задачах или вставьте заметки встречи…"
-                maxLength={CAPTURE_MESSAGE_LENGTH}
+                placeholder="Спросите Игоря о задачах или вставьте ТЗ / заметки встречи…"
+                maxLength={IGOR_CAPTURE_MESSAGE_LENGTH}
                 rows={2}
                 aria-describedby="igor-input-hint"
                 style={{ height: composerHeight }}
@@ -839,6 +930,86 @@ function IgorMark({ size = "md", className }: { size?: "xs" | "sm" | "md" | "lg"
   );
 }
 
+function IgorMessageText({ text, collapsible }: { text: string; collapsible: boolean }) {
+  if (!collapsible || text.length <= 3000)
+    return <p className="max-w-[68ch] whitespace-pre-wrap text-primary">{text}</p>;
+
+  return (
+    <details className="group max-w-[68ch]">
+      <summary className="text-xs cursor-pointer list-none font-medium text-[#0b6ea8] focus:outline-none focus-visible:underline">
+        <span className="group-open:hidden">Большое ТЗ · показать полностью</span>
+        <span className="hidden group-open:inline">Свернуть исходное ТЗ</span>
+      </summary>
+      <p className="mt-2 max-h-80 overflow-y-auto border-t border-[#0b6ea8]/15 pt-2 whitespace-pre-wrap text-primary">
+        {text}
+      </p>
+    </details>
+  );
+}
+
+function IgorCaptureProcessingWidget({
+  widget,
+  isSubmitting,
+  onRetry,
+}: {
+  widget: TIgorCaptureProcessingWidgetData;
+  isSubmitting: boolean;
+  onRetry: (jobId: string) => void;
+}) {
+  const statusText = {
+    queued: "В очереди",
+    processing: "Разбираю требования",
+    retrying: "Повторяю один пакет",
+    failed: "Нужен повтор",
+  }[widget.status];
+
+  return (
+    <div className="shadow-xs mt-3 rounded-xl border border-subtle bg-surface-1 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[13px] font-semibold text-primary">{widget.title}</div>
+          <div className="mt-0.5 text-[11px] text-secondary">
+            {widget.source_count} смысловых пунктов · {widget.completed_batches}/{widget.total_batches} пакетов
+          </div>
+        </div>
+        <span
+          className={cn(
+            "rounded-full px-2 py-1 text-[10px] font-medium",
+            widget.status === "failed" ? "bg-amber-500/10 text-amber-700" : "bg-[#0b6ea8]/10 text-[#0b6ea8]"
+          )}
+        >
+          {statusText}
+        </span>
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-2" aria-label={`Прогресс ${widget.progress}%`}>
+        <div
+          className={cn(
+            "h-full rounded-full transition-[width] duration-500",
+            widget.status === "failed" ? "bg-amber-500" : "bg-[#0b6ea8]"
+          )}
+          style={{ width: `${widget.progress}%` }}
+        />
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-secondary">
+        <span>{widget.progress}% · результат сохраняется после каждого пакета</span>
+        {widget.can_retry && (
+          <button
+            type="button"
+            onClick={() => onRetry(widget.job_id)}
+            disabled={isSubmitting}
+            className="border-amber-500/30 text-amber-700 hover:bg-amber-500/10 rounded-md border px-2.5 py-1.5 font-medium disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Повторить {widget.failed_batches > 0 ? `${widget.failed_batches} пак.` : "финализацию"}
+          </button>
+        )}
+      </div>
+      <p className="mt-2 text-[10px] leading-4 text-tertiary">
+        Окно можно закрыть. При временной ошибке Игорь повторяет только текущий пакет, а готовые результаты не теряет.
+      </p>
+    </div>
+  );
+}
+
 function IgorWelcome({
   isSubmitting,
   onAction,
@@ -853,7 +1024,7 @@ function IgorWelcome({
         <div className="min-w-0 pt-0.5">
           <h3 className="text-xl leading-7 font-semibold tracking-[-0.02em] text-primary">Чем помочь?</h3>
           <p className="text-sm mt-1 max-w-[46ch] leading-5 text-secondary">
-            Соберу факты из Plane, подготовлю отчёт или превращу заметки встречи в понятный план действий.
+            Соберу факты из Plane, подготовлю отчёт или превращу большое ТЗ и заметки встречи в проверяемый план задач.
           </p>
         </div>
       </div>
@@ -1101,14 +1272,7 @@ function IgorCaptureWidget({
     taskIds: string[],
     projectAssignments: Record<string, string>,
     assigneeAssignments: Record<string, string>,
-    taskOverrides: Record<
-      string,
-      {
-        title: string;
-        target_date: string | null;
-        priority: TIgorCaptureWidgetData["tasks"][number]["priority"];
-      }
-    >
+    taskOverrides: Record<string, TIgorCaptureTaskOverride>
   ) => Promise<boolean>;
 }) {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(
@@ -1124,20 +1288,18 @@ function IgorCaptureWidget({
       widget.tasks.filter((task) => task.assignee_id).map((task) => [task.id, task.assignee_id as string])
     )
   );
-  const [taskOverrides, setTaskOverrides] = useState<
-    Record<
-      string,
-      {
-        title: string;
-        target_date: string | null;
-        priority: TIgorCaptureWidgetData["tasks"][number]["priority"];
-      }
-    >
-  >(() =>
+  const [taskOverrides, setTaskOverrides] = useState<Record<string, TIgorCaptureTaskOverride>>(() =>
     Object.fromEntries(
       widget.tasks.map((task) => [
         task.id,
-        { title: task.title, target_date: task.target_date, priority: task.priority },
+        {
+          title: task.title,
+          goal: task.goal,
+          description: task.description,
+          acceptance_criteria: task.acceptance_criteria,
+          target_date: task.target_date,
+          priority: task.priority,
+        },
       ])
     )
   );
@@ -1160,7 +1322,14 @@ function IgorCaptureWidget({
       Object.fromEntries(
         widget.tasks.map((task) => [
           task.id,
-          { title: task.title, target_date: task.target_date, priority: task.priority },
+          {
+            title: task.title,
+            goal: task.goal,
+            description: task.description,
+            acceptance_criteria: task.acceptance_criteria,
+            target_date: task.target_date,
+            priority: task.priority,
+          },
         ])
       )
     );
@@ -1175,7 +1344,7 @@ function IgorCaptureWidget({
     !isCreated &&
     selectedTasks.length > 0 &&
     tasksWithoutProject.length === 0 &&
-    selectedTasks.every((task) => taskOverrides[task.id]?.title.trim());
+    selectedTasks.every((task) => taskOverrides[task.id]?.title.trim() && taskOverrides[task.id]?.description.trim());
 
   const toggleTask = (taskId: string) => {
     setSelectedTaskIds((current) => {
@@ -1205,6 +1374,11 @@ function IgorCaptureWidget({
             <div className="mt-0.5 text-[11px] text-secondary">
               Разобрано {widget.covered_count} из {widget.source_count} исходных пунктов
             </div>
+            {widget.batch_count > 1 && (
+              <div className="mt-0.5 text-[11px] text-tertiary">
+                Большое ТЗ обработано автоматически в {widget.batch_count} смысловых пакетах
+              </div>
+            )}
           </div>
           <div
             className={cn(
@@ -1221,6 +1395,18 @@ function IgorCaptureWidget({
           <span className="rounded bg-[#0b6ea8]/10 px-2 py-1 font-medium text-[#0b6ea8]">
             {widget.tasks.length} задач
           </span>
+          {widget.action_count > 0 && (
+            <span
+              className={cn(
+                "rounded px-2 py-1",
+                widget.task_covered_count === widget.action_count
+                  ? "bg-green-500/10 text-green-700"
+                  : "bg-amber-500/10 text-amber-700"
+              )}
+            >
+              Поручения: {widget.task_covered_count}/{widget.action_count}
+            </span>
+          )}
           {categoryCount("question") > 0 && (
             <span className="bg-amber-500/10 text-amber-700 rounded px-2 py-1">
               {categoryCount("question")} вопросов
@@ -1238,7 +1424,7 @@ function IgorCaptureWidget({
       <details className="group border-b border-subtle">
         <summary className="cursor-pointer list-none px-3 py-2 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6ea8]/30 focus-visible:ring-inset">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-semibold text-primary">Материалы встречи</span>
+            <span className="text-[11px] font-semibold text-primary">Исходное ТЗ и контекст</span>
             <span className="flex items-center gap-1.5 text-[11px] text-tertiary">
               {widget.source_count} пунктов
               <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
@@ -1314,6 +1500,8 @@ function IgorCaptureWidget({
               const missingDeadline = task.missing_fields.includes("target_date");
               const missingPriority = task.missing_fields.includes("priority");
               const missingAssignee = !assigneeAssignments[task.id];
+              const missingGoal = !taskOverrides[task.id]?.goal.trim();
+              const missingCriteria = !taskOverrides[task.id]?.acceptance_criteria.some((item) => item.trim());
               const selectedProjectId = projectAssignments[task.id];
               const selectedProject = widget.projects.find((project) => project.id === selectedProjectId);
               const selectedAssignee = widget.members.find((member) => member.id === assigneeAssignments[task.id]);
@@ -1322,6 +1510,9 @@ function IgorCaptureWidget({
               );
               const override = taskOverrides[task.id] ?? {
                 title: task.title,
+                goal: task.goal,
+                description: task.description,
+                acceptance_criteria: task.acceptance_criteria,
                 target_date: task.target_date,
                 priority: task.priority,
               };
@@ -1345,9 +1536,29 @@ function IgorCaptureWidget({
                       <span className="block text-[12px] leading-4 font-medium text-primary" title={override.title}>
                         {override.title}
                       </span>
-                      {task.description && (
-                        <span className="mt-0.5 line-clamp-2 block text-[11px] leading-4 text-secondary">
-                          {task.description}
+                      {task.section && (
+                        <span className="mt-1 inline-flex rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-tertiary">
+                          {task.section}
+                        </span>
+                      )}
+                      {override.goal ? (
+                        <span className="mt-1 line-clamp-2 block text-[11px] leading-4 text-secondary">
+                          <span className="font-medium text-primary">Зачем:</span> {override.goal}
+                        </span>
+                      ) : (
+                        <span className="text-amber-600 mt-1 block text-[11px] leading-4">
+                          Цель не указана в ТЗ — её нужно уточнить
+                        </span>
+                      )}
+                      {override.description && (
+                        <span className="mt-0.5 line-clamp-3 block text-[11px] leading-4 text-secondary">
+                          <span className="font-medium text-primary">Что сделать:</span> {override.description}
+                        </span>
+                      )}
+                      {(override.acceptance_criteria.some((item) => item.trim()) || task.open_questions.length > 0) && (
+                        <span className="mt-1 block text-[10px] text-tertiary">
+                          Критериев: {override.acceptance_criteria.filter((item) => item.trim()).length} · Вопросов:{" "}
+                          {task.open_questions.length}
                         </span>
                       )}
                       <span className="mt-0.5 block text-[11px] leading-4 text-tertiary">
@@ -1407,6 +1618,69 @@ function IgorCaptureWidget({
                           className="h-8 rounded border border-subtle bg-surface-1 px-2 text-primary outline-none focus:border-[#0b6ea8]"
                         />
                       </label>
+                      <label className="text-xs grid gap-1 text-secondary">
+                        Зачем нужна задача
+                        <textarea
+                          value={override.goal}
+                          maxLength={1200}
+                          rows={2}
+                          placeholder="Если цель не следует из ТЗ, оставь поле пустым и уточни её у автора."
+                          onChange={(event) =>
+                            setTaskOverrides((current) => ({
+                              ...current,
+                              [task.id]: { ...override, goal: event.target.value },
+                            }))
+                          }
+                          disabled={isSubmitting}
+                          className="min-h-16 resize-y rounded border border-subtle bg-surface-1 px-2 py-1.5 text-primary outline-none focus:border-[#0b6ea8]"
+                        />
+                      </label>
+                      <label className="text-xs grid gap-1 text-secondary">
+                        Что нужно сделать <span className="text-red-500">обязательно</span>
+                        <textarea
+                          value={override.description}
+                          maxLength={3000}
+                          rows={3}
+                          onChange={(event) =>
+                            setTaskOverrides((current) => ({
+                              ...current,
+                              [task.id]: { ...override, description: event.target.value },
+                            }))
+                          }
+                          disabled={isSubmitting}
+                          className="min-h-20 resize-y rounded border border-subtle bg-surface-1 px-2 py-1.5 text-primary outline-none focus:border-[#0b6ea8]"
+                        />
+                      </label>
+                      <label className="text-xs grid gap-1 text-secondary">
+                        Критерии готовности <span className="font-normal text-tertiary">по одному на строку</span>
+                        <textarea
+                          value={override.acceptance_criteria.join("\n")}
+                          maxLength={5000}
+                          rows={3}
+                          placeholder="Не добавляй критерии, которых нет в ТЗ или которые нельзя проверить."
+                          onChange={(event) =>
+                            setTaskOverrides((current) => ({
+                              ...current,
+                              [task.id]: {
+                                ...override,
+                                acceptance_criteria: event.target.value.split("\n").slice(0, 10),
+                              },
+                            }))
+                          }
+                          disabled={isSubmitting}
+                          className="min-h-20 resize-y rounded border border-subtle bg-surface-1 px-2 py-1.5 text-primary outline-none focus:border-[#0b6ea8]"
+                        />
+                      </label>
+                      {task.open_questions.length > 0 && (
+                        <div className="border-amber-500/20 bg-amber-500/5 rounded border px-2 py-2 text-[11px] text-secondary">
+                          <div className="font-medium text-primary">Нужно уточнить перед работой</div>
+                          <ul className="mt-1 list-disc space-y-1 pl-4">
+                            {task.open_questions.map((question) => (
+                              <li key={question}>{question}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                       <label className="text-xs grid gap-1 text-secondary">
                         Проект <span className="text-red-500">обязательно</span>
                         <select
@@ -1490,7 +1764,7 @@ function IgorCaptureWidget({
                           </select>
                         </label>
                       </div>
-                      {(missingDeadline || missingPriority || missingAssignee) && (
+                      {(missingDeadline || missingPriority || missingAssignee || missingGoal || missingCriteria) && (
                         <div className="text-xs text-amber-600 flex items-start gap-1.5">
                           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                           <span>
@@ -1499,6 +1773,8 @@ function IgorCaptureWidget({
                               missingAssignee && "исполнитель",
                               missingDeadline && "срок",
                               missingPriority && "приоритет",
+                              missingGoal && "цель",
+                              missingCriteria && "критерии готовности",
                             ]
                               .filter(Boolean)
                               .join(", ")}
