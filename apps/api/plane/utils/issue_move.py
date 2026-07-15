@@ -31,6 +31,7 @@ from plane.db.models import (
 )
 from plane.db.models.issue import IssueAttachment
 from plane.utils.uuid import convert_uuid_to_integer
+from plane.utils.issue_completion import ensure_completion_requirements
 
 
 class IssueMoveConflict(Exception):
@@ -63,6 +64,21 @@ def move_issue_to_project(*, issue, target_project, target_state, actor):
             is_active=True,
             role__gte=15,
         ).values_list("member_id", flat=True)
+    )
+
+    # Moving a work item can also change its state and remove assignees that do
+    # not belong to the destination project. Validate the effective destination
+    # data before mutating any project-scoped records.
+    has_target_assignee = IssueAssignee.objects.filter(
+        issue=issue,
+        assignee_id__in=target_member_ids,
+    ).exists()
+    ensure_completion_requirements(
+        current_state_group=issue.state.group if issue.state else None,
+        target_state_group=target_state.group if target_state else None,
+        has_assignee=has_target_assignee,
+        target_date=issue.target_date,
+        priority=issue.priority,
     )
 
     # Project-specific planning metadata cannot be carried across projects.

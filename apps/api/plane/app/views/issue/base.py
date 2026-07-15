@@ -75,6 +75,7 @@ from plane.utils.grouper import (
 )
 from plane.utils.host import base_host
 from plane.utils.issue_filters import issue_filters
+from plane.utils.issue_completion import IssueCompletionRequirementsError
 from plane.utils.issue_move import IssueMoveConflict, move_issue_to_project
 from plane.utils.exception_logger import log_exception
 from plane.utils.order_queryset import order_issue_queryset
@@ -797,6 +798,8 @@ class WorkItemMoveToProjectEndpoint(BaseAPIView):
                 target_state=target_state,
                 actor=request.user,
             )
+        except IssueCompletionRequirementsError as exc:
+            return Response(exc.response_data, status=status.HTTP_400_BAD_REQUEST)
         except IssueMoveConflict as exc:
             return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
 

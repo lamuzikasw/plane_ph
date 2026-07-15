@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 import pytest
+from django.utils import timezone
 
 from plane.db.models import (
     Issue,
@@ -14,6 +15,7 @@ from plane.db.models import (
     WorkspaceMember,
 )
 from plane.tests.factories import UserFactory, WorkspaceFactory
+from plane.utils.issue_completion import IssueCompletionRequirementsError
 from plane.utils.issue_move import move_issue_to_project
 from plane.utils.permissions.super_admin import (
     grant_project_access_to_workspace_super_admins,
@@ -75,6 +77,46 @@ def test_move_issue_is_atomic_and_removes_inaccessible_assignees():
     assert activity.project_id == target.id
     assert relation.project_id == target.id
     assert list(IssueAssignee.objects.filter(issue=issue).values_list("assignee_id", flat=True)) == [actor.id]
+
+
+@pytest.mark.unit
+@pytest.mark.django_db(transaction=True)
+def test_move_to_completed_state_validates_effective_destination_assignees_before_mutation():
+    actor = UserFactory(email="move-done@plane.so", username="move-done@plane.so")
+    outsider = UserFactory(email="move-done-outsider@plane.so", username="move-done-outsider@plane.so")
+    workspace = WorkspaceFactory(slug="move-done", owner=actor)
+    WorkspaceMember.objects.create(workspace=workspace, member=actor, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=outsider, role=15)
+    source, source_state = _project(workspace, actor, "Source completion", "SCMP")
+    target, _ = _project(workspace, actor, "Target completion", "TCMP")
+    target_done = State.objects.create(
+        workspace=workspace,
+        project=target,
+        name="Done",
+        group="completed",
+        color="#46A758",
+    )
+    ProjectMember.objects.create(workspace=workspace, project=source, member=actor, role=20)
+    ProjectMember.objects.create(workspace=workspace, project=source, member=outsider, role=15)
+    ProjectMember.objects.create(workspace=workspace, project=target, member=actor, role=20)
+
+    issue = Issue.objects.create(
+        project=source,
+        state=source_state,
+        name="Cannot silently lose assignee",
+        target_date=timezone.now(),
+        priority="high",
+    )
+    IssueAssignee.objects.create(project=source, issue=issue, assignee=outsider)
+
+    with pytest.raises(IssueCompletionRequirementsError) as exc_info:
+        move_issue_to_project(issue=issue, target_project=target, target_state=target_done, actor=actor)
+
+    issue.refresh_from_db()
+    assert exc_info.value.missing_fields == ["assignee"]
+    assert issue.project_id == source.id
+    assert issue.state_id == source_state.id
+    assert IssueAssignee.objects.filter(issue=issue, assignee=outsider).exists()
 
 
 @pytest.mark.unit

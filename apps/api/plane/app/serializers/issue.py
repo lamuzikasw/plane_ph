@@ -47,6 +47,10 @@ from plane.utils.content_validator import (
     validate_html_content,
     validate_binary_data,
 )
+from plane.utils.issue_completion import (
+    IssueCompletionRequirementsError,
+    ensure_completion_requirements,
+)
 
 
 class IssueFlatSerializer(BaseSerializer):
@@ -174,6 +178,44 @@ class IssueCreateSerializer(BaseSerializer):
             ).exists()
         ):
             raise serializers.ValidationError("State is not valid please pass a valid state_id")
+
+        # Enforce data completeness only when entering a completed state. Legacy
+        # completed work items can still be edited without being retroactively blocked.
+        if "state" in attrs:
+            target_state = attrs.get("state")
+            current_state_group = self.instance.state.group if self.instance and self.instance.state else None
+            if "assignee_ids" in attrs:
+                has_assignee = bool(attrs["assignee_ids"])
+            elif self.instance:
+                has_assignee = IssueAssignee.objects.filter(
+                    issue=self.instance,
+                    project_id=self.context.get("project_id"),
+                    assignee__member_project__project_id=self.context.get("project_id"),
+                    assignee__member_project__is_active=True,
+                    assignee__member_project__role__gte=15,
+                ).exists()
+            else:
+                default_assignee_id = self.context.get("default_assignee_id")
+                has_assignee = bool(
+                    default_assignee_id
+                    and ProjectMember.objects.filter(
+                        member_id=default_assignee_id,
+                        project_id=self.context.get("project_id"),
+                        role__gte=15,
+                        is_active=True,
+                    ).exists()
+                )
+
+            try:
+                ensure_completion_requirements(
+                    current_state_group=current_state_group,
+                    target_state_group=target_state.group if target_state else None,
+                    has_assignee=has_assignee,
+                    target_date=attrs.get("target_date", getattr(self.instance, "target_date", None)),
+                    priority=attrs.get("priority", getattr(self.instance, "priority", None)),
+                )
+            except IssueCompletionRequirementsError as exc:
+                raise serializers.ValidationError(exc.response_data)
 
         # Check parent issue is from workspace as it can be cross workspace
         if (

@@ -12,6 +12,7 @@ import { handleGroupDragDrop } from "@/components/issues/issue-layouts/utils";
 import { ISSUE_FILTER_DEFAULT_DATA } from "@/store/issue/helpers/base-issues.store";
 import { useIssueDetail } from "./store/use-issue-detail";
 import { useIssues } from "./store/use-issues";
+import { getIssueUpdateError } from "./issue-completion-error";
 import { useIssuesActions } from "./use-issues-actions";
 
 type DNDStoreType =
@@ -61,11 +62,6 @@ export const useGroupIssuesDragNDrop = (
       };
     }
   ) => {
-    const errorToastProps = {
-      type: TOAST_TYPE.ERROR,
-      title: "Error!",
-      message: "Error while updating work item",
-    };
     const moduleKey = ISSUE_FILTER_DEFAULT_DATA["module"];
     const cycleKey = ISSUE_FILTER_DEFAULT_DATA["cycle"];
 
@@ -74,27 +70,25 @@ export const useGroupIssuesDragNDrop = (
 
     if (isCycleChanged && workspaceSlug) {
       if (data[cycleKey]) {
-        addCycleToIssue(workspaceSlug.toString(), projectId, data[cycleKey]?.toString() ?? "", issueId).catch(() =>
-          setToast(errorToastProps)
-        );
+        await addCycleToIssue(workspaceSlug.toString(), projectId, data[cycleKey]?.toString() ?? "", issueId);
       } else {
-        removeCycleFromIssue(workspaceSlug.toString(), projectId, issueId).catch(() => setToast(errorToastProps));
+        await removeCycleFromIssue(workspaceSlug.toString(), projectId, issueId);
       }
       delete data[cycleKey];
     }
 
     if (isModuleChanged && workspaceSlug && issueUpdates[moduleKey]) {
-      changeModulesInIssue(
+      await changeModulesInIssue(
         workspaceSlug.toString(),
         projectId,
         issueId,
         issueUpdates[moduleKey].ADD,
         issueUpdates[moduleKey].REMOVE
-      ).catch(() => setToast(errorToastProps));
+      );
       delete data[moduleKey];
     }
 
-    updateIssue && updateIssue(projectId, issueId, data).catch(() => setToast(errorToastProps));
+    if (updateIssue) await updateIssue(projectId, issueId, data);
   };
 
   const handleOnDrop = async (source: GroupDropLocation, destination: GroupDropLocation) => {
@@ -116,10 +110,11 @@ export const useGroupIssuesDragNDrop = (
       subGroupBy,
       orderBy !== "sort_order"
     ).catch((err) => {
+      const error = getIssueUpdateError(err);
       setToast({
-        title: "Error!",
+        title: error.title,
         type: TOAST_TYPE.ERROR,
-        message: err?.detail ?? "Failed to perform this action",
+        message: error.message,
       });
     });
   };
