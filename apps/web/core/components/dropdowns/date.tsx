@@ -146,17 +146,18 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
 
   const handleTimeChange = (time: string) => {
     setTimeInput(time);
+    if (!selectedDate) return;
+
+    // The dropdown portal can unmount before blur fires, so persist a complete value immediately.
+    const updatedDate = applyTimeInputToDate(selectedDate, time);
+    if (updatedDate) dropdownOnChange(updatedDate, false);
   };
 
   const commitTimeChange = (time: string) => {
     if (!selectedDate) return;
-    const updatedDate = applyTimeInputToDate(selectedDate, time);
-    if (!updatedDate) {
+    if (!isValidTimeInput(time)) {
       setTimeInput(getTimeInputValue(selectedDate));
-      return;
     }
-
-    dropdownOnChange(updatedDate, false);
   };
 
   useEffect(() => {

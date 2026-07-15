@@ -28,7 +28,7 @@ import { useDropdown } from "@/hooks/use-dropdown";
 // components
 import { DropdownButton } from "./buttons";
 import { MergedDateDisplay } from "./merged-date";
-import { applyTimeInputToDate, getTimeInputValue, mergeDateAndTime } from "./date-time-input.utils";
+import { applyTimeInputToDate, getTimeInputValue, isValidTimeInput, mergeDateAndTime } from "./date-time-input.utils";
 // types
 import type { TButtonVariants } from "./types";
 
@@ -189,20 +189,24 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
 
   const handleTimeChange = (key: "from" | "to", time: string) => {
     setTimeInput((prev) => ({ ...prev, [key]: time }));
+    const currentDate = dateRange[key];
+    if (!currentDate) return;
+
+    // The dropdown portal can unmount before blur fires, so persist a complete value immediately.
+    const updatedDate = applyTimeInputToDate(currentDate, time);
+    if (!updatedDate) return;
+
+    const updatedRange = { ...dateRange, [key]: updatedDate };
+    setDateRange(updatedRange);
+    onSelect?.(updatedRange);
   };
 
   const commitTimeChange = (key: "from" | "to", time: string) => {
     const currentDate = dateRange[key];
     if (!currentDate) return;
-    const updatedDate = applyTimeInputToDate(currentDate, time);
-    if (!updatedDate) {
+    if (!isValidTimeInput(time)) {
       setTimeInput((prev) => ({ ...prev, [key]: getTimeInputValue(currentDate) }));
-      return;
     }
-
-    const updatedRange = { ...dateRange, [key]: updatedDate };
-    setDateRange(updatedRange);
-    onSelect?.(updatedRange);
   };
 
   useEffect(() => {
