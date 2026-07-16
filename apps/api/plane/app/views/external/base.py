@@ -4,6 +4,7 @@
 
 # Python import
 import json
+import logging
 import os
 import re
 from hashlib import sha256
@@ -312,6 +313,10 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         if action:
             if action == "create_capture_tasks":
                 payload, response_status = self._create_capture_tasks(request, workspace)
+            elif action == "refine_capture_review":
+                payload, response_status = self._refine_capture_review(request, workspace)
+                if response_status == 200:
+                    payload = self._capture_chat_response(payload, request.user)
             elif action == "retry_capture_job":
                 payload, response_status = self._retry_capture_job(request, workspace)
                 if response_status == 200:
@@ -2861,7 +2866,37 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
 
     def _log_safe_failure(self, stage, exception):
         error_name = exception.__class__.__name__
-        log_exception(RuntimeError(f"Igor {stage} failed ({error_name})"), warning=True)
+        error_code = self._igor_failure_code(exception)
+        logging.getLogger("plane.exception").error(
+            "Igor %s failed code=%s type=%s",
+            stage,
+            error_code,
+            error_name,
+        )
+        return error_code
+
+    def _igor_failure_code(self, exception):
+        error_name = exception.__class__.__name__.lower()
+        error_text = str(exception).lower()
+        if "capture_llm_unavailable" in error_text:
+            return "configuration_missing"
+        if "authentication" in error_name or "permissiondenied" in error_name:
+            return "provider_auth_failed"
+        if "ratelimit" in error_name:
+            return "provider_rate_limited"
+        if "timeout" in error_name:
+            return "provider_timeout"
+        if "connection" in error_name:
+            return "provider_connection_failed"
+        if "internalserver" in error_name or "serviceunavailable" in error_name:
+            return "provider_unavailable"
+        if "badrequest" in error_name:
+            return "provider_request_rejected"
+        if "jsondecode" in error_name:
+            return "provider_invalid_response"
+        if isinstance(exception, ValueError):
+            return "response_validation_failed"
+        return "internal_processing_error"
 
     def _validate_igor_base_url(self, base_url):
         if not base_url:

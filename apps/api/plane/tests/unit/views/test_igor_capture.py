@@ -357,6 +357,94 @@ def _valid_spec_decomposition():
     }
 
 
+def test_smart_clarifications_cover_missing_context_without_exceeding_five_questions():
+    endpoint = IgorChatEndpoint()
+    review = {
+        "schema_version": endpoint.capture_spec_schema_version,
+        "clarification_round": 0,
+        "tasks": [
+            {
+                "id": "T1",
+                "title": "Настроить email-пинги",
+                "goal": "",
+                "acceptance_criteria": [],
+                "source_ids": ["S1"],
+                "project_id": None,
+                "assignee_id": None,
+                "target_date": None,
+                "confidence": "low",
+            }
+        ],
+        "spec_open_questions": [
+            {
+                "id": "Q1",
+                "question": "Какой результат должен получить клиент?",
+                "reason": "Результат не описан.",
+                "blocking": True,
+                "source_ids": ["S1"],
+                "related_task_ids": ["T1"],
+            },
+            {
+                "id": "Q2",
+                "question": "Сколько раз повторять отправку после ошибки?",
+                "reason": "Retry-политика не определена.",
+                "blocking": True,
+                "source_ids": ["S1"],
+                "related_task_ids": ["T1"],
+            },
+        ],
+    }
+
+    questions = endpoint._build_smart_clarification_questions(review)
+
+    assert 3 <= len(questions) <= 5
+    assert [question["id"] for question in questions] == [f"CQ{index}" for index in range(1, len(questions) + 1)]
+    assert {question["kind"] for question in questions} >= {"result", "project", "assignee", "deadline"}
+    assert all(question["question"] and question["reason"] and question["answer_hint"] for question in questions)
+
+
+def test_smart_clarifications_are_not_repeated_after_answers():
+    endpoint = IgorChatEndpoint()
+
+    questions = endpoint._build_smart_clarification_questions(
+        {
+            "schema_version": endpoint.capture_spec_schema_version,
+            "clarification_round": 1,
+            "tasks": [{"id": "T1", "project_id": None, "assignee_id": None, "target_date": None}],
+        }
+    )
+
+    assert questions == []
+
+
+def test_smart_clarifications_add_meaningful_context_instead_of_returning_one_question():
+    endpoint = IgorChatEndpoint()
+
+    questions = endpoint._build_smart_clarification_questions(
+        {
+            "schema_version": endpoint.capture_spec_schema_version,
+            "clarification_round": 0,
+            "tasks": [
+                {
+                    "id": "T1",
+                    "title": "Подключить email-уведомления",
+                    "goal": "Сообщать клиенту о готовности заявки.",
+                    "acceptance_criteria": ["Письмо отправлено после успешной обработки."],
+                    "source_ids": ["S1"],
+                    "project_id": "project-id",
+                    "assignee_id": "member-id",
+                    "target_date": None,
+                    "confidence": "high",
+                }
+            ],
+            "spec_open_questions": [],
+        }
+    )
+
+    assert len(questions) == 3
+    assert [question["kind"] for question in questions] == ["deadline", "acceptance", "scope"]
+
+
 def test_spec_units_preserve_headings_sections_and_paragraphs():
     units = IgorChatEndpoint()._capture_spec_units(
         "1. Цель задачи\nВернуть клиента к заявке.\n\n2. Логика\n"
@@ -1361,6 +1449,138 @@ def test_capture_endpoint_routes_technical_spec_through_v2_pipeline(monkeypatch)
 
 @pytest.mark.unit
 @pytest.mark.django_db
+def test_capture_refinement_adds_answers_as_sources_and_rebuilds_tasks(monkeypatch):
+    cache.clear()
+    user, workspace, _project = _capture_workspace("capture-refinement")
+    endpoint = IgorChatEndpoint()
+    token = "capture_refinement_token_123456"
+    questions = [
+        {
+            "id": "CQ1",
+            "kind": "project",
+            "question": "В каком проекте создавать задачи?",
+            "reason": "Проект не найден.",
+            "blocking": True,
+            "related_task_ids": ["T1"],
+            "source_ids": ["S1"],
+            "answer_hint": "Укажи проект.",
+        },
+        {
+            "id": "CQ2",
+            "kind": "assignee",
+            "question": "Кто отвечает за задачи?",
+            "reason": "Исполнитель не найден.",
+            "blocking": False,
+            "related_task_ids": ["T1"],
+            "source_ids": ["S2"],
+            "answer_hint": "Укажи исполнителя.",
+        },
+        {
+            "id": "CQ3",
+            "kind": "deadline",
+            "question": "Какой срок?",
+            "reason": "Срок не найден.",
+            "blocking": False,
+            "related_task_ids": ["T1"],
+            "source_ids": ["S2"],
+            "answer_hint": "Укажи срок.",
+        },
+    ]
+    units = [
+        {"id": "S1", "text": "Добавить email-пинги", "kind": "paragraph"},
+        {"id": "S2", "text": "Остановить письма после смены стадии", "kind": "paragraph"},
+        {"id": "S3", "text": "Автоматическая скидка не входит в задачу", "kind": "paragraph"},
+    ]
+    cache.set(
+        endpoint._capture_cache_key(workspace, user, token),
+        {
+            "status": "review",
+            "units": units,
+            "tasks": [],
+            "document_type": "technical_spec",
+            "clarification_round": 0,
+            "original_source_count": 3,
+            "clarification_questions": questions,
+            "clarification_answers": [],
+        },
+        timeout=60,
+    )
+    captured_units = []
+
+    def rebuild(_self, refined_units, *_args):
+        captured_units.extend(refined_units)
+        return _valid_spec_decomposition(), 1
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_spec_decomposition_batched", rebuild)
+
+    response = _post_igor(
+        user,
+        workspace,
+        {
+            "action": "refine_capture_review",
+            "capture_token": token,
+            "answers": {
+                "CQ1": "Проект B2B.",
+                "CQ2": "Ответственный — Сева.",
+                "CQ3": "Срок пока не определён.",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.data["intent"] == "capture_review"
+    widget = response.data["widgets"][0]
+    assert widget["token"] != token
+    assert widget["clarification_round"] == 1
+    assert widget["original_source_count"] == 3
+    assert widget["clarification_count"] == 3
+    assert widget["clarification_questions"] == []
+    answer_units = [unit for unit in captured_units if unit.get("kind") == "clarification"]
+    assert [unit["id"] for unit in answer_units] == ["A1_1", "A1_2", "A1_3"]
+    assert "Проект B2B" in answer_units[0]["text"]
+    assert cache.get(endpoint._capture_cache_key(workspace, user, token))["status"] == "superseded"
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_capture_refinement_requires_an_answer_for_every_question():
+    cache.clear()
+    user, workspace, _project = _capture_workspace("capture-refinement-required")
+    endpoint = IgorChatEndpoint()
+    token = "capture_refinement_required_123"
+    cache.set(
+        endpoint._capture_cache_key(workspace, user, token),
+        {
+            "status": "review",
+            "units": [{"id": "S1", "text": "Добавить email-пинги"}],
+            "tasks": [],
+            "clarification_questions": [
+                {
+                    "id": "CQ1",
+                    "kind": "deadline",
+                    "question": "Какой срок?",
+                    "reason": "Срок не найден.",
+                    "source_ids": ["S1"],
+                    "related_task_ids": [],
+                }
+            ],
+        },
+        timeout=60,
+    )
+
+    response = _post_igor(
+        user,
+        workspace,
+        {"action": "refine_capture_review", "capture_token": token, "answers": {"CQ1": ""}},
+    )
+
+    assert response.status_code == 400
+    assert response.data["error"] == "clarification_answer_required"
+    assert cache.get(endpoint._capture_cache_key(workspace, user, token))["status"] == "review"
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
 def test_capture_marks_semantically_similar_open_issue_as_duplicate():
     _user, workspace, project = _capture_workspace("capture-fuzzy-duplicate")
     existing_issue = Issue.objects.create(
@@ -1570,7 +1790,15 @@ def test_background_spec_capture_maps_then_reduces_before_review(monkeypatch):
         "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
         lambda *_args: None,
     )
-    capture = endpoint._enqueue_capture_review(units, workspace, user, document_type="technical_spec")
+    capture = endpoint._enqueue_capture_review(
+        units,
+        workspace,
+        user,
+        document_type="technical_spec",
+        clarification_round=1,
+        original_source_count=2,
+        clarification_answers=[{"question_id": "CQ1", "answer": "Срок пока не определён."}],
+    )
     job_id = capture["job_id"]
 
     def fake_map(_self, batch, _projects, _user, _members, batch_index):
@@ -1607,6 +1835,9 @@ def test_background_spec_capture_maps_then_reduces_before_review(monkeypatch):
     assert saved["status"] == "completed"
     assert saved["document_type"] == "technical_spec"
     assert saved["result"]["widget"]["schema_version"] == "igor.spec_decomposition.v2"
+    assert saved["result"]["widget"]["clarification_round"] == 1
+    assert saved["result"]["widget"]["original_source_count"] == 2
+    assert saved["result"]["widget"]["clarification_questions"] == []
     assert len(saved["result"]["widget"]["tasks"]) == 1
 
 
@@ -1727,6 +1958,11 @@ def test_background_worker_saves_failed_attempt_before_retry(monkeypatch):
     assert saved["status"] == "retrying"
     assert saved["batch_attempts"] == {"0": 1}
     assert saved["batch_results"] == {}
+    assert saved["batch_errors"] == {
+        "0": {"code": "provider_timeout", "stage": "capture_batch", "attempts": 1}
+    }
+    assert saved["failure_code"] == "provider_timeout"
+    assert saved["failure_stage"] == "capture_batch"
 
 
 @pytest.mark.unit
@@ -1793,9 +2029,40 @@ def test_capture_job_retry_is_offered_only_for_recoverable_failures():
             "failed_batches": ["0"],
         }
     )
+    missing_configuration = endpoint._capture_job_result(
+        {
+            "job_id": "configuration_job_identifier_123",
+            "status": "failed",
+            "error": "batch_processing_failed",
+            "failure_code": "configuration_missing",
+            "failure_stage": "semantic_map",
+            "source_count": 1,
+            "total_batches": 1,
+            "failed_batches": ["0"],
+        }
+    )
 
     assert revoked["widget"]["can_retry"] is False
     assert llm_failure["widget"]["can_retry"] is True
+    assert missing_configuration["widget"]["can_retry"] is False
+    assert missing_configuration["widget"]["failure_code"] == "configuration_missing"
+    assert "администратор" in missing_configuration["widget"]["failure_message"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("exception", "expected"),
+    [
+        (RuntimeError("capture_llm_unavailable"), "configuration_missing"),
+        (TimeoutError("provider did not answer"), "provider_timeout"),
+        (ConnectionError("provider connection failed"), "provider_connection_failed"),
+        (ValueError("invalid structured result"), "response_validation_failed"),
+    ],
+)
+def test_igor_failure_codes_do_not_expose_exception_messages(exception, expected):
+    endpoint = IgorChatEndpoint()
+
+    assert endpoint._igor_failure_code(exception) == expected
 
 
 @pytest.mark.unit
@@ -1888,6 +2155,35 @@ def test_capture_creation_is_confirmed_scoped_and_idempotent(monkeypatch):
     assert "Нужно проверить авторизацию" in issue.description_stripped
     assert first_response.data["widgets"][0]["items"][0]["id"] == str(issue.id)
     assert second_response.data["widgets"][0]["items"][0]["id"] == str(issue.id)
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_capture_creation_rejects_a_superseded_draft():
+    cache.clear()
+    user, workspace, project = _capture_workspace("capture-superseded")
+    endpoint = IgorChatEndpoint()
+    token = "superseded_capture_token_12345"
+    cache.set(
+        endpoint._capture_cache_key(workspace, user, token),
+        {"status": "superseded", "units": [], "tasks": []},
+        timeout=60,
+    )
+
+    response = _post_igor(
+        user,
+        workspace,
+        {
+            "action": "create_capture_tasks",
+            "capture_token": token,
+            "task_ids": ["T1"],
+            "project_assignments": {"T1": str(project.id)},
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.data["error"] == "capture_superseded"
+    assert not Issue.issue_objects.filter(workspace=workspace, external_source="igor_capture").exists()
 
 
 @pytest.mark.unit

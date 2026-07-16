@@ -51,6 +51,8 @@ class IgorCaptureMixin:
     capture_spec_schema_version = "igor.spec_decomposition.v2"
     capture_spec_prompt_version = "spec-v2.2"
     capture_spec_task_limit = 25
+    capture_clarification_limit = 5
+    capture_clarification_answer_limit = 2000
     capture_spec_document_types = frozenset(
         {"technical_spec", "meeting_notes", "project_brief", "incident_report", "mixed", "unknown"}
     )
@@ -463,6 +465,9 @@ class IgorCaptureMixin:
         writable_projects=None,
         members=None,
         document_type=None,
+        clarification_round=0,
+        original_source_count=None,
+        clarification_answers=None,
     ):
         writable_projects = writable_projects or list(self._capture_writable_projects(workspace, user))
         members = members or self._capture_members(workspace, writable_projects)
@@ -483,6 +488,11 @@ class IgorCaptureMixin:
         review["members"] = [
             {"id": member["id"], "name": member["name"], "project_ids": member["project_ids"]} for member in members
         ]
+        review["clarification_round"] = max(int(clarification_round or 0), 0)
+        review["original_source_count"] = int(original_source_count or len(units))
+        review["clarification_count"] = max(len(units) - review["original_source_count"], 0)
+        review["clarification_questions"] = self._build_smart_clarification_questions(review)
+        review["clarification_required"] = bool(review["clarification_questions"])
 
         token = None
         if review["tasks"]:
@@ -496,6 +506,11 @@ class IgorCaptureMixin:
                         "units": units,
                         "parent_task": review.get("parent_task"),
                         "analysis": review.get("analysis"),
+                        "document_type": document_type or ("technical_spec" if is_spec else "meeting_notes"),
+                        "clarification_round": review["clarification_round"],
+                        "original_source_count": review["original_source_count"],
+                        "clarification_questions": review["clarification_questions"],
+                        "clarification_answers": clarification_answers or [],
                     },
                     timeout=self.capture_cache_timeout,
                 )
@@ -548,6 +563,183 @@ class IgorCaptureMixin:
             ),
             "widget": review,
         }
+
+    def _build_smart_clarification_questions(self, review):
+        """Ask only high-value questions once, before the user creates tasks."""
+        if review.get("schema_version") != self.capture_spec_schema_version:
+            return []
+        if int(review.get("clarification_round") or 0) > 0:
+            return []
+
+        tasks = [task for task in review.get("tasks") or [] if isinstance(task, dict)]
+        if not tasks:
+            return []
+
+        questions = []
+
+        def add(kind, question, reason, task_ids=None, source_ids=None, blocking=False, answer_hint=None):
+            if len(questions) >= self.capture_clarification_limit:
+                return
+            questions.append(
+                {
+                    "id": f"CQ{len(questions) + 1}",
+                    "kind": kind,
+                    "question": question,
+                    "reason": reason,
+                    "blocking": bool(blocking),
+                    "related_task_ids": list(dict.fromkeys(task_ids or [])),
+                    "source_ids": list(dict.fromkeys(source_ids or [])),
+                    "answer_hint": answer_hint
+                    or "Если решение ещё не принято, так и напиши — Игорь не станет его придумывать.",
+                }
+            )
+
+        all_source_ids = list(
+            dict.fromkeys(
+                str(source_id)
+                for task in tasks
+                for source_id in task.get("source_ids") or []
+                if source_id
+            )
+        )
+        tasks_without_goal = [task for task in tasks if not str(task.get("goal") or "").strip()]
+        tasks_without_criteria = [
+            task for task in tasks if not any(str(item).strip() for item in task.get("acceptance_criteria") or [])
+        ]
+        result_question = next(
+            (
+                item
+                for item in review.get("spec_open_questions") or []
+                if re.search(
+                    r"\b(цел|результат|готов|при[её]м|критери)",
+                    self._normalize_search(f"{item.get('question', '')} {item.get('reason', '')}"),
+                )
+            ),
+            None,
+        )
+        if tasks_without_goal or tasks_without_criteria or result_question:
+            add(
+                "result",
+                (result_question or {}).get("question")
+                or "Какой конкретный результат должен получить пользователь или бизнес после выполнения этого ТЗ?",
+                (result_question or {}).get("reason")
+                or "Без ожидаемого результата нельзя надёжно проверить готовность предложенных задач.",
+                task_ids=[str(task.get("id")) for task in (tasks_without_goal or tasks_without_criteria or tasks)],
+                source_ids=(result_question or {}).get("source_ids") or all_source_ids,
+                blocking=True,
+                answer_hint="Опиши результат одним-двумя предложениями или напиши «результат пока не определён».",
+            )
+
+        missing_project = [task for task in tasks if not task.get("project_id")]
+        if missing_project:
+            titles = ", ".join(f"«{task.get('title')}»" for task in missing_project[:3])
+            suffix = " и остальные задачи" if len(missing_project) > 3 else ""
+            add(
+                "project",
+                f"В каком проекте Plane создавать {titles}{suffix}?",
+                f"Проект не определён для {len(missing_project)} из {len(tasks)} задач.",
+                task_ids=[str(task.get("id")) for task in missing_project],
+                source_ids=[source_id for task in missing_project for source_id in task.get("source_ids") or []],
+                blocking=True,
+                answer_hint="Укажи один проект для всех задач или перечисли соответствие «задача → проект».",
+            )
+
+        missing_assignee = [task for task in tasks if not task.get("assignee_id")]
+        if missing_assignee:
+            add(
+                "assignee",
+                "Кто должен отвечать за выполнение предложенных задач?",
+                f"Исполнитель не найден для {len(missing_assignee)} из {len(tasks)} задач.",
+                task_ids=[str(task.get("id")) for task in missing_assignee],
+                source_ids=[source_id for task in missing_assignee for source_id in task.get("source_ids") or []],
+                answer_hint=(
+                    "Назови исполнителя для всех задач или перечисли соответствие. "
+                    "Можно ответить «пока не назначен»."
+                ),
+            )
+
+        missing_deadline = [task for task in tasks if not task.get("target_date")]
+        if missing_deadline:
+            add(
+                "deadline",
+                "Есть ли общий срок или отдельные дедлайны для этих задач?",
+                f"Срок не указан для {len(missing_deadline)} из {len(tasks)} задач.",
+                task_ids=[str(task.get("id")) for task in missing_deadline],
+                source_ids=[source_id for task in missing_deadline for source_id in task.get("source_ids") or []],
+                answer_hint="Укажи даты и задачи либо напиши «срок пока не определён».",
+            )
+
+        used_question_ids = {str(result_question.get("id"))} if result_question else set()
+        open_questions = sorted(
+            [
+                item
+                for item in review.get("spec_open_questions") or []
+                if isinstance(item, dict) and str(item.get("id")) not in used_question_ids
+            ],
+            key=lambda item: not bool(item.get("blocking")),
+        )
+        low_confidence_tasks = [task for task in tasks if task.get("confidence") == "low"]
+        for item in open_questions:
+            if len(questions) >= self.capture_clarification_limit:
+                break
+            add(
+                "ambiguity",
+                str(item.get("question")),
+                str(item.get("reason") or "Формулировка влияет на состав или критерии готовности задач."),
+                task_ids=[str(task_id) for task_id in item.get("related_task_ids") or []],
+                source_ids=[str(source_id) for source_id in item.get("source_ids") or []],
+                blocking=bool(item.get("blocking")),
+            )
+        if len(questions) < 3 and low_confidence_tasks:
+            task = low_confidence_tasks[0]
+            add(
+                "ambiguity",
+                f"Что именно должно считаться завершённым результатом задачи «{task.get('title')}»?",
+                "Игорь нашёл неоднозначную формулировку и не хочет додумывать детали.",
+                task_ids=[str(task.get("id"))],
+                source_ids=[str(source_id) for source_id in task.get("source_ids") or []],
+                blocking=True,
+            )
+        if questions and len(questions) < 3:
+            task = low_confidence_tasks[0] if low_confidence_tasks else tasks[0]
+            task_ids = [str(task.get("id"))]
+            source_ids = [str(source_id) for source_id in task.get("source_ids") or []]
+            existing_kinds = {str(question.get("kind")) for question in questions}
+            fallback_questions = [
+                (
+                    "acceptance",
+                    f"Какими 2–3 проверяемыми признаками подтвердить готовность задачи «{task.get('title')}»?",
+                    "Явные критерии помогут принять результат без разночтений.",
+                    "Перечисли наблюдаемые результаты проверки или напиши «критерии пока не определены».",
+                ),
+                (
+                    "scope",
+                    "Что точно не входит в текущую реализацию этого ТЗ?",
+                    "Границы задачи защищают команду от скрытого расширения объёма работ.",
+                    "Перечисли исключения или напиши «отдельных исключений нет».",
+                ),
+                (
+                    "dependency",
+                    "Есть ли внешние зависимости или решения, без которых работу нельзя завершить?",
+                    "Зависимости влияют на порядок задач и помогают заранее увидеть блокеры.",
+                    "Назови систему, человека или решение либо напиши «зависимостей нет».",
+                ),
+            ]
+            for kind, question, reason, answer_hint in fallback_questions:
+                if len(questions) >= 3:
+                    break
+                if kind == "acceptance" and "result" in existing_kinds:
+                    continue
+                add(
+                    kind,
+                    question,
+                    reason,
+                    task_ids=task_ids,
+                    source_ids=source_ids,
+                    answer_hint=answer_hint,
+                )
+                existing_kinds.add(kind)
+        return questions[: self.capture_clarification_limit]
 
     def _capture_batches(self, units):
         batches = []
@@ -940,6 +1132,9 @@ class IgorCaptureMixin:
                 "заголовки и служебные строки сохраняй как metadata. "
                 "Если source_unit содержит несколько строк-маркеров, извлеки каждое самостоятельное требование: "
                 "нельзя считать весь блок одним общим фактом и терять отдельные строки. "
+                "source_unit с kind=clarification содержит явный ответ автора ТЗ: используй его как подтверждённый "
+                "контекст, но не расширяй смысл ответа. Ответ «не определено» означает, что поле нужно оставить "
+                "пустым. "
                 "Не превращай каждое предложение с глаголом в отдельный результат. "
                 "Формат: {document:{type,title,goal,summary,source_ids},facts:[{kind,text,source_ids}],"
                 "constraints:[{kind,text,source_ids}],open_questions:[{question,reason,blocking,source_ids}],"
@@ -1083,6 +1278,9 @@ class IgorCaptureMixin:
             "что и где изменить, "
             "минимум один проверяемый критерий готовности и source_ids. В source_ids задачи включай все относящиеся "
             "к ней требования, ограничения, критерии и исходный контекст. Не придумывай данные. "
+            "source_unit с kind=clarification — это явный ответ автора на вопрос перед созданием задач. Примени "
+            "его ко всем указанным в ответе задачам. Если автор написал, что проект, исполнитель или срок пока не "
+            "определён, оставь соответствующее поле null/none и не подменяй ответ догадкой. "
             "Если один source_id содержит несколько строк-маркеров, проверь покрытие каждой строки и не теряй "
             "самостоятельные требования внутри сгруппированного источника. "
             "Корневые поля ровно: schema_version,document,work_package,tasks,constraints,open_questions,"
@@ -2302,7 +2500,16 @@ class IgorCaptureMixin:
         job["updated_at"] = timezone.now().isoformat()
         cache.set(cache_key, job, timeout=self.capture_job_timeout)
 
-    def _enqueue_capture_review(self, units, workspace, user, document_type="meeting_notes"):
+    def _enqueue_capture_review(
+        self,
+        units,
+        workspace,
+        user,
+        document_type="meeting_notes",
+        clarification_round=0,
+        original_source_count=None,
+        clarification_answers=None,
+    ):
         active_key = self._capture_active_job_key(workspace, user)
         try:
             active_job_id = cache.get(active_key)
@@ -2331,6 +2538,9 @@ class IgorCaptureMixin:
             "job_id": job_id,
             "status": "queued",
             "document_type": document_type,
+            "clarification_round": max(int(clarification_round or 0), 0),
+            "original_source_count": int(original_source_count or len(units)),
+            "clarification_answers": clarification_answers or [],
             "workspace_id": str(workspace.id),
             "user_id": str(user.id),
             "source_count": len(units),
@@ -2338,6 +2548,7 @@ class IgorCaptureMixin:
             "total_batches": len(batches),
             "batch_results": {},
             "batch_attempts": {},
+            "batch_errors": {},
             "failed_batches": [],
             "created_at": timezone.now().isoformat(),
             "updated_at": timezone.now().isoformat(),
@@ -2381,6 +2592,165 @@ class IgorCaptureMixin:
             }
         return self._capture_job_result(job)
 
+    def _refine_capture_review(self, request, workspace):
+        token = request.data.get("capture_token")
+        answers = request.data.get("answers")
+        if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{20,80}", token):
+            return {
+                "error": "invalid_capture_token",
+                "answer": "Черновик ТЗ не найден. Запусти разбор ещё раз.",
+            }, 400
+        if not isinstance(answers, dict):
+            return {
+                "error": "invalid_clarification_answers",
+                "answer": "Не удалось прочитать ответы на уточняющие вопросы.",
+            }, 400
+
+        cache_key = self._capture_cache_key(workspace, request.user, token)
+        try:
+            draft = cache.get(cache_key)
+        except Exception as exception:
+            self._log_safe_failure("capture-cache", exception)
+            return {"error": "capture_unavailable", "answer": "Черновик временно недоступен."}, 503
+        if not isinstance(draft, dict):
+            return {
+                "error": "capture_expired",
+                "answer": "Черновик истёк. Отправь ТЗ повторно — задачи не создавались.",
+            }, 410
+        if draft.get("status") == "superseded":
+            return {
+                "error": "capture_superseded",
+                "answer": "Эти уточнения уже применены. Используй обновлённый разбор ниже.",
+            }, 409
+        if draft.get("status") != "review":
+            return {
+                "error": "capture_not_editable",
+                "answer": "Этот разбор уже нельзя пересобрать.",
+            }, 409
+
+        questions = [item for item in draft.get("clarification_questions") or [] if isinstance(item, dict)]
+        if not questions:
+            return {
+                "error": "clarifications_not_required",
+                "answer": "В этом разборе нет обязательных уточнений.",
+            }, 409
+        question_by_id = {str(item.get("id")): item for item in questions if item.get("id")}
+        if set(str(key) for key in answers) - set(question_by_id):
+            return {
+                "error": "unknown_clarification_question",
+                "answer": "Один из вопросов больше не относится к этому черновику. Обнови разбор.",
+            }, 400
+
+        cleaned_answers = []
+        for question_id, question in question_by_id.items():
+            answer = self._clean_capture_text(answers.get(question_id), self.capture_clarification_answer_limit)
+            if not answer:
+                return {
+                    "error": "clarification_answer_required",
+                    "answer": f"Ответь на вопрос «{question.get('question')}» или напиши «пока не определено».",
+                }, 400
+            cleaned_answers.append(
+                {
+                    "question_id": question_id,
+                    "kind": str(question.get("kind") or "ambiguity"),
+                    "question": self._clean_capture_text(question.get("question"), 1000),
+                    "answer": answer,
+                    "related_task_ids": [str(item) for item in question.get("related_task_ids") or []],
+                    "source_ids": [str(item) for item in question.get("source_ids") or []],
+                }
+            )
+
+        units = [dict(unit) for unit in draft.get("units") or [] if isinstance(unit, dict)]
+        if not units:
+            return {"error": "capture_source_unavailable", "answer": "Исходное ТЗ больше недоступно."}, 410
+        clarification_round = int(draft.get("clarification_round") or 0) + 1
+        for index, item in enumerate(cleaned_answers, start=1):
+            units.append(
+                {
+                    "id": f"A{clarification_round}_{index}",
+                    "text": f"Вопрос: {item['question']}\nОтвет автора: {item['answer']}",
+                    "section": "Уточнения автора ТЗ",
+                    "section_path": ["Уточнения автора ТЗ"],
+                    "owner_hint": None,
+                    "kind": "clarification",
+                    "clarification_kind": item["kind"],
+                    "related_task_ids": item["related_task_ids"],
+                    "related_source_ids": item["source_ids"],
+                    "start": None,
+                    "end": None,
+                }
+            )
+
+        document_type = str(draft.get("document_type") or "technical_spec")
+        original_source_count = int(draft.get("original_source_count") or len(draft.get("units") or []))
+        all_clarification_answers = [
+            *[item for item in draft.get("clarification_answers") or [] if isinstance(item, dict)],
+            *cleaned_answers,
+        ]
+        if len(units) > self.capture_async_unit_threshold or sum(
+            len(str(unit.get("text") or "")) for unit in units
+        ) > self.capture_async_character_threshold:
+            capture = self._enqueue_capture_review(
+                units,
+                workspace,
+                request.user,
+                document_type=document_type,
+                clarification_round=clarification_round,
+                original_source_count=original_source_count,
+                clarification_answers=all_clarification_answers,
+            )
+        else:
+            projects = list(self._capture_writable_projects(workspace, request.user))
+            members = self._capture_members(workspace, projects)
+            try:
+                if document_type == "technical_spec":
+                    raw_plan, batch_count = self._get_llm_spec_decomposition_batched(
+                        units, projects, request.user, members
+                    )
+                else:
+                    raw_plan, batch_count = self._get_llm_capture_plan_batched(
+                        units, projects, request.user, members
+                    )
+                capture = self._assemble_capture_review(
+                    units,
+                    raw_plan,
+                    workspace,
+                    request.user,
+                    batch_count,
+                    writable_projects=projects,
+                    members=members,
+                    document_type=document_type,
+                    clarification_round=clarification_round,
+                    original_source_count=original_source_count,
+                    clarification_answers=all_clarification_answers,
+                )
+            except Exception as exception:
+                self._log_safe_failure("capture-refinement", exception)
+                return {
+                    "error": "capture_refinement_unavailable",
+                    "answer": "Не удалось пересобрать ТЗ. Ответы сохранены в форме; попробуй ещё раз через минуту.",
+                }, 503
+        if capture.get("error"):
+            return capture, int(capture.get("status") or 503)
+
+        superseded = dict(draft)
+        superseded["status"] = "superseded"
+        superseded["superseded_at"] = timezone.now().isoformat()
+        try:
+            cache.set(cache_key, superseded, timeout=self.capture_cache_timeout)
+        except Exception as exception:
+            self._log_safe_failure("capture-cache", exception)
+            return {
+                "error": "capture_unavailable",
+                "answer": "Не удалось безопасно заменить старый черновик. Попробуй ещё раз.",
+            }, 503
+        capture["answer"] = (
+            "Принял ответы и пересобираю декомпозицию. Можно закрыть Игоря — результат сохранится."
+            if capture.get("pending")
+            else "Учёл ответы, заново собрал задачи и повторил проверку качества. Проверь обновлённый результат."
+        )
+        return capture, 200
+
     def _capture_job_result(self, job):
         if job.get("status") == "completed" and isinstance(job.get("result"), dict):
             result = dict(job["result"])
@@ -2402,6 +2772,23 @@ class IgorCaptureMixin:
             else "queued"
         )
         progress = min(99, round((completed_batches / total_batches) * 100))
+        failure_code = str(job.get("failure_code") or "") or None
+        failure_stage = str(job.get("failure_stage") or "") or None
+        failure_messages = {
+            "configuration_missing": (
+                "AI-конфигурация worker недоступна. Повтор не поможет, пока её не исправит администратор."
+            ),
+            "provider_auth_failed": "Провайдер отклонил AI-конфигурацию. Нужна проверка администратором.",
+            "provider_rate_limited": "Провайдер временно ограничил частоту запросов. Пакеты можно повторить позже.",
+            "provider_timeout": "Модель не ответила вовремя. Сохранённые пакеты не потеряны.",
+            "provider_connection_failed": "Worker временно не смог связаться с AI-провайдером.",
+            "provider_unavailable": "AI-провайдер временно недоступен.",
+            "provider_request_rejected": "AI-провайдер отклонил формат запроса. Нужна проверка интеграции.",
+            "provider_invalid_response": "Модель вернула ответ, который нельзя безопасно обработать.",
+            "response_validation_failed": "Ответ модели не прошёл проверку качества и не был сохранён как задачи.",
+            "internal_processing_error": "Внутренний этап обработки завершился ошибкой.",
+        }
+        failure_message = failure_messages.get(failure_code)
         if status_value == "failed":
             answer = (
                 f"Сохранил результат {completed_batches} из {total_batches} пакетов. "
@@ -2433,7 +2820,12 @@ class IgorCaptureMixin:
                 "progress": progress,
                 "can_retry": status_value == "failed"
                 and job.get("error")
-                in {"batch_processing_failed", "reduction_failed", "finalization_failed"},
+                in {"batch_processing_failed", "reduction_failed", "finalization_failed"}
+                and failure_code
+                not in {"configuration_missing", "provider_auth_failed", "provider_request_rejected"},
+                "failure_code": failure_code,
+                "failure_stage": failure_stage,
+                "failure_message": failure_message,
             },
         }
 
@@ -2475,9 +2867,16 @@ class IgorCaptureMixin:
             for batch_id in failed_batch_ids:
                 attempts[batch_id] = 0
             job["batch_attempts"] = attempts
+            job["batch_errors"] = {
+                str(batch_id): error
+                for batch_id, error in (job.get("batch_errors") or {}).items()
+                if str(batch_id) not in failed_batch_ids
+            }
             job["failed_batches"] = []
             job["status"] = "queued"
             job.pop("error", None)
+            job.pop("failure_code", None)
+            job.pop("failure_stage", None)
             self._cache_capture_job(cache_key, job)
             from plane.bgtasks.igor_capture_task import process_igor_capture_job
 
@@ -2534,6 +2933,11 @@ class IgorCaptureMixin:
                 "error": "capture_expired",
                 "answer": "Черновик истёк. Разбери заметки ещё раз — исходные данные не были сохранены в задачах.",
             }, 410
+        if draft.get("status") == "superseded":
+            return {
+                "error": "capture_superseded",
+                "answer": "Этот черновик уже пересобран после уточнений. Используй обновлённую версию.",
+            }, 409
         if draft.get("status") == "completed":
             return self._capture_created_response(draft.get("issue_ids", []), workspace, request.user), 200
 

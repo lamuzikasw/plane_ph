@@ -158,6 +158,17 @@ export type TIgorSpecContradiction = {
   related_task_ids: string[];
 };
 
+export type TIgorClarificationQuestion = {
+  id: string;
+  kind: "project" | "assignee" | "result" | "deadline" | "ambiguity";
+  question: string;
+  reason: string;
+  blocking: boolean;
+  source_ids: string[];
+  related_task_ids: string[];
+  answer_hint: string;
+};
+
 export type TIgorCaptureWidget = {
   type: "capture_review";
   title: string;
@@ -180,6 +191,11 @@ export type TIgorCaptureWidget = {
     project_ids: string[];
   }[];
   source_note: string;
+  clarification_round?: number;
+  original_source_count?: number;
+  clarification_count?: number;
+  clarification_required?: boolean;
+  clarification_questions?: TIgorClarificationQuestion[];
   schema_version?: "igor.spec_decomposition.v2";
   document?: {
     type: "technical_spec" | "meeting_notes" | "project_brief" | "incident_report" | "mixed" | "unknown";
@@ -236,6 +252,9 @@ export type TIgorCaptureProcessingWidget = {
   failed_batches: number;
   progress: number;
   can_retry: boolean;
+  failure_code?: string | null;
+  failure_stage?: string | null;
+  failure_message?: string | null;
 };
 
 export type TIgorChatContext = {
@@ -316,6 +335,12 @@ export type TIgorCaptureJobPayload = {
   job_id?: string;
 };
 
+export type TIgorCaptureRefinePayload = {
+  action: "refine_capture_review";
+  capture_token: string;
+  answers: Record<string, string>;
+};
+
 export class AIService extends APIService {
   constructor() {
     super(API_BASE_URL);
@@ -338,6 +363,14 @@ export class AIService extends APIService {
   }
 
   async createIgorCaptureTasks(workspaceSlug: string, data: TIgorCaptureCreatePayload): Promise<TIgorChatResponse> {
+    return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response;
+      });
+  }
+
+  async refineIgorCaptureReview(workspaceSlug: string, data: TIgorCaptureRefinePayload): Promise<TIgorChatResponse> {
     return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, data)
       .then((response) => response?.data)
       .catch((error) => {

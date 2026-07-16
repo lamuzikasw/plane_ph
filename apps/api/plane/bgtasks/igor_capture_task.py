@@ -73,6 +73,7 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
     document_type = job.get("document_type") or "meeting_notes"
     batch_results = dict(job.get("batch_results") or {})
     batch_attempts = dict(job.get("batch_attempts") or {})
+    batch_errors = dict(job.get("batch_errors") or {})
     failed_batches = {str(batch_id) for batch_id in job.get("failed_batches") or []}
 
     job["status"] = "processing"
@@ -108,19 +109,28 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
                 if not isinstance(plan, dict):
                     raise ValueError("Capture batch did not return an object")
             except Exception as exception:
-                endpoint._log_safe_failure("capture-job-batch", exception)
+                error_code = endpoint._log_safe_failure("capture-job-batch", exception)
                 attempts = int(batch_attempts.get(batch_id) or 0) + 1
                 batch_attempts[batch_id] = attempts
+                batch_errors[batch_id] = {
+                    "code": error_code,
+                    "stage": "semantic_map" if document_type == "technical_spec" else "capture_batch",
+                    "attempts": attempts,
+                }
+                job["failure_code"] = error_code
+                job["failure_stage"] = batch_errors[batch_id]["stage"]
                 if attempts < endpoint.capture_job_max_attempts:
                     retry_attempts.append(attempts)
                 else:
                     failed_batches.add(batch_id)
             else:
                 batch_results[batch_id] = plan
+                batch_errors.pop(batch_id, None)
                 failed_batches.discard(batch_id)
 
             job["batch_results"] = batch_results
             job["batch_attempts"] = batch_attempts
+            job["batch_errors"] = batch_errors
             job["failed_batches"] = sorted(failed_batches, key=int)
             job["status"] = "retrying" if retry_attempts else "processing"
             endpoint._cache_capture_job(cache_key, job)
@@ -145,9 +155,11 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
             semantic_map = endpoint._normalize_spec_maps(mapped, units)
             combined = endpoint._get_llm_spec_reduce_strict(units, semantic_map, projects, user, members)
         except Exception as exception:
-            endpoint._log_safe_failure("capture-job-reduce", exception)
+            error_code = endpoint._log_safe_failure("capture-job-reduce", exception)
             reduction_attempts = int(job.get("reduction_attempts") or 0) + 1
             job["reduction_attempts"] = reduction_attempts
+            job["failure_code"] = error_code
+            job["failure_stage"] = "global_reduce"
             if reduction_attempts < endpoint.capture_job_max_attempts:
                 job["status"] = "retrying"
                 endpoint._cache_capture_job(cache_key, job)
@@ -178,11 +190,16 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
             writable_projects=projects,
             members=members,
             document_type=document_type,
+            clarification_round=job.get("clarification_round") or 0,
+            original_source_count=job.get("original_source_count") or len(units),
+            clarification_answers=job.get("clarification_answers") or [],
         )
     except Exception as exception:
-        endpoint._log_safe_failure("capture-job-finalize", exception)
+        error_code = endpoint._log_safe_failure("capture-job-finalize", exception)
         finalize_attempts = int(job.get("finalize_attempts") or 0) + 1
         job["finalize_attempts"] = finalize_attempts
+        job["failure_code"] = error_code
+        job["failure_stage"] = "finalization"
         if finalize_attempts < endpoint.capture_job_max_attempts:
             job["status"] = "retrying"
             endpoint._cache_capture_job(cache_key, job)
@@ -197,4 +214,7 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
     job["status"] = "completed"
     job["result"] = result
     job.pop("error", None)
+    job.pop("failure_code", None)
+    job.pop("failure_stage", None)
+    job.pop("batch_errors", None)
     endpoint._cache_capture_job(cache_key, job)
