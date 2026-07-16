@@ -1020,6 +1020,7 @@ class IgorCaptureMixin:
                 schema=self._spec_reduce_json_schema(),
                 schema_name="igor_spec_decomposition",
             )
+            self._strip_unbacked_spec_task_fields(result, units)
             result["facts"] = semantic_map["facts"]
             try:
                 self._validate_spec_decomposition_contract(result, units)
@@ -1034,6 +1035,30 @@ class IgorCaptureMixin:
             result["_quality_report"] = quality_report
             return result
         raise ValueError("spec_reduce_validation_failed|" + "|".join(validation_errors))
+
+    def _strip_unbacked_spec_task_fields(self, plan, units):
+        if not isinstance(plan, dict) or not isinstance(plan.get("tasks"), list):
+            return
+        unit_by_id = {str(unit.get("id")): unit for unit in units if isinstance(unit, dict) and unit.get("id")}
+        for task in plan["tasks"]:
+            if not isinstance(task, dict):
+                continue
+            task_source = " ".join(
+                f"{unit_by_id[source_id].get('text', '')} {unit_by_id[source_id].get('owner_hint') or ''}"
+                for source_id in (str(value) for value in task.get("source_ids") or [])
+                if source_id in unit_by_id
+            )
+            normalized_task_source = self._normalize_search(task_source)
+            for field in ("project_hint", "assignee_hint"):
+                hint = task.get(field)
+                if hint and self._normalize_search(str(hint)) not in normalized_task_source:
+                    task[field] = None
+            if task.get("target_date") and not self._spec_date_is_source_backed(task.get("target_date"), task_source):
+                task["target_date"] = None
+            if task.get("priority") != "none" and not self._spec_priority_is_source_backed(
+                task.get("priority"), normalized_task_source
+            ):
+                task["priority"] = "none"
 
     def _spec_quality_json_schema(self):
         source_ids = self._spec_string_array_schema()

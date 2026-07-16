@@ -945,6 +945,32 @@ def test_spec_contract_rejects_invented_assignment_deadline_and_priority():
     assert "priority_not_source_backed" in error
 
 
+def test_spec_pipeline_strips_unbacked_task_fields_before_contract_validation():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    plan["tasks"][0].update(
+        {
+            "project_hint": "Секретный проект",
+            "assignee_hint": "Иван",
+            "target_date": "2026-08-01",
+            "priority": "high",
+        }
+    )
+    units = [
+        {"id": "S1", "text": "Цель — вернуть клиента"},
+        {"id": "S2", "text": "Письмо прекращается после смены стадии"},
+        {"id": "S3", "text": "Автоматическая скидка не входит"},
+    ]
+
+    endpoint._strip_unbacked_spec_task_fields(plan, units)
+
+    task = plan["tasks"][0]
+    assert task["project_hint"] is None
+    assert task["assignee_hint"] is None
+    assert task["target_date"] is None
+    assert task["priority"] == "none"
+
+
 def test_spec_decomposition_never_uses_heuristic_fallback_when_llm_is_unavailable(monkeypatch):
     endpoint = IgorChatEndpoint()
     monkeypatch.setattr(endpoint, "_get_igor_llm_config", lambda: (None, "gpt-4o-mini", None, 8.0))
