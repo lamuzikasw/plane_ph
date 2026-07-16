@@ -1,8 +1,18 @@
 # Igor specification decomposition v2
 
-Status: implemented locally, verified, pending deployment  
+Status: deployed and verified  
 Date: 2026-07-16  
 Scope: audit, structured contract, and the implemented `technical_spec` map/reduce pipeline.
+
+## Release validation
+
+- 237 backend Igor tests pass, including 85 specification-capture tests;
+- 40 frontend Igor tests pass;
+- short specifications, large batched documents, contradictions, typos, duplicate requirements, prompt injection, malformed LLM output, retries, and an unavailable LLM are covered by regression tests;
+- the production Structured Outputs pipeline passed a read-only anonymized smoke test: 16 source units, four deliverable tasks, no uncovered source IDs, no invented dates, and `quality_status=passed`;
+- the production smoke exposed and fixed three additional failure modes: headings represented only as document metadata, headings omitted by the model, and unsupported priority/date/assignment hints;
+- the supplied email and B2B scenarios are represented by local regression fixtures; their private source text was not sent to an external model by the automated smoke test;
+- deployment updates only `api`, `worker`, and `web`; PostgreSQL, Redis, and RabbitMQ are not restarted.
 
 ## Implementation status
 
