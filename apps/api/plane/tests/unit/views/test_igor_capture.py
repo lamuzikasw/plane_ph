@@ -433,6 +433,52 @@ def test_spec_units_repair_split_words_and_preserve_typo_as_source_text():
     assert all(unit["section_path"] for unit in units if unit["kind"] == "paragraph")
 
 
+def test_spec_units_treat_numbered_sentences_as_content_and_ignore_markdown_separators():
+    units = IgorChatEndpoint()._capture_spec_units(
+        "# Поля сделки\n"
+        "---\n"
+        "1. ID сделки — уникальный идентификатор сделки в Bitrix24.\n"
+        "|---|---|\n"
+        "2. Название сделки."
+    )
+
+    assert [unit["kind"] for unit in units] == ["heading", "paragraph", "paragraph"]
+    assert units[1]["text"].startswith("ID сделки")
+    assert units[2]["text"] == "Название сделки."
+
+
+def test_spec_units_compact_dense_lists_without_losing_first_or_last_requirement():
+    endpoint = IgorChatEndpoint()
+    source = "# Большое ТЗ\n" + "\n".join(
+        f"- Поле {index} передаётся в аналитическое событие" for index in range(endpoint.capture_unit_limit + 100)
+    )
+
+    units = endpoint._capture_spec_units(source)
+
+    assert len(units) < endpoint.capture_unit_limit
+    assert units[0]["kind"] == "heading"
+    assert "Поле 0 передаётся" in units[1]["text"]
+    assert f"Поле {endpoint.capture_unit_limit + 99} передаётся" in units[-1]["text"]
+    assert units[1]["source_line_count"] == endpoint.capture_spec_compact_item_limit
+    assert units[-1]["end"] == len(source)
+
+
+def test_capture_batches_respect_count_and_character_limits_with_overlap():
+    endpoint = IgorChatEndpoint()
+    endpoint.capture_llm_batch_character_limit = 700
+    units = [{"id": f"S{index}", "text": "Требование " * 20} for index in range(10)]
+
+    batches = endpoint._capture_batches(units)
+
+    assert len(batches) > 1
+    assert all(len(batch) <= endpoint.capture_llm_batch_size for batch in batches)
+    assert all(
+        len(json.dumps(batch, ensure_ascii=False)) <= endpoint.capture_llm_batch_character_limit + 100
+        for batch in batches
+    )
+    assert batches[0][-1]["id"] in {unit["id"] for unit in batches[1]}
+
+
 def test_spec_llm_uses_strict_structured_output(monkeypatch):
     endpoint = IgorChatEndpoint()
     captured = {}
@@ -454,7 +500,12 @@ def test_spec_llm_uses_strict_structured_output(monkeypatch):
     result = endpoint._call_capture_llm_json(
         "system",
         {"source": "text"},
-        schema={"type": "object", "additionalProperties": False, "required": ["ok"], "properties": {"ok": {"type": "boolean"}}},
+        schema={
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["ok"],
+            "properties": {"ok": {"type": "boolean"}},
+        },
         schema_name="igor_test",
     )
 
@@ -996,7 +1047,13 @@ def test_spec_pipeline_maps_requirements_before_global_task_synthesis(monkeypatc
     def fake_map(batch, _projects, _user, _members, batch_index):
         mapped_batches.append((batch_index, [unit["id"] for unit in batch]))
         return {
-            "document": {"type": "technical_spec", "title": "Пинги", "goal": "Вернуть клиента", "summary": "", "source_ids": [batch[0]["id"]]},
+            "document": {
+                "type": "technical_spec",
+                "title": "Пинги",
+                "goal": "Вернуть клиента",
+                "summary": "",
+                "source_ids": [batch[0]["id"]],
+            },
             "facts": [
                 {"kind": "functional_requirement", "text": unit["text"], "source_ids": [unit["id"]]}
                 for unit in batch
@@ -1381,7 +1438,7 @@ def test_capture_endpoint_processes_more_than_eighty_units_in_batches(monkeypatc
     assert response.status_code == 200
     widget = response.data["widgets"][0]
     assert widget["source_count"] == widget["covered_count"] == 81
-    assert widget["batch_count"] == 3
+    assert widget["batch_count"] == 2
     assert widget["tasks"] == []
 
 
