@@ -39,6 +39,11 @@ class IgorCaptureMixin:
     capture_job_lock_timeout = 30 * 60
     capture_job_max_attempts = 3
     capture_job_parallelism = 3
+    # Structured Outputs for a 60-unit specification can legitimately take much
+    # longer than a short chat response. Keep connection/provider configuration
+    # as the lower bound, while allowing the batch job enough read time to finish.
+    # Celery owns retries per batch, so the SDK must not multiply those attempts.
+    capture_structured_output_timeout_seconds = 120
     capture_categories = (
         ("action", "Поручения"),
         ("decision", "Решения"),
@@ -859,7 +864,11 @@ class IgorCaptureMixin:
         client_kwargs = {"api_key": api_key}
         if base_url:
             client_kwargs["base_url"] = base_url
-        client = OpenAI(timeout=max(timeout_seconds, 20), **client_kwargs)
+        client = OpenAI(
+            timeout=max(timeout_seconds, self.capture_structured_output_timeout_seconds),
+            max_retries=0,
+            **client_kwargs,
+        )
         response_format = {"type": "json_object"}
         if schema:
             response_format = {

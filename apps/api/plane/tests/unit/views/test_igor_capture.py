@@ -579,7 +579,8 @@ def test_spec_llm_uses_strict_structured_output(monkeypatch):
             )
 
     class FakeOpenAI:
-        def __init__(self, **_kwargs):
+        def __init__(self, **kwargs):
+            captured["client_kwargs"] = kwargs
             self.chat = SimpleNamespace(completions=FakeCompletions())
 
     monkeypatch.setattr("plane.app.views.external.igor_capture.OpenAI", FakeOpenAI)
@@ -601,6 +602,8 @@ def test_spec_llm_uses_strict_structured_output(monkeypatch):
     assert captured["response_format"]["type"] == "json_schema"
     assert captured["response_format"]["json_schema"]["strict"] is True
     assert captured["response_format"]["json_schema"]["name"] == "igor_test"
+    assert captured["client_kwargs"]["timeout"] == endpoint.capture_structured_output_timeout_seconds
+    assert captured["client_kwargs"]["max_retries"] == 0
 
 
 def test_spec_prompt_injection_is_transport_data_and_cannot_receive_secret(monkeypatch):
