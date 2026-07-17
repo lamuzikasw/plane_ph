@@ -1334,6 +1334,7 @@ class IgorCaptureMixin:
         )
         validation_errors = []
         for _attempt in range(max(1, _attempt_limit)):
+            repair_fallback_count = 0
             attempt_payload = dict(payload)
             if validation_errors:
                 attempt_payload["previous_validation_errors"] = validation_errors
@@ -1352,10 +1353,9 @@ class IgorCaptureMixin:
                 validation_errors = str(exception).split("|")[:20]
                 continue
             semantic_coverage_errors = self._spec_semantic_coverage_errors(result, semantic_map)
-            if (
-                semantic_coverage_errors
-                and _allow_coverage_repair
-                and self._repair_spec_semantic_coverage(
+            repair_outcome = None
+            if semantic_coverage_errors and _allow_coverage_repair:
+                repair_outcome = self._repair_spec_semantic_coverage(
                     result,
                     units,
                     semantic_map,
@@ -1364,7 +1364,8 @@ class IgorCaptureMixin:
                     members,
                     semantic_coverage_errors,
                 )
-            ):
+            if repair_outcome and repair_outcome["repaired"]:
+                repair_fallback_count = repair_outcome["fallback_count"]
                 result["facts"] = semantic_map["facts"]
                 self._merge_spec_deterministic_duplicates(result)
                 try:
@@ -1403,6 +1404,18 @@ class IgorCaptureMixin:
             if quality_errors:
                 validation_errors = quality_errors[:20]
                 continue
+            if repair_fallback_count:
+                quality_report.setdefault("warnings", []).append(
+                    {
+                        "code": "coverage_repair_fallback",
+                        "message": (
+                            "Часть декомпозиции восстановлена из проверенных фактов после отказа LLM; "
+                            "проверьте эти задачи перед созданием."
+                        ),
+                        "source_ids": [],
+                        "task_ids": [],
+                    }
+                )
             result["_quality_report"] = quality_report
             return result
         raise ValueError("spec_reduce_validation_failed|" + "|".join(validation_errors))
@@ -1424,7 +1437,7 @@ class IgorCaptureMixin:
         }
         missing_units = [unit for unit in units if str(unit.get("id")) in missing_source_ids]
         if not missing_units:
-            return False
+            return {"repaired": False, "fallback_count": 0}
 
         batches = [
             missing_units[offset : offset + self.capture_llm_batch_size]
@@ -1445,9 +1458,10 @@ class IgorCaptureMixin:
             grouped_repairs = list(executor.map(reduce_batch, batches))
 
         repairs = [repair for group in grouped_repairs for repair in group]
+        fallback_count = sum(bool(repair.pop("_coverage_fallback", False)) for repair in repairs)
         for repair_plan in repairs:
             self._merge_spec_repair_plan(plan, repair_plan)
-        return bool(repairs)
+        return {"repaired": bool(repairs), "fallback_count": fallback_count}
 
     def _reduce_spec_repair_batch(self, units, semantic_map, projects, user, members):
         source_ids = {str(unit["id"]) for unit in units}
@@ -1470,7 +1484,7 @@ class IgorCaptureMixin:
             ]
         except ValueError:
             if len(units) <= self.capture_spec_repair_min_batch_size:
-                raise
+                return [self._fallback_spec_repair_plan(units, batch_map)]
             midpoint = len(units) // 2
             return [
                 *self._reduce_spec_repair_batch(
@@ -1480,6 +1494,107 @@ class IgorCaptureMixin:
                     units[midpoint:], semantic_map, projects, user, members
                 ),
             ]
+
+    def _fallback_spec_repair_plan(self, units, semantic_map):
+        unit_by_id = {str(unit["id"]): unit for unit in units}
+        action_facts = [
+            copy.deepcopy(fact)
+            for fact in semantic_map.get("facts") or []
+            if isinstance(fact, dict) and fact.get("kind") in self.capture_spec_action_fact_kinds
+        ]
+        grouped_facts = {}
+        for fact in action_facts:
+            refs = [str(source_id) for source_id in fact.get("source_ids") or []]
+            unit = next((unit_by_id[source_id] for source_id in refs if source_id in unit_by_id), {})
+            section_path = unit.get("section_path") or []
+            section = str(section_path[-1] if section_path else unit.get("section") or "").strip()
+            grouped_facts.setdefault(section, []).append(fact)
+
+        questions = []
+        question_aliases = {}
+        for index, question in enumerate(semantic_map.get("open_questions") or [], start=1):
+            copied = copy.deepcopy(question)
+            old_id = str(copied.get("id") or "")
+            copied["id"] = f"Q{index}"
+            copied["related_task_ids"] = []
+            question_aliases[old_id] = copied["id"]
+            questions.append(copied)
+
+        tasks = []
+        for index, (section, facts) in enumerate(grouped_facts.items(), start=1):
+            source_ids = list(
+                dict.fromkeys(
+                    str(source_id) for fact in facts for source_id in fact.get("source_ids") or []
+                )
+            )
+            fact_ids = [str(fact.get("id")) for fact in facts if fact.get("id")]
+            first_fact = self._clean_capture_text(facts[0].get("text"), 180).rstrip(".:;,—- ")
+            title = (
+                f"Реализовать требования раздела «{self._clean_capture_text(section, 120)}»"
+                if section
+                else f"Проработать требование: {first_fact}"
+            )
+            related_question_ids = [
+                question_aliases[str(question.get("id"))]
+                for question in semantic_map.get("open_questions") or []
+                if isinstance(question, dict)
+                and str(question.get("id")) in question_aliases
+                and set(str(value) for value in question.get("source_ids") or []).intersection(source_ids)
+            ]
+            task_id = f"T{index}"
+            for question in questions:
+                if question["id"] in related_question_ids:
+                    question["related_task_ids"].append(task_id)
+            tasks.append(
+                {
+                    "id": task_id,
+                    "kind": "implementation",
+                    "title": title,
+                    "goal": "Реализовать требования исходного ТЗ без потери зафиксированных условий.",
+                    "description": "\n".join(
+                        f"- {self._clean_capture_text(fact.get('text'), 1000)}" for fact in facts
+                    ),
+                    "acceptance_criteria": [
+                        {
+                            "text": f"Выполнено требование: {self._clean_capture_text(fact.get('text'), 450)}",
+                            "source_ids": list(fact.get("source_ids") or []),
+                        }
+                        for fact in facts
+                    ],
+                    "fact_ids": fact_ids,
+                    "source_ids": source_ids,
+                    "dependency_task_ids": [],
+                    "open_question_ids": related_question_ids,
+                    "project_hint": None,
+                    "assignee_hint": None,
+                    "target_date": None,
+                    "priority": "none",
+                    "confidence": "low",
+                }
+            )
+
+        constraints = [
+            {**copy.deepcopy(item), "id": f"C{index}"}
+            for index, item in enumerate(semantic_map.get("constraints") or [], start=1)
+            if isinstance(item, dict)
+        ]
+        contradictions = []
+        for index, item in enumerate(semantic_map.get("contradictions") or [], start=1):
+            if not isinstance(item, dict):
+                continue
+            copied = {**copy.deepcopy(item), "id": f"X{index}", "related_task_ids": []}
+            refs = {str(value) for value in copied.get("source_ids") or []}
+            copied["related_task_ids"] = [
+                task["id"] for task in tasks if refs.intersection(task.get("source_ids") or [])
+            ]
+            contradictions.append(copied)
+        return {
+            "tasks": tasks,
+            "constraints": constraints,
+            "open_questions": questions,
+            "contradictions": contradictions,
+            "_coverage_fallback": True,
+        }
 
     def _spec_semantic_map_for_sources(self, semantic_map, source_ids):
         filtered = {
@@ -2503,7 +2618,7 @@ class IgorCaptureMixin:
                 "unresolved_source_ids": unresolved,
                 "task_count": len(tasks),
                 "validation_warnings": ["unresolved_source_coverage"] if unresolved else [],
-                "quality_status": "passed" if not unresolved else "review",
+                "quality_status": "passed" if not unresolved and not quality_warnings else "review",
                 "quality_warnings": quality_warnings,
                 "requires_human_review": True,
             },

@@ -1054,6 +1054,55 @@ def test_spec_coverage_repair_adaptively_splits_failed_large_batches(monkeypatch
     assert [len(repair["tasks"][0]["source_ids"]) for repair in repairs] == [2, 1, 2]
 
 
+def test_spec_coverage_repair_fallback_preserves_facts_without_inventing_fields():
+    endpoint = IgorChatEndpoint()
+    units = [
+        {
+            "id": "S4",
+            "text": "После временной ошибки повторить SMTP не более трёх раз.",
+            "section": "Обработка ошибок",
+            "section_path": ["Email", "Обработка ошибок"],
+        }
+    ]
+    semantic_map = {
+        "facts": [
+            {
+                "id": "B2F1",
+                "kind": "error_case",
+                "text": units[0]["text"],
+                "source_ids": ["S4"],
+            }
+        ],
+        "constraints": [],
+        "open_questions": [
+            {
+                "id": "B2Q1",
+                "question": "Какие ошибки SMTP считаются временными?",
+                "reason": "В исходнике нет списка кодов.",
+                "blocking": True,
+                "source_ids": ["S4"],
+            }
+        ],
+        "contradictions": [],
+    }
+
+    fallback = endpoint._fallback_spec_repair_plan(units, semantic_map)
+
+    assert fallback["_coverage_fallback"] is True
+    assert len(fallback["tasks"]) == 1
+    task = fallback["tasks"][0]
+    assert task["title"] == "Реализовать требования раздела «Обработка ошибок»"
+    assert task["source_ids"] == ["S4"]
+    assert task["fact_ids"] == ["B2F1"]
+    assert task["project_hint"] is None
+    assert task["assignee_hint"] is None
+    assert task["target_date"] is None
+    assert task["priority"] == "none"
+    assert task["confidence"] == "low"
+    assert units[0]["text"] in task["description"]
+    assert fallback["open_questions"][0]["related_task_ids"] == ["T1"]
+
+
 def test_spec_quality_duplicate_tasks_are_merged_without_losing_traceability():
     endpoint = IgorChatEndpoint()
     plan = _valid_spec_decomposition()
@@ -1119,6 +1168,31 @@ def test_spec_quality_gate_preserves_source_backed_contradictions_for_review():
         }
     ]
     assert review["analysis"]["requires_human_review"] is True
+
+
+def test_spec_quality_warning_marks_review_as_needing_attention():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    plan["_quality_report"] = {
+        "warnings": [
+            {
+                "code": "coverage_repair_fallback",
+                "message": "Проверьте восстановленную задачу.",
+                "source_ids": [],
+                "task_ids": [],
+            }
+        ]
+    }
+    units = [
+        {"id": "S1", "text": "Цель — вернуть клиента"},
+        {"id": "S2", "text": "Запустить email-цепочку"},
+        {"id": "S3", "text": "Автоматическая скидка не входит"},
+    ]
+
+    review = endpoint._sanitize_spec_decomposition(units, plan, [], SimpleNamespace())
+
+    assert review["analysis"]["quality_status"] == "review"
+    assert review["analysis"]["quality_warnings"][0]["code"] == "coverage_repair_fallback"
 
 
 def test_spec_reduce_retries_after_semantic_quality_failure(monkeypatch):
