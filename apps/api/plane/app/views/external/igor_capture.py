@@ -1510,11 +1510,18 @@ class IgorCaptureMixin:
 
     def _spec_task_source_map(self, plan):
         source_tasks = {}
+        fact_sources = {
+            str(fact.get("id")): [str(source_id) for source_id in fact.get("source_ids") or []]
+            for fact in plan.get("facts") or []
+            if isinstance(fact, dict) and fact.get("id")
+        }
         for task in plan.get("tasks") or []:
             if not isinstance(task, dict):
                 continue
             task_id = str(task.get("id") or "")
             refs = [*(task.get("source_ids") or [])]
+            for fact_id in task.get("fact_ids") or []:
+                refs.extend(fact_sources.get(str(fact_id), []))
             for criterion in task.get("acceptance_criteria") or []:
                 if isinstance(criterion, dict):
                     refs.extend(criterion.get("source_ids") or [])

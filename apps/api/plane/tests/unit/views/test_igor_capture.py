@@ -923,6 +923,29 @@ def test_spec_semantic_coverage_requires_action_facts_in_tasks():
     assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == ["uncovered:S4"]
 
 
+def test_spec_semantic_coverage_follows_task_fact_links_to_sources():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    plan["facts"].append(
+        {
+            "id": "B1F2",
+            "kind": "business_rule",
+            "text": "Повторять временную ошибку ограниченно.",
+            "source_ids": ["S4"],
+        }
+    )
+    plan["tasks"][0]["fact_ids"].append("B1F2")
+    semantic_map = {
+        "facts": [
+            {"id": "B1F1", "kind": "functional_requirement", "source_ids": ["S2"]},
+            {"id": "B1F2", "kind": "business_rule", "source_ids": ["S4"]},
+        ]
+    }
+
+    assert endpoint._spec_task_source_map(plan)["S4"] == ["T1"]
+    assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == []
+
+
 def test_spec_quality_duplicate_tasks_are_merged_without_losing_traceability():
     endpoint = IgorChatEndpoint()
     plan = _valid_spec_decomposition()
