@@ -61,6 +61,27 @@ def test_capture_intent_does_not_replace_regular_igor_requests(message):
     assert not IgorChatEndpoint()._detect_capture_intent(message)
 
 
+def test_large_structured_document_is_detected_as_spec_without_explicit_command():
+    endpoint = IgorChatEndpoint()
+    source = (
+        ("Вводный контекст без ключевых слов. " * 150)
+        + "\n1. Интеграция\n"
+        + "\n".join(
+            [
+                "Необходимо создать ссылку оплаты.",
+                "Система должна проверять статус платежа.",
+                "Требуется исключить создание дублей.",
+                "Нужно логировать ошибки API.",
+                "Необходимо отправлять письмо после получения кода.",
+            ]
+        )
+        + "\n2. Обработка ошибок\nПовторять только временные ошибки."
+        + "\n3. Ограничения\nДо оплаты ничего не создаётся."
+    )
+
+    assert endpoint._capture_document_type(source, source) == "technical_spec"
+
+
 def test_capture_source_is_split_without_silent_loss():
     endpoint = IgorChatEndpoint()
     source = endpoint._extract_capture_source(
@@ -523,11 +544,7 @@ def test_spec_units_repair_split_words_and_preserve_typo_as_source_text():
 
 def test_spec_units_treat_numbered_sentences_as_content_and_ignore_markdown_separators():
     units = IgorChatEndpoint()._capture_spec_units(
-        "# Поля сделки\n"
-        "---\n"
-        "1. ID сделки — уникальный идентификатор сделки в Bitrix24.\n"
-        "|---|---|\n"
-        "2. Название сделки."
+        "# Поля сделки\n---\n1. ID сделки — уникальный идентификатор сделки в Bitrix24.\n|---|---|\n2. Название сделки."
     )
 
     assert [unit["kind"] for unit in units] == ["heading", "paragraph", "paragraph"]
@@ -567,6 +584,18 @@ def test_capture_batches_respect_count_and_character_limits_with_overlap():
     assert batches[0][-1]["id"] in {unit["id"] for unit in batches[1]}
 
 
+def test_technical_spec_batches_use_smaller_provider_safe_limits():
+    endpoint = IgorChatEndpoint()
+    units = [{"id": f"S{index}", "text": f"Требование {index}"} for index in range(1, 66)]
+
+    batches = endpoint._capture_batches(units, document_type="technical_spec")
+
+    assert [len(batch) for batch in batches] == [30, 30, 11]
+    assert all(len(batch) <= endpoint.capture_spec_llm_batch_size for batch in batches)
+    assert batches[0][-3:] == batches[1][:3]
+    assert batches[1][-3:] == batches[2][:3]
+
+
 def test_spec_llm_uses_strict_structured_output(monkeypatch):
     endpoint = IgorChatEndpoint()
     captured = {}
@@ -574,9 +603,7 @@ def test_spec_llm_uses_strict_structured_output(monkeypatch):
     class FakeCompletions:
         def create(self, **kwargs):
             captured.update(kwargs)
-            return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps({"ok": True})))]
-            )
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps({"ok": True})))])
 
     class FakeOpenAI:
         def __init__(self, **kwargs):
@@ -898,9 +925,7 @@ def test_spec_quality_gate_blocks_repeated_requirements_even_with_different_titl
             {"source_id": "S2", "status": "covered", "task_ids": ["T1", "T2"], "reason": "Учтено"},
             {"source_id": "S3", "status": "context_only", "task_ids": [], "reason": "Не входит"},
         ],
-        "duplicate_groups": [
-            {"task_ids": ["T1", "T2"], "reason": "Обе задачи описывают один запуск email-цепочки"}
-        ],
+        "duplicate_groups": [{"task_ids": ["T1", "T2"], "reason": "Обе задачи описывают один запуск email-цепочки"}],
         "fragments": [],
         "unsupported_claims": [],
         "invented_fields": [],
@@ -920,9 +945,7 @@ def test_spec_quality_coverage_fills_missing_rows_from_task_traceability():
     endpoint = IgorChatEndpoint()
     plan = _valid_spec_decomposition()
     report = {
-        "coverage": [
-            {"source_id": "S1", "status": "covered", "task_ids": ["T1"], "reason": "Учтено"}
-        ],
+        "coverage": [{"source_id": "S1", "status": "covered", "task_ids": ["T1"], "reason": "Учтено"}],
         "duplicate_groups": [],
         "fragments": [],
         "unsupported_claims": [],
@@ -1198,9 +1221,7 @@ def test_spec_quality_duplicate_tasks_are_merged_without_losing_traceability():
             "id": "T2",
             "title": "Добавить управляемую отправку email",
             "description": "Повторять временные ошибки отправки ограниченное число раз.",
-            "acceptance_criteria": [
-                {"text": "Временная ошибка повторяется не более трёх раз.", "source_ids": ["S4"]}
-            ],
+            "acceptance_criteria": [{"text": "Временная ошибка повторяется не более трёх раз.", "source_ids": ["S4"]}],
             "fact_ids": [],
             "source_ids": ["S4"],
             "open_question_ids": [],
@@ -1391,9 +1412,7 @@ def test_spec_reduce_repairs_quality_confirmed_duplicates_without_regenerating_p
                     "title": "Настроить повтор временных ошибок SMTP",
                     "goal": "Не терять письмо при временной недоступности SMTP.",
                     "description": "Ограниченно повторять отправку после временной ошибки SMTP.",
-                    "acceptance_criteria": [
-                        {"text": "Отправка повторяется не более трёх раз.", "source_ids": ["S4"]}
-                    ],
+                    "acceptance_criteria": [{"text": "Отправка повторяется не более трёх раз.", "source_ids": ["S4"]}],
                     "fact_ids": ["B1F2"],
                     "source_ids": ["S4"],
                     "open_question_ids": [],
@@ -1510,9 +1529,7 @@ def test_spec_reduce_repairs_uncovered_tail_in_bounded_follow_up(monkeypatch):
                         "title": "Добавить ограниченный retry SMTP",
                         "goal": "Не терять письмо после временной ошибки.",
                         "description": "Повторять отправку SMTP ограниченное число раз.",
-                        "acceptance_criteria": [
-                            {"text": "Повтор отправки ограничен.", "source_ids": ["S4"]}
-                        ],
+                        "acceptance_criteria": [{"text": "Повтор отправки ограничен.", "source_ids": ["S4"]}],
                         "fact_ids": ["B2F1"],
                         "source_ids": ["S4"],
                         "dependency_task_ids": [],
@@ -1572,8 +1589,7 @@ def test_large_spec_map_keeps_every_source_across_batches(monkeypatch):
                 "source_ids": [batch[0]["id"]],
             },
             "facts": [
-                {"kind": "functional_requirement", "text": unit["text"], "source_ids": [unit["id"]]}
-                for unit in batch
+                {"kind": "functional_requirement", "text": unit["text"], "source_ids": [unit["id"]]} for unit in batch
             ],
             "constraints": [],
             "open_questions": [],
@@ -1695,14 +1711,12 @@ def test_spec_decomposition_never_uses_heuristic_fallback_when_llm_is_unavailabl
     user = SimpleNamespace(id="user", display_name="Сева", first_name="", email="seva@example.com")
 
     with pytest.raises(RuntimeError, match="capture_llm_unavailable"):
-        endpoint._get_llm_spec_decomposition_batched(
-            [{"id": "S1", "text": "Нужно добавить email-пинги"}], [], user
-        )
+        endpoint._get_llm_spec_decomposition_batched([{"id": "S1", "text": "Нужно добавить email-пинги"}], [], user)
 
 
 def test_spec_pipeline_maps_requirements_before_global_task_synthesis(monkeypatch):
     endpoint = IgorChatEndpoint()
-    endpoint.capture_llm_batch_size = 2
+    endpoint.capture_spec_llm_batch_size = 2
     endpoint.capture_llm_batch_overlap = 0
     units = [
         {"id": "S1", "text": "Цель — вернуть клиента"},
@@ -1722,8 +1736,7 @@ def test_spec_pipeline_maps_requirements_before_global_task_synthesis(monkeypatc
                 "source_ids": [batch[0]["id"]],
             },
             "facts": [
-                {"kind": "functional_requirement", "text": unit["text"], "source_ids": [unit["id"]]}
-                for unit in batch
+                {"kind": "functional_requirement", "text": unit["text"], "source_ids": [unit["id"]]} for unit in batch
             ],
             "constraints": [],
             "open_questions": [],
@@ -2390,8 +2403,7 @@ def test_background_spec_capture_maps_then_reduces_before_review(monkeypatch):
                 "source_ids": [batch[0]["id"]],
             },
             "facts": [
-                {"kind": "functional_requirement", "text": unit["text"], "source_ids": [unit["id"]]}
-                for unit in batch
+                {"kind": "functional_requirement", "text": unit["text"], "source_ids": [unit["id"]]} for unit in batch
             ],
             "constraints": [],
             "open_questions": [],
@@ -2422,7 +2434,7 @@ def test_background_spec_capture_maps_then_reduces_before_review(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.django_db
-def test_background_spec_validation_failure_is_not_repeated_without_new_feedback(monkeypatch):
+def test_background_spec_validation_failure_returns_source_backed_review(monkeypatch):
     user, workspace, _project = _capture_workspace("capture-spec-validation-failure")
     endpoint = IgorChatEndpoint()
     units = [{"id": "S1", "text": "Добавить отправку email"}]
@@ -2471,13 +2483,179 @@ def test_background_spec_validation_failure_is_not_repeated_without_new_feedback
     process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
 
     saved = cache.get(cache_key)
-    assert saved["status"] == "failed"
+    assert saved["status"] == "completed"
     assert saved["reduction_attempts"] == 1
-    assert saved["failure_code"] == "response_validation_failed"
-    assert saved["validation_errors"] == [
-        "spec_reduce_validation_failed",
-        "duplicate_tasks:T5,T7",
+    assert "failure_code" not in saved
+    assert "validation_errors" not in saved
+    widget = saved["result"]["widget"]
+    assert widget["analysis"]["quality_status"] == "review"
+    assert widget["analysis"]["linked_source_count"] == 1
+    assert widget["analysis"]["quality_warnings"][0]["code"] == "spec_reducer_validation_fallback"
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_background_spec_timeout_falls_back_after_three_attempts_without_losing_sources(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-spec-provider-timeout")
+    endpoint = IgorChatEndpoint()
+    monkeypatch.setattr(IgorChatEndpoint, "capture_spec_llm_batch_size", 2)
+    monkeypatch.setattr(IgorChatEndpoint, "capture_llm_batch_overlap", 0)
+    units = [
+        {
+            "id": f"S{index}",
+            "kind": "paragraph",
+            "text": f"Система должна выполнить требование {index}.",
+            "section": "Email",
+            "section_path": ["Email"],
+        }
+        for index in range(1, 6)
     ]
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda *_args: None,
+    )
+    capture = endpoint._enqueue_capture_review(units, workspace, user, document_type="technical_spec")
+    job_id = capture["job_id"]
+    cache_key = endpoint._capture_job_cache_key(workspace, user, job_id)
+    map_calls = []
+
+    def partly_failing_map(_self, batch, _projects, _user, _members, batch_index):
+        map_calls.append((batch_index, [unit["id"] for unit in batch]))
+        if batch_index == 1:
+            raise TimeoutError("provider did not answer")
+        return {
+            "document": {
+                "type": "technical_spec",
+                "title": "Email",
+                "goal": "Выполнить требования",
+                "summary": "",
+                "source_ids": [],
+            },
+            "facts": [
+                {
+                    "kind": "functional_requirement",
+                    "text": unit["text"],
+                    "source_ids": [unit["id"]],
+                }
+                for unit in batch
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+
+    def source_backed_reduce(self, reduce_units, semantic_map, *_args):
+        return self._fallback_spec_decomposition(
+            reduce_units,
+            semantic_map,
+            warning_code="test_source_backed_reduce",
+        )
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_spec_map_strict", partly_failing_map)
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_spec_reduce_strict", source_backed_reduce)
+    from celery.exceptions import Retry
+    from plane.bgtasks.igor_capture_task import process_igor_capture_job
+
+    def raise_retry(**_kwargs):
+        raise Retry("retry scheduled")
+
+    monkeypatch.setattr(process_igor_capture_job, "retry", raise_retry)
+    for _attempt in range(2):
+        with pytest.raises(Retry):
+            process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+    process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+
+    saved = cache.get(cache_key)
+    assert saved["status"] == "completed"
+    assert saved["batch_attempts"] == {"1": 3}
+    assert [batch_id for batch_id, _source_ids in map_calls].count(0) == 1
+    assert [batch_id for batch_id, _source_ids in map_calls].count(1) == 3
+    assert [batch_id for batch_id, _source_ids in map_calls].count(2) == 1
+    widget = saved["result"]["widget"]
+    assert widget["analysis"]["source_count"] == 5
+    assert widget["analysis"]["linked_source_count"] == 5
+    assert widget["analysis"]["quality_status"] == "review"
+    warning_codes = {warning["code"] for warning in widget["analysis"]["quality_warnings"]}
+    assert "semantic_map_provider_timeout" in warning_codes
+    assert {source_id for task in widget["tasks"] for source_id in task["source_ids"]} == {
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_background_spec_reducer_timeout_uses_saved_map_and_completes_review(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-spec-reducer-timeout")
+    endpoint = IgorChatEndpoint()
+    units = [
+        {
+            "id": "S1",
+            "kind": "paragraph",
+            "text": "Система должна проверять статус оплаты.",
+            "section": "Оплата",
+            "section_path": ["Оплата"],
+        }
+    ]
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda *_args: None,
+    )
+    capture = endpoint._enqueue_capture_review(units, workspace, user, document_type="technical_spec")
+    job_id = capture["job_id"]
+    cache_key = endpoint._capture_job_cache_key(workspace, user, job_id)
+    calls = {"map": 0, "reduce": 0}
+
+    def successful_map(_self, batch, *_args):
+        calls["map"] += 1
+        return {
+            "document": {
+                "type": "technical_spec",
+                "title": "Оплата",
+                "goal": "Проверять оплату",
+                "summary": "",
+                "source_ids": [],
+            },
+            "facts": [
+                {
+                    "kind": "functional_requirement",
+                    "text": batch[0]["text"],
+                    "source_ids": ["S1"],
+                }
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+
+    def timeout_reduce(*_args):
+        calls["reduce"] += 1
+        raise TimeoutError("provider did not answer")
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_spec_map_strict", successful_map)
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_spec_reduce_strict", timeout_reduce)
+    from celery.exceptions import Retry
+    from plane.bgtasks.igor_capture_task import process_igor_capture_job
+
+    monkeypatch.setattr(
+        process_igor_capture_job,
+        "retry",
+        lambda **_kwargs: (_ for _ in ()).throw(Retry("retry scheduled")),
+    )
+    for _attempt in range(2):
+        with pytest.raises(Retry):
+            process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+    process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+
+    saved = cache.get(cache_key)
+    assert saved["status"] == "completed"
+    assert calls == {"map": 1, "reduce": 3}
+    assert saved["result"]["widget"]["analysis"]["linked_source_count"] == 1
+    assert saved["result"]["widget"]["analysis"]["quality_status"] == "review"
+    assert saved["result"]["widget"]["analysis"]["quality_warnings"][0]["code"] == ("spec_reducer_provider_timeout")
 
 
 @pytest.mark.unit
@@ -2597,9 +2775,7 @@ def test_background_worker_saves_failed_attempt_before_retry(monkeypatch):
     assert saved["status"] == "retrying"
     assert saved["batch_attempts"] == {"0": 1}
     assert saved["batch_results"] == {}
-    assert saved["batch_errors"] == {
-        "0": {"code": "provider_timeout", "stage": "capture_batch", "attempts": 1}
-    }
+    assert saved["batch_errors"] == {"0": {"code": "provider_timeout", "stage": "capture_batch", "attempts": 1}}
     assert saved["failure_code"] == "provider_timeout"
     assert saved["failure_stage"] == "capture_batch"
 
@@ -2736,8 +2912,7 @@ def test_capture_validation_diagnostics_keep_only_safe_codes():
 
     assert endpoint._safe_capture_validation_errors(
         ValueError(
-            "spec_reduce_validation_failed|duplicate_tasks:T5,T7|"
-            "unsafe message with corporate text|uncovered:S18"
+            "spec_reduce_validation_failed|duplicate_tasks:T5,T7|unsafe message with corporate text|uncovered:S18"
         )
     ) == ["spec_reduce_validation_failed", "duplicate_tasks:T5,T7", "uncovered:S18"]
 

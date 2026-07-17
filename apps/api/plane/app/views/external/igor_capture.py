@@ -32,6 +32,8 @@ class IgorCaptureMixin:
     capture_llm_batch_size = 60
     capture_llm_batch_overlap = 3
     capture_llm_batch_character_limit = 24000
+    capture_spec_llm_batch_size = 30
+    capture_spec_llm_batch_character_limit = 12000
     capture_spec_compact_character_limit = 1200
     capture_spec_compact_item_limit = 12
     capture_async_character_threshold = 20000
@@ -183,17 +185,51 @@ class IgorCaptureMixin:
             )
         ):
             return "technical_spec"
-        normalized_source = self._normalize_search(source[:4000])
+        normalized_source = self._normalize_search(source)
+        if any(
+            marker in normalized_source
+            for marker in (
+                "техническое задание",
+                "функциональные требования",
+                "нефункциональные требования",
+                "критерии приемки",
+                "критерии готовности",
+            )
+        ):
+            return "technical_spec"
         spec_markers = (
             "цель задачи",
+            "цель проекта",
+            "общая логика",
+            "бизнес логика",
             "критерии готовности",
             "критерии приемки",
             "функциональные требования",
             "не входит в",
             "ограничения",
             "требования к",
+            "система должна",
+            "необходимо реализовать",
+            "обработка ошибок",
+            "логирование",
+            "валидация",
         )
-        return "technical_spec" if sum(marker in normalized_source for marker in spec_markers) >= 2 else "meeting_notes"
+        marker_count = sum(marker in normalized_source for marker in spec_markers)
+        numbered_sections = len(re.findall(r"(?m)^\s*(?:#{1,6}\s*)?\d+(?:\.\d+)*[.)]?\s+\S+", str(source or "")))
+        markdown_sections = len(re.findall(r"(?m)^\s*#{1,6}\s+\S+", str(source or "")))
+        requirement_lines = len(
+            re.findall(
+                r"(?im)^\s*(?:[-*•–—]\s*)?(?:необходимо|нужно|система должна|требуется|должен|должна)\b",
+                str(source or ""),
+            )
+        )
+        structured_sections = numbered_sections + markdown_sections
+        is_large_structured_spec = (
+            len(str(source or "")) >= 4000
+            and structured_sections >= 3
+            and (marker_count >= 1 or requirement_lines >= 5)
+        )
+        return "technical_spec" if marker_count >= 2 or is_large_structured_spec else "meeting_notes"
 
     def _capture_spec_units(self, source):
         """Preserve specification structure instead of treating every sentence as a task."""
@@ -421,9 +457,7 @@ class IgorCaptureMixin:
         document_type = self._capture_document_type(message, source)
         try:
             units = (
-                self._capture_spec_units(source)
-                if document_type == "technical_spec"
-                else self._capture_units(source)
+                self._capture_spec_units(source) if document_type == "technical_spec" else self._capture_units(source)
             )
         except ValueError:
             return {
@@ -493,8 +527,7 @@ class IgorCaptureMixin:
         writable_projects = writable_projects or list(self._capture_writable_projects(workspace, user))
         members = members or self._capture_members(workspace, writable_projects)
         is_spec = (
-            document_type == "technical_spec"
-            or raw_plan.get("schema_version") == self.capture_spec_schema_version
+            document_type == "technical_spec" or raw_plan.get("schema_version") == self.capture_spec_schema_version
         )
         review = (
             self._sanitize_spec_decomposition(units, raw_plan, writable_projects, user, members)
@@ -616,12 +649,7 @@ class IgorCaptureMixin:
             )
 
         all_source_ids = list(
-            dict.fromkeys(
-                str(source_id)
-                for task in tasks
-                for source_id in task.get("source_ids") or []
-                if source_id
-            )
+            dict.fromkeys(str(source_id) for task in tasks for source_id in task.get("source_ids") or [] if source_id)
         )
         tasks_without_goal = [task for task in tasks if not str(task.get("goal") or "").strip()]
         tasks_without_criteria = [
@@ -674,8 +702,7 @@ class IgorCaptureMixin:
                 task_ids=[str(task.get("id")) for task in missing_assignee],
                 source_ids=[source_id for task in missing_assignee for source_id in task.get("source_ids") or []],
                 answer_hint=(
-                    "Назови исполнителя для всех задач или перечисли соответствие. "
-                    "Можно ответить «пока не назначен»."
+                    "Назови исполнителя для всех задач или перечисли соответствие. Можно ответить «пока не назначен»."
                 ),
             )
 
@@ -762,15 +789,20 @@ class IgorCaptureMixin:
                 existing_kinds.add(kind)
         return questions[: self.capture_clarification_limit]
 
-    def _capture_batches(self, units):
+    def _capture_batches(self, units, document_type=None):
+        is_spec = document_type == "technical_spec"
+        batch_size = self.capture_spec_llm_batch_size if is_spec else self.capture_llm_batch_size
+        character_limit = (
+            self.capture_spec_llm_batch_character_limit if is_spec else self.capture_llm_batch_character_limit
+        )
         batches = []
         start = 0
         while start < len(units):
             end = start
             character_count = 0
-            while end < len(units) and end - start < self.capture_llm_batch_size:
+            while end < len(units) and end - start < batch_size:
                 unit_character_count = len(json.dumps(units[end], ensure_ascii=False))
-                if end > start and character_count + unit_character_count > self.capture_llm_batch_character_limit:
+                if end > start and character_count + unit_character_count > character_limit:
                     break
                 character_count += unit_character_count
                 end += 1
@@ -1129,7 +1161,7 @@ class IgorCaptureMixin:
         }
 
     def _get_llm_spec_decomposition_batched(self, units, projects, user, members=None):
-        batches = self._capture_batches(units)
+        batches = self._capture_batches(units, document_type="technical_spec")
         mapped = [
             self._get_llm_spec_map_strict(batch, projects, user, members, batch_index=index)
             for index, batch in enumerate(batches)
@@ -1195,18 +1227,14 @@ class IgorCaptureMixin:
         document = result.get("document")
         if isinstance(document, dict):
             covered_source_ids.update(
-                str(source_id)
-                for source_id in document.get("source_ids") or []
-                if str(source_id) in valid_source_ids
+                str(source_id) for source_id in document.get("source_ids") or [] if str(source_id) in valid_source_ids
             )
         for collection in ("facts", "constraints", "open_questions", "contradictions"):
             for item in result.get(collection) or []:
                 if not isinstance(item, dict):
                     continue
                 covered_source_ids.update(
-                    str(source_id)
-                    for source_id in item.get("source_ids") or []
-                    if str(source_id) in valid_source_ids
+                    str(source_id) for source_id in item.get("source_ids") or [] if str(source_id) in valid_source_ids
                 )
 
         missing_units = [unit for unit in units if str(unit["id"]) not in covered_source_ids]
@@ -1217,9 +1245,7 @@ class IgorCaptureMixin:
         facts = repaired.get("facts")
         if not isinstance(facts, list):
             facts = []
-        fallback_source_ids = [
-            str(source_id) for source_id in repaired.get("_coverage_fallback_source_ids") or []
-        ]
+        fallback_source_ids = [str(source_id) for source_id in repaired.get("_coverage_fallback_source_ids") or []]
         for unit in missing_units:
             source_id = str(unit["id"])
             text = self._clean_capture_text(unit.get("text"), 1500)
@@ -1235,6 +1261,26 @@ class IgorCaptureMixin:
             fallback_source_ids.append(source_id)
         repaired["facts"] = facts
         repaired["_coverage_fallback_source_ids"] = list(dict.fromkeys(fallback_source_ids))
+        return repaired
+
+    def _fallback_spec_map(self, units, warning_code="semantic_map_provider_fallback"):
+        heading_units = [unit for unit in units if unit.get("kind") == "heading"]
+        title = self._clean_capture_text((heading_units[0] if heading_units else units[0]).get("text"), 255)
+        result = {
+            "document": {
+                "type": "technical_spec",
+                "title": title or "Техническое задание",
+                "goal": "",
+                "summary": "",
+                "source_ids": [str(unit["id"]) for unit in heading_units],
+            },
+            "facts": [],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+        repaired = self._ensure_spec_map_source_coverage(result, units)
+        repaired["_provider_fallback_warning_code"] = warning_code
         return repaired
 
     def _spec_map_fallback_fact_kind(self, unit):
@@ -1257,6 +1303,7 @@ class IgorCaptureMixin:
             "open_questions": [],
             "contradictions": [],
             "_coverage_fallback_source_ids": [],
+            "_provider_fallback_warning_codes": [],
         }
 
         def source_ids(value):
@@ -1270,6 +1317,9 @@ class IgorCaptureMixin:
             normalized.setdefault("_coverage_fallback_source_ids", []).extend(
                 str(source_id) for source_id in result.get("_coverage_fallback_source_ids") or []
             )
+            warning_code = result.get("_provider_fallback_warning_code")
+            if isinstance(warning_code, str) and warning_code:
+                normalized["_provider_fallback_warning_codes"].append(warning_code)
             document = result.get("document")
             if isinstance(document, dict):
                 normalized["document_candidates"].append(
@@ -1320,9 +1370,7 @@ class IgorCaptureMixin:
             for source_id in item["source_ids"]
         }
         covered_source_ids.update(
-            source_id
-            for document in normalized["document_candidates"]
-            for source_id in document["source_ids"]
+            source_id for document in normalized["document_candidates"] for source_id in document["source_ids"]
         )
         unit_by_id = {unit["id"]: unit for unit in units}
         missing_heading_ids = [
@@ -1358,9 +1406,7 @@ class IgorCaptureMixin:
                 }
             )
             normalized["_coverage_fallback_source_ids"].append(source_id)
-        normalized["_coverage_fallback_source_ids"] = list(
-            dict.fromkeys(normalized["_coverage_fallback_source_ids"])
-        )
+        normalized["_coverage_fallback_source_ids"] = list(dict.fromkeys(normalized["_coverage_fallback_source_ids"]))
         if not normalized["facts"]:
             raise ValueError("spec_map_has_no_facts")
         return normalized
@@ -1382,12 +1428,8 @@ class IgorCaptureMixin:
             "stage": "global_reduce",
             "today": timezone.localdate().isoformat(),
             "requesting_user": self._member_name(user),
-            "available_projects": [
-                {"name": project.name, "identifier": project.identifier} for project in projects
-            ],
-            "available_members": [
-                {"name": member["name"], "email": member["email"]} for member in (members or [])
-            ],
+            "available_projects": [{"name": project.name, "identifier": project.identifier} for project in projects],
+            "available_members": [{"name": member["name"], "email": member["email"]} for member in (members or [])],
             "source_units": units,
             "semantic_map": semantic_map,
         }
@@ -1471,9 +1513,7 @@ class IgorCaptureMixin:
                 self._get_llm_spec_quality_report_strict(units, result), units, result
             )
             quality_errors = self._spec_quality_blockers(quality_report, units, result)
-            duplicate_only = quality_errors and all(
-                error.startswith("duplicate_tasks:") for error in quality_errors
-            )
+            duplicate_only = quality_errors and all(error.startswith("duplicate_tasks:") for error in quality_errors)
             if duplicate_only and self._merge_spec_quality_duplicates(result, quality_report):
                 try:
                     self._validate_spec_decomposition_contract(result, units)
@@ -1485,9 +1525,7 @@ class IgorCaptureMixin:
                     validation_errors = semantic_coverage_errors[:20]
                     continue
                 quality_report = {**quality_report, "duplicate_groups": []}
-                quality_report = self._normalize_spec_quality_coverage(
-                    quality_report, units, result
-                )
+                quality_report = self._normalize_spec_quality_coverage(quality_report, units, result)
                 quality_errors = self._spec_quality_blockers(quality_report, units, result)
             if quality_errors:
                 validation_errors = quality_errors[:20]
@@ -1505,10 +1543,7 @@ class IgorCaptureMixin:
                     }
                 )
             map_fallback_source_ids = list(
-                dict.fromkeys(
-                    str(source_id)
-                    for source_id in semantic_map.get("_coverage_fallback_source_ids") or []
-                )
+                dict.fromkeys(str(source_id) for source_id in semantic_map.get("_coverage_fallback_source_ids") or [])
             )
             if map_fallback_source_ids:
                 quality_report.setdefault("warnings", []).append(
@@ -1519,6 +1554,20 @@ class IgorCaptureMixin:
                             "Проверьте связанные задачи перед созданием."
                         ),
                         "source_ids": map_fallback_source_ids,
+                        "task_ids": [],
+                    }
+                )
+            for warning_code in dict.fromkeys(
+                str(code) for code in semantic_map.get("_provider_fallback_warning_codes") or []
+            ):
+                quality_report.setdefault("warnings", []).append(
+                    {
+                        "code": warning_code,
+                        "message": (
+                            "Один из semantic-map пакетов не ответил после повторов. Игорь сохранил "
+                            "его исходные пункты без домыслов; проверьте связанные задачи перед созданием."
+                        ),
+                        "source_ids": [],
                         "task_ids": [],
                     }
                 )
@@ -1605,12 +1654,8 @@ class IgorCaptureMixin:
                 return [self._fallback_spec_repair_plan(units, batch_map)]
             midpoint = len(units) // 2
             return [
-                *self._reduce_spec_repair_batch(
-                    units[:midpoint], semantic_map, projects, user, members
-                ),
-                *self._reduce_spec_repair_batch(
-                    units[midpoint:], semantic_map, projects, user, members
-                ),
+                *self._reduce_spec_repair_batch(units[:midpoint], semantic_map, projects, user, members),
+                *self._reduce_spec_repair_batch(units[midpoint:], semantic_map, projects, user, members),
             ]
 
     def _fallback_spec_repair_plan(self, units, semantic_map):
@@ -1641,9 +1686,7 @@ class IgorCaptureMixin:
         tasks = []
         for index, (section, facts) in enumerate(grouped_facts.items(), start=1):
             source_ids = list(
-                dict.fromkeys(
-                    str(source_id) for fact in facts for source_id in fact.get("source_ids") or []
-                )
+                dict.fromkeys(str(source_id) for fact in facts for source_id in fact.get("source_ids") or [])
             )
             fact_ids = [str(fact.get("id")) for fact in facts if fact.get("id")]
             first_fact = self._clean_capture_text(facts[0].get("text"), 180).rstrip(".:;,—- ")
@@ -1669,9 +1712,7 @@ class IgorCaptureMixin:
                     "kind": "implementation",
                     "title": title,
                     "goal": "Реализовать требования исходного ТЗ без потери зафиксированных условий.",
-                    "description": "\n".join(
-                        f"- {self._clean_capture_text(fact.get('text'), 1000)}" for fact in facts
-                    ),
+                    "description": "\n".join(f"- {self._clean_capture_text(fact.get('text'), 1000)}" for fact in facts),
                     "acceptance_criteria": [
                         {
                             "text": f"Выполнено требование: {self._clean_capture_text(fact.get('text'), 450)}",
@@ -1713,6 +1754,102 @@ class IgorCaptureMixin:
             "contradictions": contradictions,
             "_coverage_fallback": True,
         }
+
+    def _fallback_spec_decomposition(
+        self,
+        units,
+        semantic_map,
+        warning_code="spec_reducer_provider_fallback",
+    ):
+        fallback_map = copy.deepcopy(semantic_map)
+        facts = [fact for fact in fallback_map.get("facts") or [] if isinstance(fact, dict)]
+        if not any(fact.get("kind") in self.capture_spec_action_fact_kinds for fact in facts):
+            for fact in facts:
+                if fact.get("kind") != "metadata":
+                    fact["kind"] = "functional_requirement"
+
+        repair = self._fallback_spec_repair_plan(units, fallback_map)
+        candidates = [
+            candidate for candidate in fallback_map.get("document_candidates") or [] if isinstance(candidate, dict)
+        ]
+        candidate = candidates[0] if candidates else {}
+        source_ids = [str(unit["id"]) for unit in units]
+        first_fact_text = next(
+            (
+                self._clean_capture_text(fact.get("text"), 1200)
+                for fact in facts
+                if fact.get("kind") != "metadata" and self._clean_capture_text(fact.get("text"), 1200)
+            ),
+            "",
+        )
+        title = self._clean_capture_text(candidate.get("title"), 255)
+        if not title:
+            title = next(
+                (self._clean_capture_text(unit.get("text"), 255) for unit in units if unit.get("kind") == "heading"),
+                "Техническое задание",
+            )
+        goal = self._clean_capture_text(candidate.get("goal"), 1200) or first_fact_text
+        if not goal:
+            goal = "Разобрать требования технического задания"
+        summary = self._clean_capture_text(candidate.get("summary"), 2000)
+        if not summary:
+            summary = "\n".join(
+                f"- {self._clean_capture_text(fact.get('text'), 450)}"
+                for fact in facts[:5]
+                if self._clean_capture_text(fact.get("text"), 450)
+            )
+        provider_warning_codes = list(
+            dict.fromkeys(str(code) for code in fallback_map.get("_provider_fallback_warning_codes") or [] if str(code))
+        )
+        quality_warnings = [
+            {
+                "code": code,
+                "message": (
+                    "Один из semantic-map пакетов не ответил после повторов. Игорь сохранил "
+                    "его исходные пункты без домыслов; проверьте связанные задачи перед созданием."
+                ),
+                "source_ids": [],
+                "task_ids": [],
+            }
+            for code in provider_warning_codes
+        ]
+        quality_warnings.append(
+            {
+                "code": warning_code,
+                "message": (
+                    "LLM не завершила этап после повторов. Игорь собрал проверяемый черновик "
+                    "только из исходных пунктов; задачи требуют ручной проверки перед созданием."
+                ),
+                "source_ids": source_ids,
+                "task_ids": [task["id"] for task in repair["tasks"]],
+            }
+        )
+        plan = {
+            "schema_version": self.capture_spec_schema_version,
+            "document": {
+                "type": candidate.get("type")
+                if candidate.get("type") in self.capture_spec_document_types
+                else "technical_spec",
+                "title": title,
+                "goal": goal,
+                "summary": summary,
+                "source_ids": source_ids,
+            },
+            "work_package": {
+                "title": title,
+                "goal": goal,
+                "description": summary or goal,
+                "source_ids": source_ids,
+            },
+            "tasks": repair["tasks"],
+            "constraints": repair["constraints"],
+            "open_questions": repair["open_questions"],
+            "contradictions": repair["contradictions"],
+            "facts": facts,
+            "_quality_report": {"warnings": quality_warnings},
+        }
+        self._validate_spec_decomposition_contract(plan, units)
+        return plan
 
     def _spec_semantic_map_for_sources(self, semantic_map, source_ids):
         filtered = {
@@ -1792,8 +1929,7 @@ class IgorCaptureMixin:
         values = [
             int(match.group(1))
             for item in items
-            if isinstance(item, dict)
-            and (match := re.fullmatch(rf"{prefix}(\d+)", str(item.get("id") or "")))
+            if isinstance(item, dict) and (match := re.fullmatch(rf"{prefix}(\d+)", str(item.get("id") or "")))
         ]
         return max(values, default=0) + 1
 
@@ -1802,9 +1938,7 @@ class IgorCaptureMixin:
         for error in self._spec_deterministic_quality_errors(plan.get("tasks") or []):
             if not error.startswith("duplicate_tasks:"):
                 continue
-            duplicate_groups.append(
-                {"task_ids": error.partition(":")[2].split(","), "reason": "Смысловой дубликат"}
-            )
+            duplicate_groups.append({"task_ids": error.partition(":")[2].split(","), "reason": "Смысловой дубликат"})
         if not duplicate_groups:
             return 0
         return self._merge_spec_quality_duplicates(plan, {"duplicate_groups": duplicate_groups})
@@ -1871,9 +2005,7 @@ class IgorCaptureMixin:
                 },
                 "duplicate_groups": {
                     "type": "array",
-                    "items": issue(
-                        {"task_ids": task_ids, "reason": {"type": "string"}}, ["task_ids", "reason"]
-                    ),
+                    "items": issue({"task_ids": task_ids, "reason": {"type": "string"}}, ["task_ids", "reason"]),
                 },
                 "fragments": {
                     "type": "array",
@@ -1984,11 +2116,7 @@ class IgorCaptureMixin:
             if isinstance(fact, dict) and fact.get("kind") in self.capture_spec_action_fact_kinds
             for source_id in fact.get("source_ids") or []
         }
-        return [
-            f"uncovered:{source_id}"
-            for source_id in sorted(required_source_ids)
-            if source_id not in source_tasks
-        ]
+        return [f"uncovered:{source_id}" for source_id in sorted(required_source_ids) if source_id not in source_tasks]
 
     def _normalize_spec_quality_coverage(self, report, units, plan):
         if not isinstance(report, dict):
@@ -2028,9 +2156,7 @@ class IgorCaptureMixin:
 
     def _merge_spec_quality_duplicates(self, plan, report):
         tasks = plan.get("tasks") if isinstance(plan.get("tasks"), list) else []
-        task_by_id = {
-            str(task.get("id")): task for task in tasks if isinstance(task, dict) and task.get("id")
-        }
+        task_by_id = {str(task.get("id")): task for task in tasks if isinstance(task, dict) and task.get("id")}
         aliases = {}
         merged_ids = set()
 
@@ -2058,9 +2184,7 @@ class IgorCaptureMixin:
 
         if not merged_ids:
             return 0
-        plan["tasks"] = [
-            task for task in tasks if isinstance(task, dict) and str(task.get("id")) not in merged_ids
-        ]
+        plan["tasks"] = [task for task in tasks if isinstance(task, dict) and str(task.get("id")) not in merged_ids]
         for task in plan["tasks"]:
             task["dependency_task_ids"] = self._replace_spec_task_references(
                 task.get("dependency_task_ids") or [], aliases, str(task.get("id") or "")
@@ -2323,9 +2447,7 @@ class IgorCaptureMixin:
                 hint = task.get(field)
                 if hint and self._normalize_search(str(hint)) not in normalized_task_source:
                     errors.append(f"{task_id}:{field}_not_source_backed")
-            if task.get("target_date") and not self._spec_date_is_source_backed(
-                task.get("target_date"), task_source
-            ):
+            if task.get("target_date") and not self._spec_date_is_source_backed(task.get("target_date"), task_source):
                 errors.append(f"{task_id}:target_date_not_source_backed")
             if task.get("priority") != "none" and not self._spec_priority_is_source_backed(
                 task.get("priority"), normalized_task_source
@@ -2515,11 +2637,9 @@ class IgorCaptureMixin:
             "source_ids": clean_source_ids(document_raw.get("source_ids")),
         }
         work_package = {
-            "title": self._clean_capture_text(work_package_raw.get("title"), 255)
-            or document["title"],
+            "title": self._clean_capture_text(work_package_raw.get("title"), 255) or document["title"],
             "goal": self._clean_capture_text(work_package_raw.get("goal"), 1200) or document["goal"],
-            "description": self._clean_capture_text(work_package_raw.get("description"), 3000)
-            or document["summary"],
+            "description": self._clean_capture_text(work_package_raw.get("description"), 3000) or document["summary"],
             "source_ids": clean_source_ids(work_package_raw.get("source_ids")),
         }
 
@@ -2534,9 +2654,7 @@ class IgorCaptureMixin:
             facts.append(
                 {
                     "id": str(raw_fact.get("id")),
-                    "kind": raw_fact.get("kind")
-                    if raw_fact.get("kind") in self.capture_spec_fact_kinds
-                    else "context",
+                    "kind": raw_fact.get("kind") if raw_fact.get("kind") in self.capture_spec_fact_kinds else "context",
                     "text": text,
                     "source_ids": refs,
                 }
@@ -2576,9 +2694,7 @@ class IgorCaptureMixin:
                     "reason": self._clean_capture_text(raw_question.get("reason"), 1000),
                     "blocking": bool(raw_question.get("blocking")),
                     "source_ids": refs,
-                    "related_task_ids": [
-                        str(task_id) for task_id in raw_question.get("related_task_ids") or []
-                    ],
+                    "related_task_ids": [str(task_id) for task_id in raw_question.get("related_task_ids") or []],
                 }
             )
         questions_by_id = {question["id"]: question for question in spec_questions}
@@ -2596,9 +2712,7 @@ class IgorCaptureMixin:
                     "id": str(raw_contradiction.get("id") or f"X{index}"),
                     "description": description,
                     "source_ids": refs,
-                    "related_task_ids": [
-                        str(task_id) for task_id in raw_contradiction.get("related_task_ids") or []
-                    ],
+                    "related_task_ids": [str(task_id) for task_id in raw_contradiction.get("related_task_ids") or []],
                 }
             )
 
@@ -3192,7 +3306,7 @@ class IgorCaptureMixin:
             self._log_safe_failure("capture-job-cache", exception)
 
         job_id = secrets.token_urlsafe(24)
-        batches = self._capture_batches(units)
+        batches = self._capture_batches(units, document_type=document_type)
         cache_key = self._capture_job_cache_key(workspace, user, job_id)
         job = {
             "version": 2,
@@ -3348,9 +3462,10 @@ class IgorCaptureMixin:
             *[item for item in draft.get("clarification_answers") or [] if isinstance(item, dict)],
             *cleaned_answers,
         ]
-        if len(units) > self.capture_async_unit_threshold or sum(
-            len(str(unit.get("text") or "")) for unit in units
-        ) > self.capture_async_character_threshold:
+        if (
+            len(units) > self.capture_async_unit_threshold
+            or sum(len(str(unit.get("text") or "")) for unit in units) > self.capture_async_character_threshold
+        ):
             capture = self._enqueue_capture_review(
                 units,
                 workspace,
@@ -3369,9 +3484,7 @@ class IgorCaptureMixin:
                         units, projects, request.user, members
                     )
                 else:
-                    raw_plan, batch_count = self._get_llm_capture_plan_batched(
-                        units, projects, request.user, members
-                    )
+                    raw_plan, batch_count = self._get_llm_capture_plan_batched(units, projects, request.user, members)
                 capture = self._assemble_capture_review(
                     units,
                     raw_plan,
@@ -3490,10 +3603,8 @@ class IgorCaptureMixin:
                 "failed_batches": failed_batches,
                 "progress": progress,
                 "can_retry": status_value == "failed"
-                and job.get("error")
-                in {"batch_processing_failed", "reduction_failed", "finalization_failed"}
-                and failure_code
-                not in {"configuration_missing", "provider_auth_failed", "provider_request_rejected"},
+                and job.get("error") in {"batch_processing_failed", "reduction_failed", "finalization_failed"}
+                and failure_code not in {"configuration_missing", "provider_auth_failed", "provider_request_rejected"},
                 "failure_code": failure_code,
                 "failure_stage": failure_stage,
                 "failure_message": failure_message,

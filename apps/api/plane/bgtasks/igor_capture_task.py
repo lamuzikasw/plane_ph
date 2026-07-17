@@ -69,8 +69,8 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
 
     projects = list(endpoint._capture_writable_projects(workspace, user))
     members = endpoint._capture_members(workspace, projects)
-    batches = endpoint._capture_batches(units)
     document_type = job.get("document_type") or "meeting_notes"
+    batches = endpoint._capture_batches(units, document_type=document_type)
     batch_results = dict(job.get("batch_results") or {})
     batch_attempts = dict(job.get("batch_attempts") or {})
     batch_errors = dict(job.get("batch_errors") or {})
@@ -121,6 +121,20 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
                 job["failure_stage"] = batch_errors[batch_id]["stage"]
                 if attempts < endpoint.capture_job_max_attempts:
                     retry_attempts.append(attempts)
+                elif error_code in {
+                    "provider_timeout",
+                    "provider_rate_limited",
+                    "provider_connection_failed",
+                    "provider_unavailable",
+                    "provider_invalid_response",
+                }:
+                    plan = (
+                        endpoint._fallback_spec_map(batch, warning_code=f"semantic_map_{error_code}")
+                        if document_type == "technical_spec"
+                        else endpoint._fallback_capture_plan(batch)
+                    )
+                    batch_results[batch_id] = plan
+                    failed_batches.discard(batch_id)
                 else:
                     failed_batches.add(batch_id)
             else:
@@ -161,20 +175,42 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
             job["failure_code"] = error_code
             job["failure_stage"] = "global_reduce"
             job["validation_errors"] = endpoint._safe_capture_validation_errors(exception)
-            # The reducer already performs three feedback-driven validation attempts.
-            # Re-running the entire reducer at Celery level repeats the same expensive
-            # work without new feedback. Provider/network failures remain retryable.
-            if error_code != "response_validation_failed" and reduction_attempts < endpoint.capture_job_max_attempts:
+            fallback_codes = {
+                "provider_timeout",
+                "provider_rate_limited",
+                "provider_connection_failed",
+                "provider_unavailable",
+                "provider_invalid_response",
+                "response_validation_failed",
+            }
+            # A semantic validation failure already contains feedback from the
+            # reducer's internal attempts. Falling back immediately is both safer
+            # and faster than repeating the same request. Transient provider errors
+            # still get bounded Celery retries before the source-backed fallback.
+            if error_code == "response_validation_failed":
+                combined = endpoint._fallback_spec_decomposition(
+                    units,
+                    semantic_map,
+                    warning_code="spec_reducer_validation_fallback",
+                )
+            elif error_code in fallback_codes and reduction_attempts < endpoint.capture_job_max_attempts:
                 job["status"] = "retrying"
                 endpoint._cache_capture_job(cache_key, job)
                 raise task.retry(
                     exc=RuntimeError("Igor specification reduction failed"),
                     countdown=min(2**reduction_attempts, 30),
                 )
-            job["status"] = "failed"
-            job["error"] = "reduction_failed"
-            endpoint._cache_capture_job(cache_key, job)
-            return
+            elif error_code in fallback_codes:
+                combined = endpoint._fallback_spec_decomposition(
+                    units,
+                    semantic_map,
+                    warning_code=f"spec_reducer_{error_code}",
+                )
+            else:
+                job["status"] = "failed"
+                job["error"] = "reduction_failed"
+                endpoint._cache_capture_job(cache_key, job)
+                return
     else:
         combined = {"items": [], "tasks": []}
         for index in range(len(batches)):
