@@ -1340,7 +1340,11 @@ class IgorCaptureMixin:
             quality_report = self._normalize_spec_quality_coverage(
                 self._get_llm_spec_quality_report_strict(units, result), units, result
             )
-            if self._merge_spec_quality_duplicates(result, quality_report):
+            quality_errors = self._spec_quality_blockers(quality_report, units, result)
+            duplicate_only = quality_errors and all(
+                error.startswith("duplicate_tasks:") for error in quality_errors
+            )
+            if duplicate_only and self._merge_spec_quality_duplicates(result, quality_report):
                 try:
                     self._validate_spec_decomposition_contract(result, units)
                 except ValueError as exception:
@@ -1350,10 +1354,11 @@ class IgorCaptureMixin:
                 if semantic_coverage_errors:
                     validation_errors = semantic_coverage_errors[:20]
                     continue
+                quality_report = {**quality_report, "duplicate_groups": []}
                 quality_report = self._normalize_spec_quality_coverage(
-                    self._get_llm_spec_quality_report_strict(units, result), units, result
+                    quality_report, units, result
                 )
-            quality_errors = self._spec_quality_blockers(quality_report, units, result)
+                quality_errors = self._spec_quality_blockers(quality_report, units, result)
             if quality_errors:
                 validation_errors = quality_errors[:20]
                 continue
@@ -1553,7 +1558,12 @@ class IgorCaptureMixin:
         for source_id in valid_source_ids:
             item = reported.get(source_id)
             if item is not None:
-                normalized["coverage"].append(item)
+                normalized_item = dict(item)
+                task_ids = source_tasks.get(source_id, [])
+                normalized_item["task_ids"] = task_ids
+                if normalized_item.get("status") != "uncovered":
+                    normalized_item["status"] = "covered" if task_ids else "context_only"
+                normalized["coverage"].append(normalized_item)
                 continue
             task_ids = source_tasks.get(source_id, [])
             normalized["coverage"].append(

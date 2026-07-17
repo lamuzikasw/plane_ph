@@ -1053,6 +1053,90 @@ def test_spec_reduce_retries_after_semantic_quality_failure(monkeypatch):
     assert reduce_calls[1][2] == ["uncovered:S2"]
 
 
+def test_spec_reduce_repairs_quality_confirmed_duplicates_without_regenerating_plan(monkeypatch):
+    endpoint = IgorChatEndpoint()
+    units = [
+        {"id": "S1", "text": "Цель — вернуть клиента"},
+        {"id": "S2", "text": "Запустить email-цепочку"},
+        {"id": "S3", "text": "Автоматическая скидка не входит"},
+        {"id": "S4", "text": "Повторить временную ошибку SMTP не более трёх раз"},
+    ]
+    semantic_map = {
+        "document_candidates": [],
+        "facts": [
+            {
+                "id": "B1F1",
+                "kind": "functional_requirement",
+                "text": units[1]["text"],
+                "source_ids": ["S2"],
+            },
+            {
+                "id": "B1F2",
+                "kind": "error_case",
+                "text": units[3]["text"],
+                "source_ids": ["S4"],
+            },
+        ],
+        "constraints": [],
+        "open_questions": [],
+        "contradictions": [],
+    }
+    calls = []
+
+    def fake_call(_system_prompt, payload, **_kwargs):
+        calls.append(payload["stage"])
+        if payload["stage"] == "global_reduce":
+            plan = _valid_spec_decomposition()
+            plan.pop("facts")
+            plan["document"]["source_ids"].append("S4")
+            plan["work_package"]["source_ids"].append("S4")
+            duplicate = dict(plan["tasks"][0])
+            duplicate.update(
+                {
+                    "id": "T2",
+                    "title": "Настроить повтор временных ошибок SMTP",
+                    "goal": "Не терять письмо при временной недоступности SMTP.",
+                    "description": "Ограниченно повторять отправку после временной ошибки SMTP.",
+                    "acceptance_criteria": [
+                        {"text": "Отправка повторяется не более трёх раз.", "source_ids": ["S4"]}
+                    ],
+                    "fact_ids": ["B1F2"],
+                    "source_ids": ["S4"],
+                    "open_question_ids": [],
+                }
+            )
+            plan["tasks"].append(duplicate)
+            return plan
+        return {
+            "coverage": [
+                {"source_id": "S1", "status": "covered", "task_ids": ["T1"], "reason": "Учтено"},
+                {"source_id": "S2", "status": "covered", "task_ids": ["T1"], "reason": "Учтено"},
+                {"source_id": "S3", "status": "context_only", "task_ids": [], "reason": "Не входит"},
+                {"source_id": "S4", "status": "covered", "task_ids": ["T2"], "reason": "Учтено"},
+            ],
+            "duplicate_groups": [{"task_ids": ["T1", "T2"], "reason": "Единый email-сценарий"}],
+            "fragments": [],
+            "unsupported_claims": [],
+            "invented_fields": [],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(endpoint, "_call_capture_llm_json", fake_call)
+
+    result = endpoint._get_llm_spec_reduce_strict(
+        units,
+        semantic_map,
+        [],
+        SimpleNamespace(display_name="Сева", full_name="", email="seva@example.com"),
+    )
+
+    assert calls == ["global_reduce", "quality_gate"]
+    assert [task["id"] for task in result["tasks"]] == ["T1"]
+    assert result["tasks"][0]["source_ids"] == ["S1", "S2", "S4"]
+    assert result["_quality_report"]["duplicate_groups"] == []
+    assert result["_quality_report"]["coverage"][3]["task_ids"] == ["T1"]
+
+
 def test_large_spec_map_keeps_every_source_across_batches(monkeypatch):
     endpoint = IgorChatEndpoint()
     endpoint.capture_llm_batch_size = 30
