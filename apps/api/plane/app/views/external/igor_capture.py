@@ -80,6 +80,15 @@ class IgorCaptureMixin:
     capture_spec_task_kinds = frozenset(
         {"implementation", "integration", "content", "testing", "migration", "observability", "research"}
     )
+    capture_spec_action_fact_kinds = frozenset(
+        {
+            "functional_requirement",
+            "non_functional_requirement",
+            "business_rule",
+            "error_case",
+            "acceptance_criterion",
+        }
+    )
 
     def _detect_capture_intent(self, message):
         text = self._normalize_search(message)
@@ -1324,7 +1333,26 @@ class IgorCaptureMixin:
             except ValueError as exception:
                 validation_errors = str(exception).split("|")[:20]
                 continue
-            quality_report = self._get_llm_spec_quality_report_strict(units, result)
+            semantic_coverage_errors = self._spec_semantic_coverage_errors(result, semantic_map)
+            if semantic_coverage_errors:
+                validation_errors = semantic_coverage_errors[:20]
+                continue
+            quality_report = self._normalize_spec_quality_coverage(
+                self._get_llm_spec_quality_report_strict(units, result), units, result
+            )
+            if self._merge_spec_quality_duplicates(result, quality_report):
+                try:
+                    self._validate_spec_decomposition_contract(result, units)
+                except ValueError as exception:
+                    validation_errors = str(exception).split("|")[:20]
+                    continue
+                semantic_coverage_errors = self._spec_semantic_coverage_errors(result, semantic_map)
+                if semantic_coverage_errors:
+                    validation_errors = semantic_coverage_errors[:20]
+                    continue
+                quality_report = self._normalize_spec_quality_coverage(
+                    self._get_llm_spec_quality_report_strict(units, result), units, result
+                )
             quality_errors = self._spec_quality_blockers(quality_report, units, result)
             if quality_errors:
                 validation_errors = quality_errors[:20]
@@ -1473,6 +1501,170 @@ class IgorCaptureMixin:
             max_tokens=9000,
             schema=self._spec_quality_json_schema(),
             schema_name="igor_spec_quality_gate",
+        )
+
+    def _spec_task_source_map(self, plan):
+        source_tasks = {}
+        for task in plan.get("tasks") or []:
+            if not isinstance(task, dict):
+                continue
+            task_id = str(task.get("id") or "")
+            refs = [*(task.get("source_ids") or [])]
+            for criterion in task.get("acceptance_criteria") or []:
+                if isinstance(criterion, dict):
+                    refs.extend(criterion.get("source_ids") or [])
+            for source_id in refs:
+                source_id = str(source_id)
+                if source_id and task_id:
+                    source_tasks.setdefault(source_id, [])
+                    if task_id not in source_tasks[source_id]:
+                        source_tasks[source_id].append(task_id)
+        return source_tasks
+
+    def _spec_semantic_coverage_errors(self, plan, semantic_map):
+        source_tasks = self._spec_task_source_map(plan)
+        required_source_ids = {
+            str(source_id)
+            for fact in semantic_map.get("facts") or []
+            if isinstance(fact, dict) and fact.get("kind") in self.capture_spec_action_fact_kinds
+            for source_id in fact.get("source_ids") or []
+        }
+        return [
+            f"uncovered:{source_id}"
+            for source_id in sorted(required_source_ids)
+            if source_id not in source_tasks
+        ]
+
+    def _normalize_spec_quality_coverage(self, report, units, plan):
+        if not isinstance(report, dict):
+            return report
+        valid_source_ids = [str(unit["id"]) for unit in units]
+        source_tasks = self._spec_task_source_map(plan)
+        reported = {}
+        for item in report.get("coverage") or []:
+            if not isinstance(item, dict):
+                continue
+            source_id = str(item.get("source_id") or "")
+            if source_id in valid_source_ids and source_id not in reported:
+                reported[source_id] = item
+
+        normalized = dict(report)
+        normalized["coverage"] = []
+        for source_id in valid_source_ids:
+            item = reported.get(source_id)
+            if item is not None:
+                normalized["coverage"].append(item)
+                continue
+            task_ids = source_tasks.get(source_id, [])
+            normalized["coverage"].append(
+                {
+                    "source_id": source_id,
+                    "status": "covered" if task_ids else "context_only",
+                    "task_ids": task_ids,
+                    "reason": "Покрытие подтверждено ссылками декомпозиции.",
+                }
+            )
+        return normalized
+
+    def _merge_spec_quality_duplicates(self, plan, report):
+        tasks = plan.get("tasks") if isinstance(plan.get("tasks"), list) else []
+        task_by_id = {
+            str(task.get("id")): task for task in tasks if isinstance(task, dict) and task.get("id")
+        }
+        aliases = {}
+        merged_ids = set()
+
+        for group in report.get("duplicate_groups") or []:
+            if not isinstance(group, dict):
+                continue
+            group_ids = list(
+                dict.fromkeys(
+                    str(task_id)
+                    for task_id in group.get("task_ids") or []
+                    if str(task_id) in task_by_id and str(task_id) not in merged_ids
+                )
+            )
+            if len(group_ids) < 2:
+                continue
+            group_tasks = [task_by_id[task_id] for task_id in group_ids]
+            if not self._spec_duplicate_tasks_are_mergeable(group_tasks):
+                continue
+            primary_id = group_ids[0]
+            primary = task_by_id[primary_id]
+            for duplicate_id in group_ids[1:]:
+                self._merge_spec_task(primary, task_by_id[duplicate_id])
+                aliases[duplicate_id] = primary_id
+                merged_ids.add(duplicate_id)
+
+        if not merged_ids:
+            return 0
+        plan["tasks"] = [
+            task for task in tasks if isinstance(task, dict) and str(task.get("id")) not in merged_ids
+        ]
+        for task in plan["tasks"]:
+            task["dependency_task_ids"] = self._replace_spec_task_references(
+                task.get("dependency_task_ids") or [], aliases, str(task.get("id") or "")
+            )
+        for item in [*(plan.get("open_questions") or []), *(plan.get("contradictions") or [])]:
+            if isinstance(item, dict):
+                item["related_task_ids"] = self._replace_spec_task_references(
+                    item.get("related_task_ids") or [], aliases
+                )
+        return len(merged_ids)
+
+    def _spec_duplicate_tasks_are_mergeable(self, tasks):
+        for field in ("project_hint", "assignee_hint", "target_date"):
+            values = {str(task.get(field)) for task in tasks if task.get(field)}
+            if len(values) > 1:
+                return False
+        return True
+
+    def _merge_spec_task(self, primary, duplicate):
+        for field in ("source_ids", "fact_ids", "open_question_ids"):
+            primary[field] = list(dict.fromkeys([*(primary.get(field) or []), *(duplicate.get(field) or [])]))
+
+        primary_description = str(primary.get("description") or "").strip()
+        duplicate_description = str(duplicate.get("description") or "").strip()
+        if duplicate_description and self._normalize_search(duplicate_description) not in self._normalize_search(
+            primary_description
+        ):
+            primary["description"] = "\n\n".join(
+                value for value in (primary_description, duplicate_description) if value
+            )
+
+        criteria = []
+        criteria_by_text = {}
+        for criterion in [
+            *(primary.get("acceptance_criteria") or []),
+            *(duplicate.get("acceptance_criteria") or []),
+        ]:
+            if not isinstance(criterion, dict):
+                continue
+            key = self._normalize_search(str(criterion.get("text") or ""))
+            if key in criteria_by_text:
+                existing = criteria_by_text[key]
+                existing["source_ids"] = list(
+                    dict.fromkeys([*(existing.get("source_ids") or []), *(criterion.get("source_ids") or [])])
+                )
+                continue
+            copied = {"text": criterion.get("text"), "source_ids": list(criterion.get("source_ids") or [])}
+            criteria.append(copied)
+            criteria_by_text[key] = copied
+        primary["acceptance_criteria"] = criteria
+
+        for field in ("project_hint", "assignee_hint", "target_date"):
+            if not primary.get(field) and duplicate.get(field):
+                primary[field] = duplicate[field]
+        if primary.get("priority") == "none" and duplicate.get("priority") != "none":
+            primary["priority"] = duplicate.get("priority")
+
+    def _replace_spec_task_references(self, values, aliases, excluded_id=None):
+        return list(
+            dict.fromkeys(
+                replacement
+                for value in values
+                if (replacement := aliases.get(str(value), str(value))) and replacement != excluded_id
+            )
         )
 
     def _spec_quality_blockers(self, report, units, plan):
@@ -2835,8 +3027,19 @@ class IgorCaptureMixin:
                 "failure_code": failure_code,
                 "failure_stage": failure_stage,
                 "failure_message": failure_message,
+                "validation_errors": [
+                    str(code) for code in (job.get("validation_errors") or []) if isinstance(code, str)
+                ][:20],
             },
         }
+
+    def _safe_capture_validation_errors(self, exception):
+        codes = []
+        for value in str(exception).split("|"):
+            code = value.strip()
+            if re.fullmatch(r"[a-z][a-z0-9_]*(?::[A-Za-z0-9_,-]+){0,2}", code):
+                codes.append(code)
+        return list(dict.fromkeys(codes))[:20]
 
     def _get_capture_job(self, request, workspace):
         job_id = request.data.get("job_id")
@@ -2886,6 +3089,9 @@ class IgorCaptureMixin:
             job.pop("error", None)
             job.pop("failure_code", None)
             job.pop("failure_stage", None)
+            job.pop("validation_errors", None)
+            job.pop("reduction_attempts", None)
+            job.pop("finalize_attempts", None)
             self._cache_capture_job(cache_key, job)
             from plane.bgtasks.igor_capture_task import process_igor_capture_job
 

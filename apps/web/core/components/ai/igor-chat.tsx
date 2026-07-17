@@ -1074,6 +1074,9 @@ function IgorCaptureProcessingWidget({
         <div className="bg-amber-500/10 text-amber-800 mt-2 rounded-md px-2.5 py-2 text-[11px] leading-4">
           {widget.failure_message}
           {widget.failure_stage && <span className="ml-1 opacity-70">Этап: {widget.failure_stage}.</span>}
+          {widget.validation_errors && widget.validation_errors.length > 0 && (
+            <div className="font-mono mt-1 text-[10px] opacity-80">Проверки: {widget.validation_errors.join(", ")}</div>
+          )}
         </div>
       )}
       <p className="mt-2 text-[10px] leading-4 text-tertiary">

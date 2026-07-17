@@ -160,7 +160,11 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
             job["reduction_attempts"] = reduction_attempts
             job["failure_code"] = error_code
             job["failure_stage"] = "global_reduce"
-            if reduction_attempts < endpoint.capture_job_max_attempts:
+            job["validation_errors"] = endpoint._safe_capture_validation_errors(exception)
+            # The reducer already performs three feedback-driven validation attempts.
+            # Re-running the entire reducer at Celery level repeats the same expensive
+            # work without new feedback. Provider/network failures remain retryable.
+            if error_code != "response_validation_failed" and reduction_attempts < endpoint.capture_job_max_attempts:
                 job["status"] = "retrying"
                 endpoint._cache_capture_job(cache_key, job)
                 raise task.retry(
@@ -217,4 +221,5 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
     job.pop("failure_code", None)
     job.pop("failure_stage", None)
     job.pop("batch_errors", None)
+    job.pop("validation_errors", None)
     endpoint._cache_capture_job(cache_key, job)

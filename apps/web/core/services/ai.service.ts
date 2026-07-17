@@ -255,6 +255,7 @@ export type TIgorCaptureProcessingWidget = {
   failure_code?: string | null;
   failure_stage?: string | null;
   failure_message?: string | null;
+  validation_errors?: string[];
 };
 
 export type TIgorChatContext = {

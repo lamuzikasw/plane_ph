@@ -872,6 +872,88 @@ def test_spec_quality_gate_blocks_repeated_requirements_even_with_different_titl
     assert "duplicate_tasks:T1,T2" in errors
 
 
+def test_spec_quality_coverage_fills_missing_rows_from_task_traceability():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    report = {
+        "coverage": [
+            {"source_id": "S1", "status": "covered", "task_ids": ["T1"], "reason": "Учтено"}
+        ],
+        "duplicate_groups": [],
+        "fragments": [],
+        "unsupported_claims": [],
+        "invented_fields": [],
+        "warnings": [],
+    }
+
+    normalized = endpoint._normalize_spec_quality_coverage(
+        report,
+        [{"id": "S1"}, {"id": "S2"}, {"id": "S3"}],
+        plan,
+    )
+
+    assert normalized["coverage"] == [
+        {"source_id": "S1", "status": "covered", "task_ids": ["T1"], "reason": "Учтено"},
+        {
+            "source_id": "S2",
+            "status": "covered",
+            "task_ids": ["T1"],
+            "reason": "Покрытие подтверждено ссылками декомпозиции.",
+        },
+        {
+            "source_id": "S3",
+            "status": "context_only",
+            "task_ids": [],
+            "reason": "Покрытие подтверждено ссылками декомпозиции.",
+        },
+    ]
+
+
+def test_spec_semantic_coverage_requires_action_facts_in_tasks():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    semantic_map = {
+        "facts": [
+            {"id": "F1", "kind": "functional_requirement", "source_ids": ["S2"]},
+            {"id": "F2", "kind": "context", "source_ids": ["S3"]},
+            {"id": "F3", "kind": "business_rule", "source_ids": ["S4"]},
+        ]
+    }
+
+    assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == ["uncovered:S4"]
+
+
+def test_spec_quality_duplicate_tasks_are_merged_without_losing_traceability():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    duplicate = dict(plan["tasks"][0])
+    duplicate.update(
+        {
+            "id": "T2",
+            "title": "Добавить управляемую отправку email",
+            "description": "Повторять временные ошибки отправки ограниченное число раз.",
+            "acceptance_criteria": [
+                {"text": "Временная ошибка повторяется не более трёх раз.", "source_ids": ["S4"]}
+            ],
+            "fact_ids": [],
+            "source_ids": ["S4"],
+            "open_question_ids": [],
+        }
+    )
+    plan["tasks"].append(duplicate)
+    plan["open_questions"][0]["related_task_ids"] = ["T2"]
+    report = {"duplicate_groups": [{"task_ids": ["T1", "T2"], "reason": "Один результат"}]}
+
+    merged = endpoint._merge_spec_quality_duplicates(plan, report)
+
+    assert merged == 1
+    assert [task["id"] for task in plan["tasks"]] == ["T1"]
+    assert plan["tasks"][0]["source_ids"] == ["S1", "S2", "S4"]
+    assert len(plan["tasks"][0]["acceptance_criteria"]) == 2
+    assert "Повторять временные ошибки" in plan["tasks"][0]["description"]
+    assert plan["open_questions"][0]["related_task_ids"] == ["T1"]
+
+
 def test_spec_quality_gate_preserves_source_backed_contradictions_for_review():
     endpoint = IgorChatEndpoint()
     plan = _valid_spec_decomposition()
@@ -1846,6 +1928,66 @@ def test_background_spec_capture_maps_then_reduces_before_review(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.django_db
+def test_background_spec_validation_failure_is_not_repeated_without_new_feedback(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-spec-validation-failure")
+    endpoint = IgorChatEndpoint()
+    units = [{"id": "S1", "text": "Добавить отправку email"}]
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda *_args: None,
+    )
+    capture = endpoint._enqueue_capture_review(units, workspace, user, document_type="technical_spec")
+    job_id = capture["job_id"]
+    cache_key = endpoint._capture_job_cache_key(workspace, user, job_id)
+    job = cache.get(cache_key)
+    job["batch_results"] = {
+        "0": {
+            "document": {
+                "type": "technical_spec",
+                "title": "Email",
+                "goal": "Добавить отправку",
+                "summary": "",
+                "source_ids": ["S1"],
+            },
+            "facts": [
+                {
+                    "kind": "functional_requirement",
+                    "text": "Добавить отправку email",
+                    "source_ids": ["S1"],
+                }
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+    }
+    cache.set(cache_key, job, timeout=endpoint.capture_job_timeout)
+
+    def fail_reduce(*_args, **_kwargs):
+        raise ValueError("spec_reduce_validation_failed|duplicate_tasks:T5,T7")
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_spec_reduce_strict", fail_reduce)
+    from plane.bgtasks.igor_capture_task import process_igor_capture_job
+
+    monkeypatch.setattr(
+        process_igor_capture_job,
+        "retry",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("validation failure must not auto-retry")),
+    )
+    process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+
+    saved = cache.get(cache_key)
+    assert saved["status"] == "failed"
+    assert saved["reduction_attempts"] == 1
+    assert saved["failure_code"] == "response_validation_failed"
+    assert saved["validation_errors"] == [
+        "spec_reduce_validation_failed",
+        "duplicate_tasks:T5,T7",
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
 def test_background_capture_stops_when_workspace_access_is_revoked(monkeypatch):
     user, workspace, _project = _capture_workspace("capture-background-revoked")
     endpoint = IgorChatEndpoint()
@@ -2066,6 +2208,17 @@ def test_igor_failure_codes_do_not_expose_exception_messages(exception, expected
     endpoint = IgorChatEndpoint()
 
     assert endpoint._igor_failure_code(exception) == expected
+
+
+def test_capture_validation_diagnostics_keep_only_safe_codes():
+    endpoint = IgorChatEndpoint()
+
+    assert endpoint._safe_capture_validation_errors(
+        ValueError(
+            "spec_reduce_validation_failed|duplicate_tasks:T5,T7|"
+            "unsafe message with corporate text|uncovered:S18"
+        )
+    ) == ["spec_reduce_validation_failed", "duplicate_tasks:T5,T7", "uncovered:S18"]
 
 
 @pytest.mark.unit
