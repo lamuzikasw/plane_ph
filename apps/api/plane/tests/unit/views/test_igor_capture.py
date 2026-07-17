@@ -1046,12 +1046,54 @@ def test_spec_coverage_repair_adaptively_splits_failed_large_batches(monkeypatch
 
     assert calls == [
         (5, 1, False),
-        (2, 3, False),
+        (2, 1, False),
         (3, 1, False),
-        (1, 3, False),
-        (2, 3, False),
+        (1, 1, False),
+        (2, 1, False),
     ]
     assert [len(repair["tasks"][0]["source_ids"]) for repair in repairs] == [2, 1, 2]
+
+
+def test_spec_coverage_repair_starts_with_bounded_batches(monkeypatch):
+    endpoint = IgorChatEndpoint()
+    endpoint.capture_spec_repair_min_batch_size = 3
+    endpoint.capture_spec_repair_parallelism = 1
+    units = [{"id": f"S{index}", "text": f"Требование {index}"} for index in range(1, 9)]
+    semantic_map = {
+        "document_candidates": [],
+        "facts": [
+            {
+                "id": f"F{index}",
+                "kind": "functional_requirement",
+                "text": unit["text"],
+                "source_ids": [unit["id"]],
+            }
+            for index, unit in enumerate(units, start=1)
+        ],
+        "constraints": [],
+        "open_questions": [],
+        "contradictions": [],
+    }
+    batch_sizes = []
+
+    def fake_repair(batch, *_args):
+        batch_sizes.append(len(batch))
+        return []
+
+    monkeypatch.setattr(endpoint, "_reduce_spec_repair_batch", fake_repair)
+
+    outcome = endpoint._repair_spec_semantic_coverage(
+        {"tasks": [], "constraints": [], "open_questions": [], "contradictions": []},
+        units,
+        semantic_map,
+        [],
+        SimpleNamespace(),
+        [],
+        [f"uncovered:S{index}" for index in range(1, 9)],
+    )
+
+    assert batch_sizes == [3, 3, 2]
+    assert outcome == {"repaired": False, "fallback_count": 0}
 
 
 def test_spec_coverage_repair_fallback_preserves_facts_without_inventing_fields():

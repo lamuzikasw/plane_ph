@@ -1439,9 +1439,17 @@ class IgorCaptureMixin:
         if not missing_units:
             return {"repaired": False, "fallback_count": 0}
 
+        # Coverage repair is intentionally kept smaller than the initial map
+        # batches. A large repair prompt has already failed to preserve these
+        # sources once; retrying the same shape and recursively splitting it
+        # creates a request tree and makes finalization take several minutes.
+        # Small independent repair batches keep latency bounded and let the
+        # verified-fact fallback cover only the exact batch that the provider
+        # could not safely reduce.
+        repair_batch_size = max(1, self.capture_spec_repair_min_batch_size)
         batches = [
-            missing_units[offset : offset + self.capture_llm_batch_size]
-            for offset in range(0, len(missing_units), self.capture_llm_batch_size)
+            missing_units[offset : offset + repair_batch_size]
+            for offset in range(0, len(missing_units), repair_batch_size)
         ]
 
         def reduce_batch(batch):
@@ -1468,7 +1476,6 @@ class IgorCaptureMixin:
         batch_map = self._spec_semantic_map_for_sources(semantic_map, source_ids)
         if not batch_map["facts"]:
             return []
-        attempt_limit = 3 if len(units) <= self.capture_spec_repair_min_batch_size else 1
         try:
             return [
                 self._get_llm_spec_reduce_strict(
@@ -1478,7 +1485,12 @@ class IgorCaptureMixin:
                     user,
                     members,
                     _allow_coverage_repair=False,
-                    _attempt_limit=attempt_limit,
+                    # A repair batch gets one semantic attempt. The global
+                    # reduce already used its feedback-driven retries; three
+                    # more identical calls here only delay the result. On a
+                    # validation failure we split or use the fact-backed
+                    # review fallback below, without losing source coverage.
+                    _attempt_limit=1,
                     _run_quality_gate=False,
                 )
             ]
