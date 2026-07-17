@@ -8,6 +8,7 @@ import json
 import re
 import secrets
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from difflib import SequenceMatcher
 
@@ -40,6 +41,8 @@ class IgorCaptureMixin:
     capture_job_lock_timeout = 30 * 60
     capture_job_max_attempts = 3
     capture_job_parallelism = 3
+    capture_spec_repair_parallelism = 3
+    capture_spec_repair_min_batch_size = 12
     # Structured Outputs for a 60-unit specification can legitimately take much
     # longer than a short chat response. Keep connection/provider configuration
     # as the lower bound, while allowing the batch job enough read time to finish.
@@ -1283,6 +1286,8 @@ class IgorCaptureMixin:
         members=None,
         *,
         _allow_coverage_repair=True,
+        _attempt_limit=3,
+        _run_quality_gate=True,
     ):
         payload = {
             "schema_version": self.capture_spec_schema_version,
@@ -1328,7 +1333,7 @@ class IgorCaptureMixin:
             "иначе null. priority только none|urgent|high|medium|low, confidence high|medium|low. Пиши по-русски."
         )
         validation_errors = []
-        for _attempt in range(3):
+        for _attempt in range(max(1, _attempt_limit)):
             attempt_payload = dict(payload)
             if validation_errors:
                 attempt_payload["previous_validation_errors"] = validation_errors
@@ -1371,6 +1376,8 @@ class IgorCaptureMixin:
             if semantic_coverage_errors:
                 validation_errors = semantic_coverage_errors[:20]
                 continue
+            if not _run_quality_gate:
+                return result
             quality_report = self._normalize_spec_quality_coverage(
                 self._get_llm_spec_quality_report_strict(units, result), units, result
             )
@@ -1419,24 +1426,60 @@ class IgorCaptureMixin:
         if not missing_units:
             return False
 
-        repaired = False
-        for offset in range(0, len(missing_units), self.capture_llm_batch_size):
-            batch = missing_units[offset : offset + self.capture_llm_batch_size]
-            batch_source_ids = {str(unit["id"]) for unit in batch}
-            batch_map = self._spec_semantic_map_for_sources(semantic_map, batch_source_ids)
-            if not batch_map["facts"]:
-                continue
-            repair_plan = self._get_llm_spec_reduce_strict(
+        batches = [
+            missing_units[offset : offset + self.capture_llm_batch_size]
+            for offset in range(0, len(missing_units), self.capture_llm_batch_size)
+        ]
+
+        def reduce_batch(batch):
+            return self._reduce_spec_repair_batch(
                 batch,
-                batch_map,
+                semantic_map,
                 projects,
                 user,
                 members,
-                _allow_coverage_repair=False,
             )
+
+        worker_count = min(self.capture_spec_repair_parallelism, len(batches))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            grouped_repairs = list(executor.map(reduce_batch, batches))
+
+        repairs = [repair for group in grouped_repairs for repair in group]
+        for repair_plan in repairs:
             self._merge_spec_repair_plan(plan, repair_plan)
-            repaired = True
-        return repaired
+        return bool(repairs)
+
+    def _reduce_spec_repair_batch(self, units, semantic_map, projects, user, members):
+        source_ids = {str(unit["id"]) for unit in units}
+        batch_map = self._spec_semantic_map_for_sources(semantic_map, source_ids)
+        if not batch_map["facts"]:
+            return []
+        attempt_limit = 3 if len(units) <= self.capture_spec_repair_min_batch_size else 1
+        try:
+            return [
+                self._get_llm_spec_reduce_strict(
+                    units,
+                    batch_map,
+                    projects,
+                    user,
+                    members,
+                    _allow_coverage_repair=False,
+                    _attempt_limit=attempt_limit,
+                    _run_quality_gate=False,
+                )
+            ]
+        except ValueError:
+            if len(units) <= self.capture_spec_repair_min_batch_size:
+                raise
+            midpoint = len(units) // 2
+            return [
+                *self._reduce_spec_repair_batch(
+                    units[:midpoint], semantic_map, projects, user, members
+                ),
+                *self._reduce_spec_repair_batch(
+                    units[midpoint:], semantic_map, projects, user, members
+                ),
+            ]
 
     def _spec_semantic_map_for_sources(self, semantic_map, source_ids):
         filtered = {

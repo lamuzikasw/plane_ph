@@ -1007,6 +1007,53 @@ def test_spec_repair_plan_reindexes_cross_references_without_losing_sources():
     assert plan["tasks"][1]["source_ids"] == ["S4"]
 
 
+def test_spec_coverage_repair_adaptively_splits_failed_large_batches(monkeypatch):
+    endpoint = IgorChatEndpoint()
+    endpoint.capture_spec_repair_min_batch_size = 2
+    units = [{"id": f"S{index}", "text": f"Требование {index}"} for index in range(1, 6)]
+    semantic_map = {
+        "document_candidates": [],
+        "facts": [
+            {
+                "id": f"F{index}",
+                "kind": "functional_requirement",
+                "text": unit["text"],
+                "source_ids": [unit["id"]],
+            }
+            for index, unit in enumerate(units, start=1)
+        ],
+        "constraints": [],
+        "open_questions": [],
+        "contradictions": [],
+    }
+    calls = []
+
+    def fake_reduce(batch, _map, *_args, **kwargs):
+        calls.append((len(batch), kwargs["_attempt_limit"], kwargs["_run_quality_gate"]))
+        if len(batch) > 2:
+            raise ValueError("spec_reduce_validation_failed|uncovered")
+        return {"tasks": [{"id": "T1", "source_ids": [unit["id"] for unit in batch]}]}
+
+    monkeypatch.setattr(endpoint, "_get_llm_spec_reduce_strict", fake_reduce)
+
+    repairs = endpoint._reduce_spec_repair_batch(
+        units,
+        semantic_map,
+        [],
+        SimpleNamespace(),
+        [],
+    )
+
+    assert calls == [
+        (5, 1, False),
+        (2, 3, False),
+        (3, 1, False),
+        (1, 3, False),
+        (2, 3, False),
+    ]
+    assert [len(repair["tasks"][0]["source_ids"]) for repair in repairs] == [2, 1, 2]
+
+
 def test_spec_quality_duplicate_tasks_are_merged_without_losing_traceability():
     endpoint = IgorChatEndpoint()
     plan = _valid_spec_decomposition()
