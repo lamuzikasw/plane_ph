@@ -552,6 +552,16 @@ def test_spec_units_treat_numbered_sentences_as_content_and_ignore_markdown_sepa
     assert units[2]["text"] == "Название сделки."
 
 
+def test_spec_units_treat_numbered_scenario_step_ending_with_colon_as_content():
+    units = IgorChatEndpoint()._capture_spec_units(
+        "1. Текущая логика\n1. Клиент открывает заявку.\n2. Через 30 минут сделка переводится в:\n- Пинг 1"
+    )
+
+    assert [unit["kind"] for unit in units] == ["heading", "paragraph", "paragraph", "paragraph"]
+    assert units[2]["text"] == "Через 30 минут сделка переводится в:"
+    assert units[2]["section_path"] == ["Текущая логика"]
+
+
 def test_spec_units_compact_dense_lists_without_losing_first_or_last_requirement():
     endpoint = IgorChatEndpoint()
     source = "# Большое ТЗ\n" + "\n".join(
@@ -1273,7 +1283,7 @@ def test_spec_coverage_repair_fallback_preserves_facts_without_inventing_fields(
     assert fallback["_coverage_fallback"] is True
     assert len(fallback["tasks"]) == 1
     task = fallback["tasks"][0]
-    assert task["title"] == "После временной ошибки повторить SMTP не более трёх раз"
+    assert task["title"] == "Обработать ошибки, повторы и защиту от дублей"
     assert task["source_ids"] == ["S4"]
     assert task["fact_ids"] == ["B2F1"]
     assert task["project_hint"] is None
@@ -1283,6 +1293,239 @@ def test_spec_coverage_repair_fallback_preserves_facts_without_inventing_fields(
     assert task["confidence"] == "low"
     assert units[0]["text"] in task["description"]
     assert fallback["open_questions"][0]["related_task_ids"] == ["T1"]
+
+
+def test_spec_fallback_groups_requirements_by_deliverable_and_keeps_criteria_out_of_task_titles():
+    endpoint = IgorChatEndpoint()
+    units = [
+        {"id": "S1", "kind": "heading", "text": "Email-пинги", "section_path": ["Email-пинги"]},
+        {"id": "S2", "kind": "paragraph", "text": "Вернуть клиента к заявке.", "section_path": ["Цель"]},
+        {
+            "id": "S3",
+            "kind": "paragraph",
+            "text": "Запускать цепочку после перехода сделки в Пинг 1.",
+            "section_path": ["Логика email-пингов"],
+        },
+        {
+            "id": "S4",
+            "kind": "paragraph",
+            "text": "После смены стадии остановить следующие письма.",
+            "section_path": ["Остановка цепочки"],
+        },
+        {
+            "id": "S5",
+            "kind": "paragraph",
+            "text": "Подготовить три шаблона писем.",
+            "section_path": ["Шаблоны писем"],
+        },
+        {
+            "id": "S6",
+            "kind": "paragraph",
+            "text": "При временной ошибке повторить отправку не более трёх раз.",
+            "section_path": ["Ошибки"],
+        },
+        {
+            "id": "S7",
+            "kind": "paragraph",
+            "text": "Логировать отправку каждого письма и причину остановки.",
+            "section_path": ["Логирование"],
+        },
+        {
+            "id": "S8",
+            "kind": "paragraph",
+            "text": "Дубликаты писем не отправляются.",
+            "section_path": ["Критерии готовности"],
+        },
+        {
+            "id": "S9",
+            "kind": "paragraph",
+            "text": "Редизайн личного кабинета не выполняется.",
+            "section_path": ["Что НЕ входит в задачу"],
+        },
+    ]
+    kinds = {
+        "S1": "metadata",
+        "S2": "objective",
+        "S3": "functional_requirement",
+        "S4": "business_rule",
+        "S5": "functional_requirement",
+        "S6": "error_case",
+        "S7": "non_functional_requirement",
+        "S8": "acceptance_criterion",
+        "S9": "functional_requirement",
+    }
+    semantic_map = {
+        "document_candidates": [
+            {"type": "technical_spec", "title": "Email-пинги", "goal": "Вернуть клиента", "source_ids": ["S1", "S2"]}
+        ],
+        "facts": [
+            {"id": f"F{index}", "kind": kinds[unit["id"]], "text": unit["text"], "source_ids": [unit["id"]]}
+            for index, unit in enumerate(units, start=1)
+        ],
+        "constraints": [],
+        "open_questions": [],
+        "contradictions": [],
+    }
+
+    plan = endpoint._fallback_spec_decomposition(units, semantic_map)
+
+    assert [task["title"] for task in plan["tasks"]] == [
+        "Реализовать рабочий сценарий: Email-пинги",
+        "Управлять остановкой и повторным запуском сценария",
+        "Подготовить шаблоны и пользовательский контент",
+        "Обработать ошибки, повторы и защиту от дублей",
+        "Добавить логирование и контроль работы",
+    ]
+    assert all("Критерии готовности" not in task["title"] for task in plan["tasks"])
+    assert any("Дубликаты писем" in item["text"] for task in plan["tasks"] for item in task["acceptance_criteria"])
+    assert plan["constraints"][-1]["kind"] == "out_of_scope"
+    assert plan["constraints"][-1]["source_ids"] == ["S9"]
+
+
+def test_spec_fallback_keeps_lifecycle_rules_and_filters_structural_or_uncertain_text():
+    endpoint = IgorChatEndpoint()
+    units = [
+        {"id": "S1", "kind": "paragraph", "text": "Email-цепочка", "section_path": []},
+        {
+            "id": "S2",
+            "kind": "heading",
+            "text": "Email-цепочка должна прекращаться, если",
+            "section_path": ["Остановка email-цепочки"],
+        },
+        {
+            "id": "S3",
+            "kind": "paragraph",
+            "text": "клиент оплатил заявку;",
+            "section_path": ["Остановка email-цепочки", "Email-цепочка должна прекращаться, если"],
+        },
+        {
+            "id": "S4",
+            "kind": "paragraph",
+            "text": "Шаг 2. Второе письмо",
+            "section_path": ["Логика email-пингов"],
+        },
+        {
+            "id": "S5",
+            "kind": "paragraph",
+            "text": "Размер скидки пока не определён.",
+            "section_path": ["Шаблоны писем"],
+        },
+        {
+            "id": "S6",
+            "kind": "paragraph",
+            "text": "Отдельный интерфейс для логов в рамках этой задачи не требуется.",
+            "section_path": ["Логирование"],
+        },
+    ]
+    mapped = [
+        {
+            "document": {
+                "type": "technical_spec",
+                "title": "Email-цепочка",
+                "goal": "Вернуть клиента",
+                "summary": "Автоматические напоминания",
+                "source_ids": ["S1"],
+            },
+            "facts": [
+                {
+                    "kind": "objective",
+                    "text": "Email-цепочка должна прекращаться, если клиент оплатил заявку.",
+                    "source_ids": ["S2", "S3"],
+                },
+                {"kind": "functional_requirement", "text": "Шаг 2. Второе письмо", "source_ids": ["S4"]},
+                {
+                    "kind": "business_rule",
+                    "text": "Размер скидки пока не определён.",
+                    "source_ids": ["S5"],
+                },
+                {
+                    "kind": "non_functional_requirement",
+                    "text": "Отдельный интерфейс для логов в рамках этой задачи не требуется.",
+                    "source_ids": ["S6"],
+                },
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+    ]
+
+    semantic_map = endpoint._normalize_spec_maps(mapped, units)
+    plan = endpoint._fallback_spec_decomposition(units, semantic_map)
+    rendered_tasks = "\n".join(
+        [
+            *(task["description"] for task in plan["tasks"]),
+            *(criterion["text"] for task in plan["tasks"] for criterion in task["acceptance_criteria"]),
+        ]
+    )
+
+    assert "клиент оплатил заявку" in rendered_tasks
+    assert "Шаг 2" not in rendered_tasks
+    assert not any(
+        "пока не определён" in criterion["text"] for task in plan["tasks"] for criterion in task["acceptance_criteria"]
+    )
+    assert any("интерфейс для логов" in constraint["text"] for constraint in plan["constraints"])
+    assert all("интерфейс для логов" not in task["description"] for task in plan["tasks"])
+
+
+def test_spec_fallback_attaches_all_action_sources_without_inventing_planning_fields():
+    endpoint = IgorChatEndpoint()
+    units = [
+        {
+            "id": "S1",
+            "kind": "paragraph",
+            "text": "При входе в Пинг 1 отправить первое письмо.",
+            "section_path": ["Логика email-пингов"],
+        },
+        {
+            "id": "S2",
+            "kind": "paragraph",
+            "text": "Через 3 часа отправить второе письмо.",
+            "section_path": ["Полная схема работы"],
+        },
+        {
+            "id": "S3",
+            "kind": "paragraph",
+            "text": "После смены стадии письма не отправляются.",
+            "section_path": ["Критерии готовности"],
+        },
+    ]
+    semantic_map = {
+        "document_candidates": [
+            {"type": "technical_spec", "title": "Email-пинги", "goal": "Вернуть клиента", "source_ids": ["S1"]}
+        ],
+        "facts": [
+            {
+                "id": "F1",
+                "kind": "functional_requirement",
+                "text": units[0]["text"],
+                "source_ids": ["S1"],
+            },
+            {
+                "id": "F2",
+                "kind": "acceptance_criterion",
+                "text": units[1]["text"],
+                "source_ids": ["S2"],
+            },
+            {
+                "id": "F3",
+                "kind": "acceptance_criterion",
+                "text": units[2]["text"],
+                "source_ids": ["S3"],
+            },
+        ],
+        "constraints": [],
+        "open_questions": [],
+        "contradictions": [],
+    }
+
+    plan = endpoint._fallback_spec_decomposition(units, semantic_map)
+
+    assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == []
+    assert all(task["project_hint"] is None for task in plan["tasks"])
+    assert all(task["assignee_hint"] is None for task in plan["tasks"])
+    assert all(task["target_date"] is None for task in plan["tasks"])
+    assert all(task["priority"] == "none" for task in plan["tasks"])
 
 
 def test_spec_quality_duplicate_tasks_are_merged_without_losing_traceability():

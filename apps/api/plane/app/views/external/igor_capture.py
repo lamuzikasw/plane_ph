@@ -271,6 +271,7 @@ class IgorCaptureMixin:
                 r"^\s*(?:#{1,6}\s+|(?P<number>\d+(?:\.\d+)*[.)]?\s+))(?P<title>.+?)\s*:??\s*$",
                 raw,
             )
+            rejected_numbered_heading = False
             if heading_match:
                 heading_candidate = heading_match.group("title").strip().rstrip(":")
                 normalized_candidate = self._normalize_search(heading_candidate)
@@ -287,14 +288,13 @@ class IgorCaptureMixin:
                     "разработать ",
                     "подключить ",
                 )
-                is_numbered_sentence = bool(heading_match.group("number")) and bool(
-                    re.search(r"[.!?;]\s*$", heading_candidate)
-                )
+                is_numbered_sentence = bool(heading_match.group("number")) and bool(re.search(r"[.!?;:]\s*$", stripped))
                 if (
                     len(heading_candidate) > 120
                     or normalized_candidate.startswith(action_leads)
                     or is_numbered_sentence
                 ):
+                    rejected_numbered_heading = bool(heading_match.group("number"))
                     heading_match = None
             heading_title = None
             heading_level = 1
@@ -302,7 +302,12 @@ class IgorCaptureMixin:
                 heading_title = heading_match.group("title").strip().rstrip(":")
                 number = heading_match.group("number") or ""
                 heading_level = max(1, number.strip().rstrip(".)").count(".") + 1)
-            elif stripped.endswith(":") and len(stripped) <= 100 and not re.match(r"^[-*•–—]", stripped):
+            elif (
+                not rejected_numbered_heading
+                and stripped.endswith(":")
+                and len(stripped) <= 100
+                and not re.match(r"^[-*•–—]", stripped)
+            ):
                 heading_title = stripped.rstrip(":")
                 heading_level = min(len(section_path) + 1, 3)
 
@@ -1286,11 +1291,83 @@ class IgorCaptureMixin:
             return "metadata"
         if unit.get("kind") == "clarification":
             return "context"
-        # A non-heading line in a document explicitly detected as a technical
-        # specification must not disappear merely because the model omitted it.
-        # Treat it as actionable for coverage and require human review later;
-        # this is safer than silently downgrading a requirement to context.
+        text = self._clean_capture_text(unit.get("text"), 1500)
+        normalized_text = self._normalize_search(text)
+        section = self._normalize_search(" ".join([*(unit.get("section_path") or []), str(unit.get("section") or "")]))
+        if not section and unit.get("start") == 0:
+            return "metadata"
+        if self._fallback_spec_low_signal_text(normalized_text):
+            return "context"
+        if self._fallback_spec_fact_is_negative_scope(normalized_text):
+            return "context"
+        if self._fallback_spec_fact_is_uncertain({"text": text}):
+            return "context"
+        if any(marker in section for marker in ("примерный смысл", "пример текста")):
+            return "context"
+        if re.fullmatch(r"[«\"].{1,100}[»\"]\.?", text):
+            return "context"
+        if normalized_text.startswith("регистрация в лк происходит"):
+            return "existing_behavior"
+        if normalized_text.startswith("выбор стадии зависит от того"):
+            return "existing_behavior"
+        if any(marker in section for marker in ("что не входит", "out of scope")):
+            return "context"
+        if any(marker in section for marker in ("текущая логика", "существующ", "как сейчас")):
+            return "existing_behavior"
+        if any(
+            marker in section
+            for marker in (
+                "критерии готовности",
+                "критерии приемки",
+                "acceptance criteria",
+                "полная схема",
+                "что входит в задачу",
+            )
+        ):
+            return "acceptance_criterion"
+        if any(marker in section for marker in ("ошиб", "сбой", "исключен")):
+            return "error_case"
+        if any(marker in section for marker in ("цель", "назначение")):
+            return "objective"
+        # Preserve omitted implementation text without incorrectly promoting
+        # headings, flow arrows, baselines and acceptance sections to tasks.
         return "functional_requirement"
+
+    def _normalize_spec_fact_kind_for_unit(self, fact, unit):
+        current = fact.get("kind") if fact.get("kind") in self.capture_spec_fact_kinds else "context"
+        inferred = self._spec_map_fallback_fact_kind(unit)
+        # Structural evidence from the source is more reliable than an LLM
+        # label for headings, baselines, acceptance blocks and low-signal rows.
+        if inferred in {"metadata", "context", "existing_behavior", "acceptance_criterion", "error_case"}:
+            return inferred
+        if (
+            current in {"metadata", "objective", "context", "existing_behavior"}
+            and inferred == "functional_requirement"
+        ):
+            section = self._normalize_search(
+                " ".join([*(unit.get("section_path") or []), str(unit.get("section") or "")])
+            )
+            actionable_sections = (
+                "что необходимо",
+                "требован",
+                "логика",
+                "что считается движением",
+                "движение сделки",
+                "останов",
+                "повторный запуск",
+                "источник данных",
+                "видимость стад",
+                "ошиб",
+                "шаблон",
+                "интеграц",
+                "email клиента",
+                "ссылка в пись",
+                "переменн",
+                "логирован",
+            )
+            if any(marker in section for marker in actionable_sections):
+                return inferred
+        return current
 
     def _normalize_spec_maps(self, mapped, units):
         valid_source_ids = {unit["id"] for unit in units}
@@ -1405,6 +1482,11 @@ class IgorCaptureMixin:
             )
             normalized["_coverage_fallback_source_ids"].append(source_id)
         normalized["_coverage_fallback_source_ids"] = list(dict.fromkeys(normalized["_coverage_fallback_source_ids"]))
+        for fact in normalized["facts"]:
+            refs = [str(source_id) for source_id in fact.get("source_ids") or []]
+            unit = self._fallback_spec_fact_unit(fact, unit_by_id)
+            if unit is not None:
+                fact["kind"] = self._normalize_spec_fact_kind_for_unit(fact, unit)
         if not normalized["facts"]:
             raise ValueError("spec_map_has_no_facts")
         return normalized
@@ -1658,48 +1740,190 @@ class IgorCaptureMixin:
 
     def _fallback_spec_repair_plan(self, units, semantic_map):
         unit_by_id = {str(unit["id"]): unit for unit in units}
-        action_facts = [
-            copy.deepcopy(fact)
-            for fact in semantic_map.get("facts") or []
-            if isinstance(fact, dict) and fact.get("kind") in self.capture_spec_action_fact_kinds
-        ]
+        facts = [copy.deepcopy(fact) for fact in semantic_map.get("facts") or [] if isinstance(fact, dict)]
+        for constraint in semantic_map.get("constraints") or []:
+            if not isinstance(constraint, dict) or constraint.get("kind") == "out_of_scope":
+                continue
+            facts.append(
+                {
+                    "id": "",
+                    "kind": ("acceptance_criterion" if constraint.get("kind") == "in_scope" else "business_rule"),
+                    "text": self._clean_capture_text(constraint.get("text"), 1500),
+                    "source_ids": list(constraint.get("source_ids") or []),
+                    "_from_constraint": True,
+                }
+            )
+        constraint_texts = {
+            self._normalize_search(self._clean_capture_text(item.get("text"), 1500))
+            for item in semantic_map.get("constraints") or []
+            if isinstance(item, dict) and self._clean_capture_text(item.get("text"), 1500)
+        }
         grouped_facts = {}
-        for fact in action_facts:
+        acceptance_facts = []
+        derived_constraints = []
+        derived_questions = []
+        for fact in facts:
             refs = [str(source_id) for source_id in fact.get("source_ids") or []]
-            unit = next((unit_by_id[source_id] for source_id in refs if source_id in unit_by_id), {})
-            section_path = unit.get("section_path") or []
-            section = str(section_path[-1] if section_path else unit.get("section") or "").strip()
-            grouped_facts.setdefault(section, []).append(fact)
+            unit = self._fallback_spec_fact_unit(fact, unit_by_id)
+            section = self._normalize_search(
+                " ".join([*(unit.get("section_path") or []), str(unit.get("section") or "")])
+            )
+            normalized_text = self._normalize_search(self._clean_capture_text(fact.get("text"), 1500))
+            if self._fallback_spec_fact_is_structural(fact, unit):
+                continue
+            if normalized_text in constraint_texts and not fact.get("_from_constraint"):
+                continue
+            if "не входит" in section or "out of scope" in section:
+                derived_constraints.append(
+                    {
+                        "kind": "out_of_scope",
+                        "text": self._clean_capture_text(fact.get("text"), 1500),
+                        "source_ids": refs,
+                    }
+                )
+                continue
+            if self._fallback_spec_fact_is_negative_scope(normalized_text):
+                derived_constraints.append(
+                    {
+                        "kind": "out_of_scope",
+                        "text": self._clean_capture_text(fact.get("text"), 1500),
+                        "source_ids": refs,
+                    }
+                )
+                continue
+            question = self._fallback_spec_derived_question(fact)
+            if question:
+                derived_questions.append(
+                    {
+                        "question": question,
+                        "reason": "В исходном ТЗ значение или финальный материал пока не определены.",
+                        "blocking": True,
+                        "source_ids": refs,
+                    }
+                )
+            if self._fallback_spec_fact_is_uncertain(fact):
+                continue
+            if any(marker in section for marker in ("что входит в задачу", "in scope")):
+                derived_constraints.append(
+                    {
+                        "kind": "in_scope",
+                        "text": self._clean_capture_text(fact.get("text"), 1500),
+                        "source_ids": refs,
+                    }
+                )
+                acceptance_facts.append((fact, unit))
+                if self._fallback_spec_fact_is_task_material(fact, unit):
+                    bucket = self._fallback_spec_fact_bucket(fact, unit)
+                    grouped_facts.setdefault(bucket, []).append(fact)
+                continue
+            if fact.get("kind") == "acceptance_criterion" or any(
+                marker in section
+                for marker in (
+                    "критерии готовности",
+                    "критерии приемки",
+                    "acceptance criteria",
+                    "полная схема",
+                )
+            ):
+                if not self._fallback_spec_low_signal_text(normalized_text):
+                    acceptance_facts.append((fact, unit))
+                continue
+            if not self._fallback_spec_fact_is_task_material(fact, unit):
+                continue
+            bucket = self._fallback_spec_fact_bucket(fact, unit)
+            grouped_facts.setdefault(bucket, []).append(fact)
+
+        grouped_facts = {
+            bucket: self._fallback_spec_unique_facts(bucket_facts)
+            for bucket, bucket_facts in grouped_facts.items()
+            if bucket_facts
+        }
+        if grouped_facts.get("workflow") and grouped_facts.get("core"):
+            grouped_facts["workflow"] = self._fallback_spec_unique_facts(
+                [*grouped_facts["workflow"], *grouped_facts.pop("core")]
+            )
+        acceptance_facts = sorted(
+            self._fallback_spec_unique_fact_pairs(acceptance_facts),
+            key=lambda pair: self._fallback_spec_acceptance_rank(pair[1]),
+        )
+
+        # A fully degraded semantic map can contain only conservative context
+        # facts. Keep the document reviewable, but still aggregate it by outcome
+        # rather than creating one task for every line.
+        if not grouped_facts:
+            for fact in semantic_map.get("facts") or []:
+                if not isinstance(fact, dict) or fact.get("kind") == "metadata":
+                    continue
+                copied = copy.deepcopy(fact)
+                refs = [str(source_id) for source_id in copied.get("source_ids") or []]
+                unit = self._fallback_spec_fact_unit(copied, unit_by_id)
+                bucket = self._fallback_spec_fact_bucket(copied, unit)
+                grouped_facts.setdefault(bucket, []).append(copied)
+            grouped_facts = {
+                bucket: self._fallback_spec_unique_facts(bucket_facts)
+                for bucket, bucket_facts in grouped_facts.items()
+                if bucket_facts
+            }
 
         questions = []
-        question_aliases = {}
         for index, question in enumerate(semantic_map.get("open_questions") or [], start=1):
             copied = copy.deepcopy(question)
-            old_id = str(copied.get("id") or "")
             copied["id"] = f"Q{index}"
             copied["related_task_ids"] = []
-            question_aliases[old_id] = copied["id"]
             questions.append(copied)
+        seen_questions = {self._normalize_search(question["question"]) for question in questions}
+        for question in derived_questions:
+            normalized_question = self._normalize_search(question["question"])
+            if normalized_question in seen_questions:
+                continue
+            seen_questions.add(normalized_question)
+            question["id"] = f"Q{len(questions) + 1}"
+            question["related_task_ids"] = []
+            questions.append(question)
 
+        candidates = [
+            candidate for candidate in semantic_map.get("document_candidates") or [] if isinstance(candidate, dict)
+        ]
+        document_title = self._clean_capture_text((candidates[0] if candidates else {}).get("title"), 180)
         tasks = []
-        for index, (section, facts) in enumerate(grouped_facts.items(), start=1):
+        for index, (bucket, facts) in enumerate(grouped_facts.items(), start=1):
             source_ids = list(
                 dict.fromkeys(str(source_id) for fact in facts for source_id in fact.get("source_ids") or [])
             )
             fact_ids = [str(fact.get("id")) for fact in facts if fact.get("id")]
-            first_fact = self._clean_capture_text(facts[0].get("text"), 180).rstrip(".:;,—- ")
-            title = re.sub(
-                r"(?i)^(?:необходимо|нужно|требуется|система должна)\s+",
-                "",
-                first_fact,
-            ).strip()
-            title = title[0].upper() + title[1:] if title else f"Проработать раздел «{section}»"
+            title = self._fallback_spec_bucket_title(bucket, document_title)
+            bucket_acceptance_pairs = [
+                (fact, unit) for fact, unit in acceptance_facts if self._fallback_spec_fact_bucket(fact, unit) == bucket
+            ]
+            if bucket in {"workflow", "core"}:
+                bucket_acceptance_pairs.extend(
+                    (fact, unit)
+                    for fact, unit in acceptance_facts
+                    if self._fallback_spec_fact_bucket(fact, unit) not in grouped_facts
+                )
+            explicit_acceptance = [
+                fact for fact, unit in bucket_acceptance_pairs if self._fallback_spec_acceptance_rank(unit) == 0
+            ]
+            trace_acceptance = [fact for fact, _unit in bucket_acceptance_pairs]
+            bucket_acceptance = explicit_acceptance or [fact for fact, _unit in bucket_acceptance_pairs]
+            bucket_acceptance = self._fallback_spec_unique_facts(bucket_acceptance)
+            criteria_candidates = [*bucket_acceptance, *self._fallback_spec_criterion_facts(facts)]
+            if not criteria_candidates:
+                criteria_candidates = facts
+            criteria_facts = self._fallback_spec_unique_facts(criteria_candidates)
+            criteria_facts = [fact for fact in criteria_facts if not self._fallback_spec_fact_is_uncertain(fact)][:8]
+            source_ids = list(
+                dict.fromkeys(
+                    [
+                        *source_ids,
+                        *(str(source_id) for fact in trace_acceptance for source_id in fact.get("source_ids") or []),
+                    ]
+                )
+            )
             related_question_ids = [
-                question_aliases[str(question.get("id"))]
-                for question in semantic_map.get("open_questions") or []
-                if isinstance(question, dict)
-                and str(question.get("id")) in question_aliases
-                and set(str(value) for value in question.get("source_ids") or []).intersection(source_ids)
+                question["id"]
+                for question in questions
+                if set(str(value) for value in question.get("source_ids") or []).intersection(source_ids)
             ]
             task_id = f"T{index}"
             for question in questions:
@@ -1708,16 +1932,17 @@ class IgorCaptureMixin:
             tasks.append(
                 {
                     "id": task_id,
-                    "kind": "implementation",
+                    "kind": self._fallback_spec_bucket_task_kind(bucket),
                     "title": title,
-                    "goal": "Реализовать требования исходного ТЗ без потери зафиксированных условий.",
-                    "description": "\n".join(f"- {self._clean_capture_text(fact.get('text'), 1000)}" for fact in facts),
+                    "goal": self._fallback_spec_bucket_goal(bucket, document_title),
+                    "description": "Что сделать:\n"
+                    + "\n".join(f"- {self._fallback_spec_humanize_fact(fact)}" for fact in facts),
                     "acceptance_criteria": [
                         {
-                            "text": f"Выполнено требование: {self._clean_capture_text(fact.get('text'), 450)}",
+                            "text": self._fallback_spec_criterion_text(fact),
                             "source_ids": list(fact.get("source_ids") or []),
                         }
-                        for fact in facts
+                        for fact in criteria_facts
                     ],
                     "fact_ids": fact_ids,
                     "source_ids": source_ids,
@@ -1736,6 +1961,8 @@ class IgorCaptureMixin:
             for index, item in enumerate(semantic_map.get("constraints") or [], start=1)
             if isinstance(item, dict)
         ]
+        for item in derived_constraints:
+            constraints.append({**item, "id": f"C{len(constraints) + 1}"})
         contradictions = []
         for index, item in enumerate(semantic_map.get("contradictions") or [], start=1):
             if not isinstance(item, dict):
@@ -1753,6 +1980,337 @@ class IgorCaptureMixin:
             "contradictions": contradictions,
             "_coverage_fallback": True,
         }
+
+    def _fallback_spec_low_signal_text(self, normalized_text):
+        if not normalized_text:
+            return True
+        if normalized_text in {"↓", "↑", "→", "←", "пинг 1", "пинг 2", "или пинг 2", "важно"}:
+            return True
+        if re.fullmatch(r"(?:шаг|этап)\s*\d+(?:\s+.*)?", normalized_text):
+            return True
+        return len(normalized_text) < 4
+
+    def _fallback_spec_fact_is_negative_scope(self, normalized_text):
+        return any(
+            marker in normalized_text
+            for marker in (
+                "в рамках этой задачи не требуется",
+                "отдельный интерфейс для просмотра логов не нужен",
+                "в этой задаче не выполняется",
+            )
+        )
+
+    def _fallback_spec_fact_is_task_material(self, fact, unit):
+        if unit.get("kind") == "heading" or fact.get("kind") in {
+            "metadata",
+            "objective",
+            "context",
+            "existing_behavior",
+            "decision",
+            "risk",
+        }:
+            return False
+        text = self._normalize_search(self._clean_capture_text(fact.get("text"), 1500))
+        if self._fallback_spec_low_signal_text(text):
+            return False
+        if self._fallback_spec_fact_is_structural(fact, unit):
+            return False
+        section = self._normalize_search(" ".join([*(unit.get("section_path") or []), str(unit.get("section") or "")]))
+        if any(marker in section for marker in ("текущая логика", "как сейчас", "существующ")):
+            return False
+        return fact.get("kind") in self.capture_spec_action_fact_kinds
+
+    def _fallback_spec_fact_is_structural(self, fact, unit):
+        text = self._normalize_search(self._clean_capture_text(fact.get("text"), 1500))
+        section_parts = [
+            self._normalize_search(str(value))
+            for value in [*(unit.get("section_path") or []), unit.get("section") or ""]
+            if str(value).strip()
+        ]
+        if text in section_parts:
+            return True
+        if not section_parts and unit.get("start") == 0:
+            return True
+        if re.fullmatch(r"[«\"].{1,100}[»\"]\.?", self._clean_capture_text(fact.get("text"), 1500)):
+            return True
+        structural_phrases = {
+            "что входит в задачу",
+            "что не входит в задачу",
+            "критерии готовности",
+            "полная схема работы",
+            "задача считается выполненной если",
+            "входит",
+            "не входит",
+            "действия",
+            "приоритет",
+            "примерный смысл",
+            "важно",
+        }
+        return text in structural_phrases
+
+    def _fallback_spec_fact_unit(self, fact, unit_by_id):
+        referenced = [
+            unit_by_id[str(source_id)] for source_id in fact.get("source_ids") or [] if str(source_id) in unit_by_id
+        ]
+        if not referenced:
+            return {}
+        content_units = [unit for unit in referenced if unit.get("kind") != "heading"]
+        if content_units:
+            referenced = content_units
+        fact_text = self._normalize_search(self._clean_capture_text(fact.get("text"), 1500))
+        fact_tokens = set(re.findall(r"[a-zа-яё0-9]+", fact_text))
+
+        def match_score(unit):
+            unit_text = self._normalize_search(self._clean_capture_text(unit.get("text"), 1500))
+            unit_tokens = set(re.findall(r"[a-zа-яё0-9]+", unit_text))
+            if fact_text and fact_text == unit_text:
+                lexical_score = 1000
+            elif fact_text and unit_text and (fact_text in unit_text or unit_text in fact_text):
+                lexical_score = 500 + min(len(fact_text), len(unit_text))
+            else:
+                lexical_score = (
+                    100 * len(fact_tokens.intersection(unit_tokens)) / max(1, len(fact_tokens.union(unit_tokens)))
+                )
+            return lexical_score + (5 if unit.get("kind") != "heading" else 0)
+
+        return max(referenced, key=match_score)
+
+    def _fallback_spec_derived_question(self, fact):
+        text = self._clean_capture_text(fact.get("text"), 450).strip()
+        normalized = self._normalize_search(text)
+        if "размер скидк" in normalized and any(marker in normalized for marker in ("не определ", "уточн")):
+            return "Какой размер скидки нужно указать в финальном письме?"
+        if any(marker in normalized for marker in ("финальные тексты будут предоставлены", "текст утверждается")):
+            return "Какие финальные тексты нужно использовать в шаблонах?"
+        return ""
+
+    def _fallback_spec_humanize_fact(self, fact):
+        text = self._clean_capture_text(fact.get("text"), 1000).strip()
+        email_match = re.fullmatch(r"\[([^\]]+@[^\]]+)\]\(mailto:[^)]+\)\.?", text, flags=re.IGNORECASE)
+        if email_match:
+            return f"Использовать адрес отправителя {email_match.group(1)}."
+        if self._normalize_search(text) == "smtp":
+            return "Отправлять письма через SMTP."
+        return text
+
+    def _fallback_spec_unique_facts(self, facts):
+        unique = []
+        for fact in facts:
+            text = self._normalize_search(self._clean_capture_text(fact.get("text"), 1500))
+            if self._fallback_spec_low_signal_text(text):
+                continue
+            duplicate_index = next(
+                (
+                    index
+                    for index, existing in enumerate(unique)
+                    if self._fallback_spec_facts_are_duplicates(existing, fact)
+                ),
+                None,
+            )
+            if duplicate_index is not None:
+                existing_text = self._clean_capture_text(unique[duplicate_index].get("text"), 1500)
+                if len(self._clean_capture_text(fact.get("text"), 1500)) > len(existing_text):
+                    unique[duplicate_index] = fact
+                continue
+            unique.append(fact)
+        return unique
+
+    def _fallback_spec_facts_are_duplicates(self, left, right):
+        left_text = self._normalize_search(self._clean_capture_text(left.get("text"), 1500))
+        right_text = self._normalize_search(self._clean_capture_text(right.get("text"), 1500))
+        if not left_text or not right_text:
+            return False
+        if left_text == right_text:
+            return True
+        left_sources = {str(source_id) for source_id in left.get("source_ids") or []}
+        right_sources = {str(source_id) for source_id in right.get("source_ids") or []}
+        if not left_sources.intersection(right_sources):
+            return False
+        left_tokens = set(re.findall(r"[a-zа-яё0-9]+", left_text))
+        right_tokens = set(re.findall(r"[a-zа-яё0-9]+", right_text))
+        similarity = len(left_tokens.intersection(right_tokens)) / max(1, len(left_tokens.union(right_tokens)))
+        return similarity >= 0.65
+
+    def _fallback_spec_unique_fact_pairs(self, pairs):
+        unique = []
+        seen_text = set()
+        for fact, unit in pairs:
+            text = self._normalize_search(self._clean_capture_text(fact.get("text"), 1500))
+            if self._fallback_spec_low_signal_text(text) or self._fallback_spec_fact_is_structural(fact, unit):
+                continue
+            if text in seen_text:
+                continue
+            seen_text.add(text)
+            unique.append((fact, unit))
+        return unique
+
+    def _fallback_spec_acceptance_rank(self, unit):
+        section = self._normalize_search(" ".join([*(unit.get("section_path") or []), str(unit.get("section") or "")]))
+        if any(marker in section for marker in ("критерии готовности", "критерии приемки", "acceptance criteria")):
+            return 0
+        if any(marker in section for marker in ("что входит в задачу", "in scope")):
+            return 1
+        return 2
+
+    def _fallback_spec_criterion_facts(self, facts):
+        preferred = [
+            fact
+            for fact in facts
+            if fact.get("kind") in {"business_rule", "error_case", "non_functional_requirement"}
+            and not self._fallback_spec_fact_is_uncertain(fact)
+        ]
+        return preferred[:6]
+
+    def _fallback_spec_fact_is_uncertain(self, fact):
+        normalized = self._normalize_search(self._clean_capture_text(fact.get("text"), 1500))
+        return any(
+            marker in normalized
+            for marker in (
+                "пока не определ",
+                "будет предоставлен",
+                "будут предоставлен",
+                "нужно уточнить",
+                "текст утверждается",
+            )
+        )
+
+    def _fallback_spec_criterion_text(self, fact):
+        text = self._clean_capture_text(self._fallback_spec_humanize_fact(fact), 450).strip()
+        if text and text[-1] not in ".!?":
+            text += "."
+        return text
+
+    def _fallback_spec_fact_bucket(self, fact, unit):
+        section = " ".join([*(unit.get("section_path") or []), str(unit.get("section") or "")])
+        text = self._clean_capture_text(fact.get("text"), 1500)
+        normalized = self._normalize_search(f"{section} {text}")
+        section_normalized = self._normalize_search(section)
+
+        if any(marker in normalized for marker in ("логирован", "мониторинг", "метрик", "алерт", "трассиров")):
+            return "observability"
+        if any(marker in normalized for marker in ("безопасност", "авторизац", "аутентификац", "прав доступа")):
+            return "security"
+        if any(marker in normalized for marker in ("производительност", "скорост", "нагруз", "кэш", "latency")):
+            return "performance"
+        if any(
+            marker in section_normalized for marker in ("шаблон", "контент", "текст пись", "переменн", "ссылка в пись")
+        ) or any(
+            marker in normalized
+            for marker in ("шаблон пись", "почтовый шаблон", "текст утверждается", "размер скидк", "имя клиента")
+        ):
+            return "content"
+        if fact.get("kind") == "error_case" or any(
+            marker in normalized
+            for marker in ("ошиб", "retry", "повторн попыт", "таймаут", "дубликат", "идемпотент", "fallback")
+        ):
+            return "resilience"
+        if any(marker in section_normalized for marker in ("останов", "движен", "повторный запуск")) or any(
+            marker in normalized
+            for marker in (
+                "цепочка должна останов",
+                "цепочка должна прекращ",
+                "следующие письма",
+                "снова попадает",
+                "повторно запуск",
+                "только один раз",
+            )
+        ):
+            return "lifecycle"
+        if any(marker in section_normalized for marker in ("email клиента", "способ отправки", "отправитель")) or any(
+            marker in normalized for marker in (" smtp", "email клиента из", "адрес отправителя")
+        ):
+            return "delivery"
+        if any(marker in section_normalized for marker in ("источник данных", "видимость стад", "данные и видимость")):
+            return "trigger_data"
+        if any(
+            marker in section_normalized
+            for marker in ("логика email", "что необходимо добавить", "цель задачи", "полная схема")
+        ) or any(
+            marker in normalized
+            for marker in (
+                "первое письмо",
+                "второе письмо",
+                "третье письмо",
+                "email цепочк",
+                "через 3 час",
+                "через 24 час",
+            )
+        ):
+            return "workflow"
+        if any(marker in normalized for marker in ("интерфейс", "дизайн", "ui", "ux", "форма", "модальн", "кнопк")):
+            return "interface"
+        if any(
+            marker in section_normalized for marker in ("данн", "хранен", "база", "email клиента", "документооборот")
+        ) or any(marker in normalized for marker in ("миграц", "хранилищ", "база данных")):
+            return "data"
+        if any(
+            marker in normalized
+            for marker in ("интеграц", " api ", "webhook", "битрикс", "crm", "cardlink", "поставщик")
+        ):
+            return "integration"
+        if any(marker in section_normalized for marker in ("тестирован", "тесты", "qa")):
+            return "testing"
+        return "core"
+
+    def _fallback_spec_bucket_title(self, bucket, document_title):
+        title = document_title or "технического задания"
+        titles = {
+            "core": f"Реализовать основную логику: {title}",
+            "workflow": f"Реализовать рабочий сценарий: {title}",
+            "lifecycle": "Управлять остановкой и повторным запуском сценария",
+            "delivery": "Настроить доставку сообщений клиенту",
+            "integration": "Настроить внешние интеграции и обмен данными",
+            "data": "Реализовать обработку и хранение данных",
+            "trigger_data": "Использовать стадии Bitrix24 как скрытые технические триггеры",
+            "interface": "Реализовать пользовательский интерфейс",
+            "content": "Подготовить шаблоны и пользовательский контент",
+            "resilience": "Обработать ошибки, повторы и защиту от дублей",
+            "observability": "Добавить логирование и контроль работы",
+            "security": "Настроить безопасность и права доступа",
+            "performance": "Обеспечить требования к производительности",
+            "testing": "Проверить сценарии и критерии готовности",
+        }
+        return titles.get(bucket, f"Реализовать требования: {title}")[:255]
+
+    def _fallback_spec_bucket_goal(self, bucket, document_title):
+        subject = f" в рамках «{document_title}»" if document_title else ""
+        goals = {
+            "core": f"Доставить основной пользовательский и бизнес-сценарий{subject}.",
+            "workflow": f"Реализовать последовательность действий и проверок основного сценария{subject}.",
+            "lifecycle": f"Корректно останавливать и повторно запускать сценарий без повторных действий{subject}.",
+            "delivery": f"Доставлять сообщения по зафиксированному каналу и адресу{subject}.",
+            "integration": f"Обеспечить корректное взаимодействие со связанными системами{subject}.",
+            "data": f"Сохранять и обрабатывать необходимые данные без потери информации{subject}.",
+            "trigger_data": (
+                f"Получать состояние сделки из Bitrix24 и не показывать технические стадии клиенту{subject}."
+            ),
+            "interface": f"Дать пользователю понятный и проверяемый интерфейс{subject}.",
+            "content": f"Подготовить согласованный контент и шаблоны{subject}.",
+            "resilience": f"Сделать сценарий устойчивым к ошибкам, повторам и дублям{subject}.",
+            "observability": f"Сделать выполнение сценария наблюдаемым и диагностируемым{subject}.",
+            "security": f"Не допустить несанкционированный доступ и утечку данных{subject}.",
+            "performance": f"Выполнить зафиксированные требования к скорости и нагрузке{subject}.",
+            "testing": f"Подтвердить работоспособность ключевых сценариев{subject}.",
+        }
+        return goals.get(bucket, f"Реализовать подтверждённые требования исходного ТЗ{subject}.")
+
+    def _fallback_spec_bucket_task_kind(self, bucket):
+        return {
+            "workflow": "implementation",
+            "lifecycle": "implementation",
+            "delivery": "integration",
+            "integration": "integration",
+            "content": "content",
+            "testing": "testing",
+            "observability": "observability",
+            "data": "implementation",
+            "trigger_data": "integration",
+            "interface": "implementation",
+            "resilience": "implementation",
+            "security": "implementation",
+            "performance": "implementation",
+            "core": "implementation",
+        }.get(bucket, "implementation")
 
     def _fallback_spec_decomposition(
         self,
