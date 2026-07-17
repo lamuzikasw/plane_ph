@@ -687,7 +687,7 @@ def test_spec_llm_invalid_json_fails_closed(monkeypatch):
         )
 
 
-def test_spec_map_rejects_uncovered_source_fragments():
+def test_spec_map_recovers_uncovered_source_fragments_for_review():
     endpoint = IgorChatEndpoint()
     mapped = [
         {
@@ -699,8 +699,52 @@ def test_spec_map_rejects_uncovered_source_fragments():
         }
     ]
 
-    with pytest.raises(ValueError, match="spec_map_uncovered_source_ids:S2"):
-        endpoint._normalize_spec_maps(mapped, [{"id": "S1", "text": "Цель"}, {"id": "S2", "text": "Обрывок"}])
+    normalized = endpoint._normalize_spec_maps(
+        mapped,
+        [{"id": "S1", "text": "Цель"}, {"id": "S2", "text": "Добавить повтор отправки"}],
+    )
+
+    assert normalized["_coverage_fallback_source_ids"] == ["S2"]
+    assert normalized["facts"][-1] == {
+        "id": "MFM1",
+        "kind": "functional_requirement",
+        "text": "Добавить повтор отправки",
+        "source_ids": ["S2"],
+    }
+
+
+def test_spec_map_repairs_missing_sources_before_batch_is_saved(monkeypatch):
+    endpoint = IgorChatEndpoint()
+    raw_map = {
+        "document": {
+            "type": "technical_spec",
+            "title": "Email",
+            "goal": "Настроить отправку",
+            "summary": "",
+            "source_ids": ["S1"],
+        },
+        "facts": [{"kind": "objective", "text": "Настроить отправку", "source_ids": ["S1"]}],
+        "constraints": [],
+        "open_questions": [],
+        "contradictions": [],
+    }
+    monkeypatch.setattr(endpoint, "_call_capture_llm_json", lambda *_args, **_kwargs: raw_map)
+
+    repaired = endpoint._get_llm_spec_map_strict(
+        [
+            {"id": "S1", "text": "Цель", "kind": "heading"},
+            {"id": "S2", "text": "Добавить ограниченный retry", "kind": "paragraph"},
+        ],
+        [],
+        SimpleNamespace(),
+    )
+
+    assert repaired["_coverage_fallback_source_ids"] == ["S2"]
+    assert repaired["facts"][-1] == {
+        "kind": "functional_requirement",
+        "text": "Добавить ограниченный retry",
+        "source_ids": ["S2"],
+    }
 
 
 def test_spec_map_counts_document_metadata_as_covered_source():
@@ -1250,6 +1294,7 @@ def test_spec_reduce_retries_after_semantic_quality_failure(monkeypatch):
         "constraints": [],
         "open_questions": [],
         "contradictions": [],
+        "_coverage_fallback_source_ids": ["S2"],
     }
     calls = []
 
@@ -1295,6 +1340,8 @@ def test_spec_reduce_retries_after_semantic_quality_failure(monkeypatch):
     )
 
     assert result["_quality_report"]["coverage"][1]["status"] == "covered"
+    assert result["_quality_report"]["warnings"][-1]["code"] == "semantic_map_coverage_fallback"
+    assert result["_quality_report"]["warnings"][-1]["source_ids"] == ["S2"]
     reduce_calls = [call for call in calls if call[0] == "global_reduce"]
     assert len(reduce_calls) == 2
     assert reduce_calls[1][2] == ["uncovered:S2"]
