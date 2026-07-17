@@ -946,6 +946,67 @@ def test_spec_semantic_coverage_follows_task_fact_links_to_sources():
     assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == []
 
 
+def test_spec_semantic_map_can_be_safely_sliced_for_coverage_repair():
+    endpoint = IgorChatEndpoint()
+    semantic_map = {
+        "document_candidates": [{"title": "ТЗ", "source_ids": ["S1", "S4"]}],
+        "facts": [
+            {"id": "B1F1", "kind": "context", "text": "Контекст", "source_ids": ["S1"]},
+            {
+                "id": "B2F1",
+                "kind": "functional_requirement",
+                "text": "Добавить retry",
+                "source_ids": ["S3", "S4"],
+            },
+        ],
+        "constraints": [],
+        "open_questions": [{"id": "B2Q1", "question": "Лимит?", "source_ids": ["S4"]}],
+        "contradictions": [],
+    }
+
+    sliced = endpoint._spec_semantic_map_for_sources(semantic_map, {"S4"})
+
+    assert sliced["document_candidates"][0]["source_ids"] == ["S4"]
+    assert [fact["id"] for fact in sliced["facts"]] == ["B2F1"]
+    assert sliced["facts"][0]["source_ids"] == ["S4"]
+    assert sliced["open_questions"][0]["source_ids"] == ["S4"]
+
+
+def test_spec_repair_plan_reindexes_cross_references_without_losing_sources():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    repair = _valid_spec_decomposition()
+    repair["tasks"][0].update(
+        {
+            "title": "Добавить ограниченный retry SMTP",
+            "fact_ids": ["B2F1"],
+            "source_ids": ["S4"],
+            "acceptance_criteria": [{"text": "Retry ограничен.", "source_ids": ["S4"]}],
+        }
+    )
+    repair["open_questions"][0]["source_ids"] = ["S4"]
+    repair["constraints"][0]["source_ids"] = ["S4"]
+    repair["contradictions"] = [
+        {
+            "id": "X1",
+            "description": "Указаны разные лимиты retry.",
+            "source_ids": ["S4"],
+            "related_task_ids": ["T1"],
+        }
+    ]
+
+    endpoint._merge_spec_repair_plan(plan, repair)
+
+    assert [task["id"] for task in plan["tasks"]] == ["T1", "T2"]
+    assert plan["tasks"][1]["open_question_ids"] == ["Q2"]
+    assert plan["open_questions"][1]["id"] == "Q2"
+    assert plan["open_questions"][1]["related_task_ids"] == ["T2"]
+    assert plan["constraints"][1]["id"] == "C2"
+    assert plan["contradictions"][0]["id"] == "X1"
+    assert plan["contradictions"][0]["related_task_ids"] == ["T2"]
+    assert plan["tasks"][1]["source_ids"] == ["S4"]
+
+
 def test_spec_quality_duplicate_tasks_are_merged_without_losing_traceability():
     endpoint = IgorChatEndpoint()
     plan = _valid_spec_decomposition()
@@ -1158,6 +1219,122 @@ def test_spec_reduce_repairs_quality_confirmed_duplicates_without_regenerating_p
     assert result["tasks"][0]["source_ids"] == ["S1", "S2", "S4"]
     assert result["_quality_report"]["duplicate_groups"] == []
     assert result["_quality_report"]["coverage"][3]["task_ids"] == ["T1"]
+
+
+def test_spec_reduce_repairs_uncovered_tail_in_bounded_follow_up(monkeypatch):
+    endpoint = IgorChatEndpoint()
+    units = [
+        {"id": "S1", "text": "Цель — вернуть клиента"},
+        {"id": "S2", "text": "Запустить email-цепочку"},
+        {"id": "S3", "text": "Автоматическая скидка не входит"},
+        {"id": "S4", "text": "Добавить ограниченный retry SMTP"},
+    ]
+    semantic_map = {
+        "document_candidates": [],
+        "facts": [
+            {
+                "id": "B1F1",
+                "kind": "functional_requirement",
+                "text": units[1]["text"],
+                "source_ids": ["S2"],
+            },
+            {
+                "id": "B2F1",
+                "kind": "error_case",
+                "text": units[3]["text"],
+                "source_ids": ["S4"],
+            },
+        ],
+        "constraints": [],
+        "open_questions": [],
+        "contradictions": [],
+    }
+    reduce_sources = []
+
+    def quality(source_ids, task_ids):
+        return {
+            "coverage": [
+                {
+                    "source_id": source_id,
+                    "status": "covered" if source_id in {"S2", "S4"} else "context_only",
+                    "task_ids": task_ids.get(source_id, []),
+                    "reason": "Проверено",
+                }
+                for source_id in source_ids
+            ],
+            "duplicate_groups": [],
+            "fragments": [],
+            "unsupported_claims": [],
+            "invented_fields": [],
+            "warnings": [],
+        }
+
+    def fake_call(_system_prompt, payload, **_kwargs):
+        source_ids = [unit["id"] for unit in payload["source_units"]]
+        if payload["stage"] == "quality_gate":
+            if source_ids == ["S4"]:
+                return quality(source_ids, {"S4": ["T1"]})
+            return quality(source_ids, {"S2": ["T1"], "S4": ["T2"]})
+
+        reduce_sources.append(source_ids)
+        if source_ids == ["S4"]:
+            return {
+                "schema_version": endpoint.capture_spec_schema_version,
+                "document": {
+                    "type": "technical_spec",
+                    "title": "Retry SMTP",
+                    "goal": "Не терять письмо после временной ошибки.",
+                    "summary": "Ограниченный повтор отправки.",
+                    "source_ids": ["S4"],
+                },
+                "work_package": {
+                    "title": "Retry SMTP",
+                    "goal": "Не терять письмо после временной ошибки.",
+                    "description": "Добавить ограниченный повтор отправки SMTP.",
+                    "source_ids": ["S4"],
+                },
+                "tasks": [
+                    {
+                        "id": "T1",
+                        "kind": "implementation",
+                        "title": "Добавить ограниченный retry SMTP",
+                        "goal": "Не терять письмо после временной ошибки.",
+                        "description": "Повторять отправку SMTP ограниченное число раз.",
+                        "acceptance_criteria": [
+                            {"text": "Повтор отправки ограничен.", "source_ids": ["S4"]}
+                        ],
+                        "fact_ids": ["B2F1"],
+                        "source_ids": ["S4"],
+                        "dependency_task_ids": [],
+                        "open_question_ids": [],
+                        "project_hint": None,
+                        "assignee_hint": None,
+                        "target_date": None,
+                        "priority": "none",
+                        "confidence": "high",
+                    }
+                ],
+                "constraints": [],
+                "open_questions": [],
+                "contradictions": [],
+            }
+        plan = _valid_spec_decomposition()
+        plan.pop("facts")
+        return plan
+
+    monkeypatch.setattr(endpoint, "_call_capture_llm_json", fake_call)
+
+    result = endpoint._get_llm_spec_reduce_strict(
+        units,
+        semantic_map,
+        [],
+        SimpleNamespace(display_name="Сева", full_name="", email="seva@example.com"),
+    )
+
+    assert reduce_sources == [["S1", "S2", "S3", "S4"], ["S4"]]
+    assert [task["id"] for task in result["tasks"]] == ["T1", "T2"]
+    assert endpoint._spec_semantic_coverage_errors(result, semantic_map) == []
+    assert result["_quality_report"]["coverage"][3]["task_ids"] == ["T2"]
 
 
 def test_large_spec_map_keeps_every_source_across_batches(monkeypatch):

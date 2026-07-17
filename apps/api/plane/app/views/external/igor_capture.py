@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+import copy
 import html
 import json
 import re
@@ -55,7 +56,10 @@ class IgorCaptureMixin:
     capture_priorities = frozenset({"none", "urgent", "high", "medium", "low"})
     capture_spec_schema_version = "igor.spec_decomposition.v2"
     capture_spec_prompt_version = "spec-v2.2"
-    capture_spec_task_limit = 25
+    # Large specifications are reduced in bounded chunks and then merged. The
+    # review screen must be able to preserve legitimate work packages from all
+    # chunks instead of silently forcing the whole document into 25 tasks.
+    capture_spec_task_limit = 100
     capture_clarification_limit = 5
     capture_clarification_answer_limit = 2000
     capture_spec_document_types = frozenset(
@@ -1270,7 +1274,16 @@ class IgorCaptureMixin:
             raise ValueError("spec_map_uncovered_source_ids:" + ",".join(uncovered_source_ids[:30]))
         return normalized
 
-    def _get_llm_spec_reduce_strict(self, units, semantic_map, projects, user, members=None):
+    def _get_llm_spec_reduce_strict(
+        self,
+        units,
+        semantic_map,
+        projects,
+        user,
+        members=None,
+        *,
+        _allow_coverage_repair=True,
+    ):
         payload = {
             "schema_version": self.capture_spec_schema_version,
             "stage": "global_reduce",
@@ -1334,6 +1347,27 @@ class IgorCaptureMixin:
                 validation_errors = str(exception).split("|")[:20]
                 continue
             semantic_coverage_errors = self._spec_semantic_coverage_errors(result, semantic_map)
+            if (
+                semantic_coverage_errors
+                and _allow_coverage_repair
+                and self._repair_spec_semantic_coverage(
+                    result,
+                    units,
+                    semantic_map,
+                    projects,
+                    user,
+                    members,
+                    semantic_coverage_errors,
+                )
+            ):
+                result["facts"] = semantic_map["facts"]
+                self._merge_spec_deterministic_duplicates(result)
+                try:
+                    self._validate_spec_decomposition_contract(result, units)
+                except ValueError as exception:
+                    validation_errors = str(exception).split("|")[:20]
+                    continue
+                semantic_coverage_errors = self._spec_semantic_coverage_errors(result, semantic_map)
             if semantic_coverage_errors:
                 validation_errors = semantic_coverage_errors[:20]
                 continue
@@ -1365,6 +1399,139 @@ class IgorCaptureMixin:
             result["_quality_report"] = quality_report
             return result
         raise ValueError("spec_reduce_validation_failed|" + "|".join(validation_errors))
+
+    def _repair_spec_semantic_coverage(
+        self,
+        plan,
+        units,
+        semantic_map,
+        projects,
+        user,
+        members,
+        coverage_errors,
+    ):
+        missing_source_ids = {
+            error.partition(":")[2]
+            for error in coverage_errors
+            if isinstance(error, str) and error.startswith("uncovered:")
+        }
+        missing_units = [unit for unit in units if str(unit.get("id")) in missing_source_ids]
+        if not missing_units:
+            return False
+
+        repaired = False
+        for offset in range(0, len(missing_units), self.capture_llm_batch_size):
+            batch = missing_units[offset : offset + self.capture_llm_batch_size]
+            batch_source_ids = {str(unit["id"]) for unit in batch}
+            batch_map = self._spec_semantic_map_for_sources(semantic_map, batch_source_ids)
+            if not batch_map["facts"]:
+                continue
+            repair_plan = self._get_llm_spec_reduce_strict(
+                batch,
+                batch_map,
+                projects,
+                user,
+                members,
+                _allow_coverage_repair=False,
+            )
+            self._merge_spec_repair_plan(plan, repair_plan)
+            repaired = True
+        return repaired
+
+    def _spec_semantic_map_for_sources(self, semantic_map, source_ids):
+        filtered = {
+            "document_candidates": [],
+            "facts": [],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+        for collection in filtered:
+            for item in semantic_map.get(collection) or []:
+                if not isinstance(item, dict):
+                    continue
+                refs = [str(ref) for ref in item.get("source_ids") or [] if str(ref) in source_ids]
+                if refs:
+                    filtered[collection].append({**copy.deepcopy(item), "source_ids": refs})
+        return filtered
+
+    def _merge_spec_repair_plan(self, plan, repair_plan):
+        tasks = plan.setdefault("tasks", [])
+        questions = plan.setdefault("open_questions", [])
+        constraints = plan.setdefault("constraints", [])
+        contradictions = plan.setdefault("contradictions", [])
+
+        next_task = self._next_spec_id(tasks, "T")
+        task_aliases = {}
+        repair_tasks = copy.deepcopy(repair_plan.get("tasks") or [])
+        for task in repair_tasks:
+            old_id = str(task.get("id") or "")
+            new_id = f"T{next_task}"
+            next_task += 1
+            task_aliases[old_id] = new_id
+            task["id"] = new_id
+
+        next_question = self._next_spec_id(questions, "Q")
+        question_aliases = {}
+        repair_questions = copy.deepcopy(repair_plan.get("open_questions") or [])
+        for question in repair_questions:
+            old_id = str(question.get("id") or "")
+            new_id = f"Q{next_question}"
+            next_question += 1
+            question_aliases[old_id] = new_id
+            question["id"] = new_id
+            question["related_task_ids"] = self._replace_spec_task_references(
+                question.get("related_task_ids") or [], task_aliases
+            )
+
+        for task in repair_tasks:
+            task["dependency_task_ids"] = self._replace_spec_task_references(
+                task.get("dependency_task_ids") or [], task_aliases, str(task.get("id") or "")
+            )
+            task["open_question_ids"] = self._replace_spec_task_references(
+                task.get("open_question_ids") or [], question_aliases
+            )
+
+        next_constraint = self._next_spec_id(constraints, "C")
+        repair_constraints = copy.deepcopy(repair_plan.get("constraints") or [])
+        for constraint in repair_constraints:
+            constraint["id"] = f"C{next_constraint}"
+            next_constraint += 1
+
+        next_contradiction = self._next_spec_id(contradictions, "X")
+        repair_contradictions = copy.deepcopy(repair_plan.get("contradictions") or [])
+        for contradiction in repair_contradictions:
+            contradiction["id"] = f"X{next_contradiction}"
+            next_contradiction += 1
+            contradiction["related_task_ids"] = self._replace_spec_task_references(
+                contradiction.get("related_task_ids") or [], task_aliases
+            )
+
+        tasks.extend(repair_tasks)
+        questions.extend(repair_questions)
+        constraints.extend(repair_constraints)
+        contradictions.extend(repair_contradictions)
+
+    def _next_spec_id(self, items, prefix):
+        values = [
+            int(match.group(1))
+            for item in items
+            if isinstance(item, dict)
+            and (match := re.fullmatch(rf"{prefix}(\d+)", str(item.get("id") or "")))
+        ]
+        return max(values, default=0) + 1
+
+    def _merge_spec_deterministic_duplicates(self, plan):
+        duplicate_groups = []
+        for error in self._spec_deterministic_quality_errors(plan.get("tasks") or []):
+            if not error.startswith("duplicate_tasks:"):
+                continue
+            duplicate_groups.append(
+                {"task_ids": error.partition(":")[2].split(","), "reason": "Смысловой дубликат"}
+            )
+        if not duplicate_groups:
+            return 0
+        return self._merge_spec_quality_duplicates(plan, {"duplicate_groups": duplicate_groups})
 
     def _strip_unbacked_spec_task_fields(self, plan, units):
         if not isinstance(plan, dict) or not isinstance(plan.get("tasks"), list):
