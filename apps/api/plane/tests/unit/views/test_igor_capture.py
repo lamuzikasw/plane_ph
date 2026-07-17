@@ -1013,6 +1013,43 @@ def test_spec_semantic_coverage_follows_task_fact_links_to_sources():
     assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == []
 
 
+def test_spec_map_keeps_document_heading_as_metadata_fact_for_final_coverage():
+    endpoint = IgorChatEndpoint()
+    units = [
+        {"id": "S1", "kind": "heading", "text": "Email-пинги"},
+        {"id": "S2", "kind": "paragraph", "text": "Отправить первое письмо."},
+    ]
+    mapped = endpoint._ensure_spec_map_source_coverage(
+        {
+            "document": {
+                "type": "technical_spec",
+                "title": "Email-пинги",
+                "goal": "Вернуть клиента",
+                "summary": "",
+                "source_ids": ["S1"],
+            },
+            "facts": [
+                {
+                    "kind": "functional_requirement",
+                    "text": "Отправить первое письмо.",
+                    "source_ids": ["S2"],
+                }
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        },
+        units,
+    )
+
+    assert mapped["_coverage_fallback_source_ids"] == ["S1"]
+    assert mapped["facts"][-1] == {
+        "kind": "metadata",
+        "text": "Email-пинги",
+        "source_ids": ["S1"],
+    }
+
+
 def test_spec_semantic_map_can_be_safely_sliced_for_coverage_repair():
     endpoint = IgorChatEndpoint()
     semantic_map = {
@@ -1072,6 +1109,42 @@ def test_spec_repair_plan_reindexes_cross_references_without_losing_sources():
     assert plan["contradictions"][0]["id"] == "X1"
     assert plan["contradictions"][0]["related_task_ids"] == ["T2"]
     assert plan["tasks"][1]["source_ids"] == ["S4"]
+
+
+def test_source_backed_repair_enriches_existing_task_instead_of_adding_generic_duplicate():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    units = [
+        {
+            "id": "S4",
+            "text": "После временной ошибки повторить SMTP не более трёх раз.",
+            "section": "Обработка ошибок",
+            "section_path": ["Email", "Обработка ошибок"],
+        }
+    ]
+    repair = endpoint._fallback_spec_repair_plan(
+        units,
+        {
+            "facts": [
+                {
+                    "id": "B2F1",
+                    "kind": "error_case",
+                    "text": units[0]["text"],
+                    "source_ids": ["S4"],
+                }
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        },
+    )
+
+    endpoint._merge_spec_repair_plan(plan, repair)
+
+    assert [task["id"] for task in plan["tasks"]] == ["T1"]
+    assert plan["tasks"][0]["source_ids"] == ["S1", "S2", "S4"]
+    assert "После временной ошибки" in plan["tasks"][0]["description"]
+    assert any("не более трёх раз" in item["text"] for item in plan["tasks"][0]["acceptance_criteria"])
 
 
 def test_spec_coverage_repair_adaptively_splits_failed_large_batches(monkeypatch):
@@ -1200,7 +1273,7 @@ def test_spec_coverage_repair_fallback_preserves_facts_without_inventing_fields(
     assert fallback["_coverage_fallback"] is True
     assert len(fallback["tasks"]) == 1
     task = fallback["tasks"][0]
-    assert task["title"] == "Реализовать требования раздела «Обработка ошибок»"
+    assert task["title"] == "После временной ошибки повторить SMTP не более трёх раз"
     assert task["source_ids"] == ["S4"]
     assert task["fact_ids"] == ["B2F1"]
     assert task["project_hint"] is None

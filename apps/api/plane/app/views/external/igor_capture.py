@@ -1224,11 +1224,9 @@ class IgorCaptureMixin:
             raise ValueError("spec_map_not_object")
         valid_source_ids = {str(unit["id"]) for unit in units}
         covered_source_ids = set()
-        document = result.get("document")
-        if isinstance(document, dict):
-            covered_source_ids.update(
-                str(source_id) for source_id in document.get("source_ids") or [] if str(source_id) in valid_source_ids
-            )
+        # A document title/source link is not semantic coverage. Reducers may
+        # select a different title source, so every unit must also survive as a
+        # fact, constraint, question, or contradiction.
         for collection in ("facts", "constraints", "open_questions", "contradictions"):
             for item in result.get(collection) or []:
                 if not isinstance(item, dict):
@@ -1621,7 +1619,7 @@ class IgorCaptureMixin:
             grouped_repairs = list(executor.map(reduce_batch, batches))
 
         repairs = [repair for group in grouped_repairs for repair in group]
-        fallback_count = sum(bool(repair.pop("_coverage_fallback", False)) for repair in repairs)
+        fallback_count = sum(bool(repair.get("_coverage_fallback")) for repair in repairs)
         for repair_plan in repairs:
             self._merge_spec_repair_plan(plan, repair_plan)
         return {"repaired": bool(repairs), "fallback_count": fallback_count}
@@ -1690,11 +1688,12 @@ class IgorCaptureMixin:
             )
             fact_ids = [str(fact.get("id")) for fact in facts if fact.get("id")]
             first_fact = self._clean_capture_text(facts[0].get("text"), 180).rstrip(".:;,—- ")
-            title = (
-                f"Реализовать требования раздела «{self._clean_capture_text(section, 120)}»"
-                if section
-                else f"Проработать требование: {first_fact}"
-            )
+            title = re.sub(
+                r"(?i)^(?:необходимо|нужно|требуется|система должна)\s+",
+                "",
+                first_fact,
+            ).strip()
+            title = title[0].upper() + title[1:] if title else f"Проработать раздел «{section}»"
             related_question_ids = [
                 question_aliases[str(question.get("id"))]
                 for question in semantic_map.get("open_questions") or []
@@ -1877,12 +1876,21 @@ class IgorCaptureMixin:
         next_task = self._next_spec_id(tasks, "T")
         task_aliases = {}
         repair_tasks = copy.deepcopy(repair_plan.get("tasks") or [])
-        for task in repair_tasks:
-            old_id = str(task.get("id") or "")
-            new_id = f"T{next_task}"
-            next_task += 1
-            task_aliases[old_id] = new_id
-            task["id"] = new_id
+        fallback_targets = {}
+        is_source_backed_fallback = bool(repair_plan.get("_coverage_fallback")) and bool(tasks)
+        if is_source_backed_fallback:
+            for task in repair_tasks:
+                old_id = str(task.get("id") or "")
+                target = self._best_spec_repair_target(tasks, task)
+                task_aliases[old_id] = str(target.get("id"))
+                fallback_targets[old_id] = target
+        else:
+            for task in repair_tasks:
+                old_id = str(task.get("id") or "")
+                new_id = f"T{next_task}"
+                next_task += 1
+                task_aliases[old_id] = new_id
+                task["id"] = new_id
 
         next_question = self._next_spec_id(questions, "Q")
         question_aliases = {}
@@ -1898,6 +1906,10 @@ class IgorCaptureMixin:
             )
 
         for task in repair_tasks:
+            old_id = str(task.get("id") or "")
+            if is_source_backed_fallback:
+                self._merge_spec_fallback_task(fallback_targets[old_id], task, question_aliases)
+                continue
             task["dependency_task_ids"] = self._replace_spec_task_references(
                 task.get("dependency_task_ids") or [], task_aliases, str(task.get("id") or "")
             )
@@ -1920,10 +1932,79 @@ class IgorCaptureMixin:
                 contradiction.get("related_task_ids") or [], task_aliases
             )
 
-        tasks.extend(repair_tasks)
+        if not is_source_backed_fallback:
+            tasks.extend(repair_tasks)
         questions.extend(repair_questions)
         constraints.extend(repair_constraints)
         contradictions.extend(repair_contradictions)
+
+    def _best_spec_repair_target(self, tasks, repair_task):
+        ignored = {
+            "добавить",
+            "задача",
+            "исходного",
+            "реализовать",
+            "реализация",
+            "раздел",
+            "требование",
+            "требования",
+        }
+
+        def terms(task):
+            normalized = self._normalize_search(
+                " ".join(str(task.get(field) or "") for field in ("title", "goal", "description"))
+            )
+            return {
+                token for token in re.findall(r"[a-zа-яё0-9_]+", normalized) if len(token) >= 4 and token not in ignored
+            }
+
+        repair_terms = terms(repair_task)
+        return max(
+            tasks,
+            key=lambda task: (
+                len(repair_terms.intersection(terms(task))),
+                len(set(repair_task.get("source_ids") or []).intersection(task.get("source_ids") or [])),
+                -len(task.get("source_ids") or []),
+            ),
+        )
+
+    def _merge_spec_fallback_task(self, target, repair_task, question_aliases):
+        target["source_ids"] = list(
+            dict.fromkeys([*(target.get("source_ids") or []), *(repair_task.get("source_ids") or [])])
+        )
+        target["fact_ids"] = list(
+            dict.fromkeys([*(target.get("fact_ids") or []), *(repair_task.get("fact_ids") or [])])
+        )
+        repair_description = self._clean_capture_text(repair_task.get("description"), 3000)
+        target_description = self._clean_capture_text(target.get("description"), 3000)
+        if repair_description and self._normalize_search(repair_description) not in self._normalize_search(
+            target_description
+        ):
+            target["description"] = (
+                f"{target_description}\n\nДополнительные требования из ТЗ:\n{repair_description}"
+                if target_description
+                else repair_description
+            )
+        existing_criteria = {
+            self._normalize_search(str(item.get("text") or ""))
+            for item in target.get("acceptance_criteria") or []
+            if isinstance(item, dict)
+        }
+        for criterion in repair_task.get("acceptance_criteria") or []:
+            if not isinstance(criterion, dict):
+                continue
+            normalized = self._normalize_search(str(criterion.get("text") or ""))
+            if normalized and normalized not in existing_criteria:
+                target.setdefault("acceptance_criteria", []).append(criterion)
+                existing_criteria.add(normalized)
+        target["open_question_ids"] = list(
+            dict.fromkeys(
+                [
+                    *(target.get("open_question_ids") or []),
+                    *self._replace_spec_task_references(repair_task.get("open_question_ids") or [], question_aliases),
+                ]
+            )
+        )
 
     def _next_spec_id(self, items, prefix):
         values = [
