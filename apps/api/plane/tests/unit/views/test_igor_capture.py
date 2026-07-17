@@ -2689,6 +2689,33 @@ def test_capture_job_retry_is_offered_only_for_recoverable_failures():
 
 
 @pytest.mark.unit
+def test_capture_job_reports_finalization_failure_without_claiming_batches_failed():
+    endpoint = IgorChatEndpoint()
+
+    result = endpoint._capture_job_result(
+        {
+            "job_id": "finalization_job_identifier_123",
+            "status": "failed",
+            "error": "finalization_failed",
+            "failure_code": "response_validation_failed",
+            "failure_stage": "global_reduce",
+            "source_count": 192,
+            "total_batches": 4,
+            "batch_results": {str(index): {"tasks": []} for index in range(4)},
+            "failed_batches": [],
+        }
+    )
+
+    assert result["widget"]["completed_batches"] == 4
+    assert result["widget"]["failed_batches"] == 0
+    assert result["widget"]["progress"] == 100
+    assert result["widget"]["can_retry"] is True
+    assert "Все 4 пакетов сохранены" in result["answer"]
+    assert "Повтори только финализацию" in result["answer"]
+    assert "пакеты не обработались" not in result["answer"]
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("exception", "expected"),
     [

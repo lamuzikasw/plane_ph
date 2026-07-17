@@ -3432,7 +3432,12 @@ class IgorCaptureMixin:
             }
             else "queued"
         )
-        progress = min(99, round((completed_batches / total_batches) * 100))
+        all_batches_saved = completed_batches >= total_batches and failed_batches == 0
+        progress = (
+            100
+            if status_value == "failed" and all_batches_saved
+            else min(99, round((completed_batches / total_batches) * 100))
+        )
         failure_code = str(job.get("failure_code") or "") or None
         failure_stage = str(job.get("failure_stage") or "") or None
         failure_messages = {
@@ -3450,7 +3455,12 @@ class IgorCaptureMixin:
             "internal_processing_error": "Внутренний этап обработки завершился ошибкой.",
         }
         failure_message = failure_messages.get(failure_code)
-        if status_value == "failed":
+        if status_value == "failed" and all_batches_saved:
+            answer = (
+                f"Все {total_batches} пакетов сохранены, но итоговая проверка не завершилась. "
+                "Повтори только финализацию — заново разбирать пакеты не нужно."
+            )
+        elif status_value == "failed":
             answer = (
                 f"Сохранил результат {completed_batches} из {total_batches} пакетов. "
                 "Некоторые пакеты не обработались после трёх попыток — их можно перезапустить отдельно."
