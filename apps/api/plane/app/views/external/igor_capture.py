@@ -2798,7 +2798,7 @@ class IgorCaptureMixin:
             schema_name="igor_spec_quality_gate",
         )
 
-    def _spec_task_source_map(self, plan):
+    def _spec_task_source_map(self, plan, *, include_fact_sources=True):
         source_tasks = {}
         fact_sources = {
             str(fact.get("id")): [str(source_id) for source_id in fact.get("source_ids") or []]
@@ -2810,8 +2810,9 @@ class IgorCaptureMixin:
                 continue
             task_id = str(task.get("id") or "")
             refs = [*(task.get("source_ids") or [])]
-            for fact_id in task.get("fact_ids") or []:
-                refs.extend(fact_sources.get(str(fact_id), []))
+            if include_fact_sources:
+                for fact_id in task.get("fact_ids") or []:
+                    refs.extend(fact_sources.get(str(fact_id), []))
             for criterion in task.get("acceptance_criteria") or []:
                 if isinstance(criterion, dict):
                     refs.extend(criterion.get("source_ids") or [])
@@ -2824,7 +2825,12 @@ class IgorCaptureMixin:
         return source_tasks
 
     def _spec_semantic_coverage_errors(self, plan, semantic_map):
-        source_tasks = self._spec_task_source_map(plan)
+        # A fact_id is only an internal trace link. It does not prove that the
+        # reducer actually materialized the requirement in the task. Require
+        # every actionable source to be referenced by the task itself or one
+        # of its acceptance criteria; otherwise coverage repair must restore
+        # the missing requirement text.
+        source_tasks = self._spec_task_source_map(plan, include_fact_sources=False)
         required_source_ids = {
             str(source_id)
             for fact in semantic_map.get("facts") or []
@@ -2837,7 +2843,10 @@ class IgorCaptureMixin:
         if not isinstance(report, dict):
             return report
         valid_source_ids = [str(unit["id"]) for unit in units]
-        source_tasks = self._spec_task_source_map(plan)
+        # The quality report must reflect materialized task content, not an
+        # internal fact_id that the reducer may attach without actually
+        # carrying the requirement into the task.
+        source_tasks = self._spec_task_source_map(plan, include_fact_sources=False)
         reported = {}
         for item in report.get("coverage") or []:
             if not isinstance(item, dict):

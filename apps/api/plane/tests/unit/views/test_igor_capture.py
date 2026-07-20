@@ -1001,7 +1001,7 @@ def test_spec_semantic_coverage_requires_action_facts_in_tasks():
     assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == ["uncovered:S4"]
 
 
-def test_spec_semantic_coverage_follows_task_fact_links_to_sources():
+def test_spec_semantic_coverage_does_not_treat_fact_links_as_materialized_requirements():
     endpoint = IgorChatEndpoint()
     plan = _valid_spec_decomposition()
     plan["facts"].append(
@@ -1021,6 +1021,10 @@ def test_spec_semantic_coverage_follows_task_fact_links_to_sources():
     }
 
     assert endpoint._spec_task_source_map(plan)["S4"] == ["T1"]
+    assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == ["uncovered:S4"]
+
+    plan["tasks"][0]["source_ids"].append("S4")
+
     assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == []
 
 
@@ -2012,6 +2016,10 @@ def test_spec_reduce_repairs_uncovered_tail_in_bounded_follow_up(monkeypatch):
             }
         plan = _valid_spec_decomposition()
         plan.pop("facts")
+        # Reproduce the production failure: the reducer mentions the omitted
+        # requirement only through fact_ids, without putting its source or
+        # meaning into the task. This must still trigger a focused repair.
+        plan["tasks"][0]["fact_ids"].append("B2F1")
         return plan
 
     monkeypatch.setattr(endpoint, "_call_capture_llm_json", fake_call)
