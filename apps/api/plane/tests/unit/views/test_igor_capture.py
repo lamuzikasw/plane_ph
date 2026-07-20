@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+import copy
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -1466,6 +1467,73 @@ def test_spec_fallback_keeps_lifecycle_rules_and_filters_structural_or_uncertain
     )
     assert any("интерфейс для логов" in constraint["text"] for constraint in plan["constraints"])
     assert all("интерфейс для логов" not in task["description"] for task in plan["tasks"])
+
+
+def test_spec_reduce_restores_explicit_unknowns_missed_by_semantic_map():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    plan["open_questions"] = []
+    units = [
+        {"id": "S1", "text": "Финальные тексты будут предоставлены отдельно."},
+        {"id": "S2", "text": "Размер скидки пока не определён."},
+        {"id": "S3", "text": "Размер скидки пока не определён."},
+    ]
+
+    added = endpoint._merge_source_derived_spec_questions(plan, units)
+
+    assert added == 2
+    assert [item["question"] for item in plan["open_questions"]] == [
+        "Какие финальные тексты нужно использовать в шаблонах?",
+        "Какой размер скидки нужно указать в финальном письме?",
+    ]
+    assert [item["source_ids"] for item in plan["open_questions"]] == [["S1"], ["S2"]]
+
+
+def test_spec_fallback_combines_template_variable_fragments_into_one_clear_requirement():
+    endpoint = IgorChatEndpoint()
+    lines = endpoint._fallback_spec_description_lines(
+        [
+            {"text": "имени клиента;"},
+            {"text": "номера заявки;"},
+            {"text": "ссылки на ЛК."},
+            {"text": "Если имя отсутствует, письмо отображается корректно."},
+        ]
+    )
+
+    assert lines == [
+        "Если имя отсутствует, письмо отображается корректно.",
+        "Предусмотреть в шаблонах переменные: имя клиента, номер заявки и ссылка на ЛК.",
+    ]
+
+
+def test_spec_contract_rejects_tasks_with_nearly_identical_source_responsibility():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    plan["document"]["source_ids"] = [f"S{index}" for index in range(1, 10)]
+    plan["work_package"]["source_ids"] = [f"S{index}" for index in range(1, 10)]
+    plan["tasks"][0]["source_ids"] = [f"S{index}" for index in range(1, 9)]
+    duplicate = copy.deepcopy(plan["tasks"][0])
+    duplicate.update(
+        {
+            "id": "T2",
+            "title": "Проверять статус заявки перед следующим письмом",
+            "goal": "Не отправлять очередное письмо после изменения статуса заявки.",
+            "description": "Перед каждым следующим письмом проверить текущую стадию сделки в Bitrix24.",
+            "source_ids": [f"S{index}" for index in range(2, 10)],
+            "fact_ids": [],
+            "open_question_ids": [],
+        }
+    )
+    duplicate["acceptance_criteria"] = [
+        {"text": "После изменения стадии следующее письмо не отправляется.", "source_ids": ["S9"]}
+    ]
+    plan["tasks"].append(duplicate)
+    units = [{"id": f"S{index}", "text": f"Требование {index}"} for index in range(1, 10)]
+
+    with pytest.raises(ValueError) as exception:
+        endpoint._validate_spec_decomposition_contract(plan, units)
+
+    assert "task_source_overlap:T1,T2" in str(exception.value)
 
 
 def test_spec_fallback_attaches_all_action_sources_without_inventing_planning_fields():

@@ -1557,6 +1557,7 @@ class IgorCaptureMixin:
             )
             self._strip_unbacked_spec_task_fields(result, units)
             result["facts"] = semantic_map["facts"]
+            self._merge_source_derived_spec_questions(result, units)
             try:
                 self._validate_spec_decomposition_contract(result, units)
             except ValueError as exception:
@@ -1936,7 +1937,7 @@ class IgorCaptureMixin:
                     "title": title,
                     "goal": self._fallback_spec_bucket_goal(bucket, document_title),
                     "description": "Что сделать:\n"
-                    + "\n".join(f"- {self._fallback_spec_humanize_fact(fact)}" for fact in facts),
+                    + "\n".join(f"- {line}" for line in self._fallback_spec_description_lines(facts)),
                     "acceptance_criteria": [
                         {
                             "text": self._fallback_spec_criterion_text(fact),
@@ -2084,6 +2085,43 @@ class IgorCaptureMixin:
             return "Какие финальные тексты нужно использовать в шаблонах?"
         return ""
 
+    def _merge_source_derived_spec_questions(self, plan, units):
+        """Restore explicit unknowns even when the semantic map labels them as context."""
+        if not isinstance(plan, dict):
+            return 0
+        questions = plan.setdefault("open_questions", [])
+        if not isinstance(questions, list):
+            return 0
+        existing = {
+            self._normalize_search(str(question.get("question") or ""))
+            for question in questions
+            if isinstance(question, dict)
+        }
+        next_id = self._next_spec_id(questions, "Q")
+        added = 0
+        for unit in units:
+            if not isinstance(unit, dict) or not unit.get("id"):
+                continue
+            source_id = str(unit["id"])
+            question = self._fallback_spec_derived_question({"text": unit.get("text"), "source_ids": [source_id]})
+            normalized = self._normalize_search(question)
+            if not normalized or normalized in existing:
+                continue
+            questions.append(
+                {
+                    "id": f"Q{next_id}",
+                    "question": question,
+                    "reason": "В исходном ТЗ значение или финальный материал пока не определены.",
+                    "blocking": True,
+                    "source_ids": [source_id],
+                    "related_task_ids": [],
+                }
+            )
+            existing.add(normalized)
+            next_id += 1
+            added += 1
+        return added
+
     def _fallback_spec_humanize_fact(self, fact):
         text = self._clean_capture_text(fact.get("text"), 1000).strip()
         email_match = re.fullmatch(r"\[([^\]]+@[^\]]+)\]\(mailto:[^)]+\)\.?", text, flags=re.IGNORECASE)
@@ -2092,6 +2130,29 @@ class IgorCaptureMixin:
         if self._normalize_search(text) == "smtp":
             return "Отправлять письма через SMTP."
         return text
+
+    def _fallback_spec_description_lines(self, facts):
+        variable_labels = {
+            "имени клиента": "имя клиента",
+            "номера заявки": "номер заявки",
+            "ссылки на лк": "ссылка на ЛК",
+        }
+        variables = []
+        lines = []
+        for fact in facts:
+            normalized = self._normalize_search(self._clean_capture_text(fact.get("text"), 1000)).rstrip(";.,")
+            if normalized in variable_labels:
+                variables.append(variable_labels[normalized])
+                continue
+            lines.append(self._fallback_spec_humanize_fact(fact))
+        if variables:
+            variables = list(dict.fromkeys(variables))
+            if len(variables) == 1:
+                rendered = variables[0]
+            else:
+                rendered = ", ".join(variables[:-1]) + f" и {variables[-1]}"
+            lines.append(f"Предусмотреть в шаблонах переменные: {rendered}.")
+        return lines
 
     def _fallback_spec_unique_facts(self, facts):
         unique = []
@@ -2199,11 +2260,6 @@ class IgorCaptureMixin:
             for marker in ("шаблон пись", "почтовый шаблон", "текст утверждается", "размер скидк", "имя клиента")
         ):
             return "content"
-        if fact.get("kind") == "error_case" or any(
-            marker in normalized
-            for marker in ("ошиб", "retry", "повторн попыт", "таймаут", "дубликат", "идемпотент", "fallback")
-        ):
-            return "resilience"
         if any(marker in section_normalized for marker in ("останов", "движен", "повторный запуск")) or any(
             marker in normalized
             for marker in (
@@ -2216,6 +2272,11 @@ class IgorCaptureMixin:
             )
         ):
             return "lifecycle"
+        if fact.get("kind") == "error_case" or any(
+            marker in normalized
+            for marker in ("ошиб", "retry", "повторн попыт", "таймаут", "дубликат", "идемпотент", "fallback")
+        ):
+            return "resilience"
         if any(marker in section_normalized for marker in ("email клиента", "способ отправки", "отправитель")) or any(
             marker in normalized for marker in (" smtp", "email клиента из", "адрес отправителя")
         ):
@@ -3153,6 +3214,10 @@ class IgorCaptureMixin:
                 token_similarity = len(left[2] & right[2]) / len(token_union) if token_union else 0
                 source_union = left[3] | right[3]
                 source_similarity = len(left[3] & right[3]) / len(source_union) if source_union else 0
+                shared_source_count = len(left[3] & right[3])
+                source_containment = shared_source_count / max(1, min(len(left[3]), len(right[3])))
+                if shared_source_count >= 5 and source_containment >= 0.75:
+                    errors.append(f"task_source_overlap:{left[0]},{right[0]}")
                 if title_similarity >= 0.92 or (
                     title_similarity >= 0.78 and token_similarity >= 0.65 and source_similarity >= 0.6
                 ):
