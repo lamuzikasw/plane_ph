@@ -6,7 +6,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { applyTimeInputToDate, isValidTimeInput, mergeDateAndTime } from "./date-time-input.utils";
+import {
+  applyTimeInputToDate,
+  getSynchronizedTimeInputValue,
+  isValidTimeInput,
+  mergeDateAndTime,
+} from "./date-time-input.utils";
 
 describe("date time input helpers", () => {
   it("applies a manually entered 24-hour time without changing the date", () => {
@@ -30,5 +35,10 @@ describe("date time input helpers", () => {
     const result = mergeDateAndTime(new Date(2026, 6, 20), new Date(2026, 6, 15, 18, 45));
 
     expect(result).toEqual(new Date(2026, 6, 20, 18, 45, 0, 0));
+  });
+
+  it("does not overwrite a focused native time input during segmented typing", () => {
+    expect(getSynchronizedTimeInputValue("18:00", "08:00", true)).toBe("18:00");
+    expect(getSynchronizedTimeInputValue("18:00", "08:00", false)).toBe("08:00");
   });
 });

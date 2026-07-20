@@ -28,7 +28,8 @@ import { useDropdown } from "@/hooks/use-dropdown";
 // components
 import { DropdownButton } from "./buttons";
 import { MergedDateDisplay } from "./merged-date";
-import { applyTimeInputToDate, getTimeInputValue, isValidTimeInput, mergeDateAndTime } from "./date-time-input.utils";
+import { applyTimeInputToDate, mergeDateAndTime } from "./date-time-input.utils";
+import { TimeInput } from "./time-input";
 // types
 import type { TButtonVariants } from "./types";
 
@@ -74,15 +75,6 @@ type Props = {
   includeTime?: boolean;
 };
 
-const stopInputEventPropagation = (e: React.SyntheticEvent<HTMLInputElement>) => {
-  e.stopPropagation();
-};
-
-const handleTimeInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-  e.stopPropagation();
-  if (e.key === "Enter") e.currentTarget.blur();
-};
-
 export const DateRangeDropdown = observer(function DateRangeDropdown(props: Props) {
   const { t } = useTranslation();
   const {
@@ -122,10 +114,6 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
   // states
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [dateRange, setDateRange] = useState<DateRange>(value);
-  const [timeInput, setTimeInput] = useState({
-    from: getTimeInputValue(value.from),
-    to: getTimeInputValue(value.to),
-  });
   const fromTimestamp = value.from?.getTime();
   const toTimestamp = value.to?.getTime();
   // hooks
@@ -167,7 +155,6 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
   const clearDates = () => {
     const clearedRange = { from: undefined, to: undefined };
     setDateRange(clearedRange);
-    setTimeInput({ from: "", to: "" });
     onSelect?.(clearedRange);
   };
 
@@ -180,15 +167,10 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
     };
 
     setDateRange(updatedRange);
-    setTimeInput({
-      from: getTimeInputValue(updatedRange.from),
-      to: getTimeInputValue(updatedRange.to),
-    });
     onSelect?.(updatedRange);
   };
 
   const handleTimeChange = (key: "from" | "to", time: string) => {
-    setTimeInput((prev) => ({ ...prev, [key]: time }));
     const currentDate = dateRange[key];
     if (!currentDate) return;
 
@@ -201,24 +183,12 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
     onSelect?.(updatedRange);
   };
 
-  const commitTimeChange = (key: "from" | "to", time: string) => {
-    const currentDate = dateRange[key];
-    if (!currentDate) return;
-    if (!isValidTimeInput(time)) {
-      setTimeInput((prev) => ({ ...prev, [key]: getTimeInputValue(currentDate) }));
-    }
-  };
-
   useEffect(() => {
     const nextFromDate = fromTimestamp === undefined ? undefined : new Date(fromTimestamp);
     const nextToDate = toTimestamp === undefined ? undefined : new Date(toTimestamp);
     setDateRange({
       from: nextFromDate,
       to: nextToDate,
-    });
-    setTimeInput({
-      from: getTimeInputValue(nextFromDate),
-      to: getTimeInputValue(nextToDate),
     });
   }, [fromTimestamp, toTimestamp]);
 
@@ -359,34 +329,26 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
         />
         {includeTime && (
           <div className="grid grid-cols-2 gap-2 border-t border-subtle px-3 py-2">
-            <label className="flex items-center gap-2 text-body-xs-regular text-secondary">
+            <div className="flex items-center gap-2 text-body-xs-regular text-secondary">
               <Clock className="h-3.5 w-3.5 flex-shrink-0" />
-              <input
-                type="time"
-                value={timeInput.from}
-                onChange={(e) => handleTimeChange("from", e.target.value)}
-                onBlur={(e) => commitTimeChange("from", e.currentTarget.value)}
-                onClick={stopInputEventPropagation}
-                onFocus={stopInputEventPropagation}
-                onKeyDown={handleTimeInputKeyDown}
+              <TimeInput
+                ariaLabel="Start time"
+                date={dateRange.from}
+                onValidTimeChange={(time) => handleTimeChange("from", time)}
                 disabled={!dateRange.from}
                 className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
               />
-            </label>
-            <label className="flex items-center gap-2 text-body-xs-regular text-secondary">
+            </div>
+            <div className="flex items-center gap-2 text-body-xs-regular text-secondary">
               <ArrowRight className="h-3.5 w-3.5 flex-shrink-0" />
-              <input
-                type="time"
-                value={timeInput.to}
-                onChange={(e) => handleTimeChange("to", e.target.value)}
-                onBlur={(e) => commitTimeChange("to", e.currentTarget.value)}
-                onClick={stopInputEventPropagation}
-                onFocus={stopInputEventPropagation}
-                onKeyDown={handleTimeInputKeyDown}
+              <TimeInput
+                ariaLabel="End time"
+                date={dateRange.to}
+                onValidTimeChange={(time) => handleTimeChange("to", time)}
                 disabled={!dateRange.to}
                 className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
               />
-            </label>
+            </div>
           </div>
         )}
       </div>

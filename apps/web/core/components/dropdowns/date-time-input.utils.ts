@@ -8,6 +8,12 @@ import { renderFormattedTime } from "@plane/utils";
 
 export const getTimeInputValue = (date?: Date): string => (date ? renderFormattedTime(date) : "");
 
+export const getSynchronizedTimeInputValue = (
+  currentInputValue: string,
+  externalValue: string,
+  isFocused: boolean
+): string => (isFocused ? currentInputValue : externalValue);
+
 export const isValidTimeInput = (time: string): boolean => {
   const [hours, minutes] = time.split(":").map(Number);
 

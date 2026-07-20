@@ -6,7 +6,7 @@
 
 /* eslint-disable jsx-a11y/no-static-element-interactions -- ComboDropDown owns the keyboard interaction contract. */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { createPortal } from "react-dom";
 import { usePopper } from "react-popper";
@@ -24,7 +24,8 @@ import { useUserProfile } from "@/hooks/store/user";
 import { useDropdown } from "@/hooks/use-dropdown";
 // components
 import { DropdownButton } from "./buttons";
-import { applyTimeInputToDate, getTimeInputValue, isValidTimeInput, mergeDateAndTime } from "./date-time-input.utils";
+import { applyTimeInputToDate, mergeDateAndTime } from "./date-time-input.utils";
+import { TimeInput } from "./time-input";
 // constants
 import { BUTTON_VARIANTS_WITH_TEXT } from "./constants";
 // types
@@ -46,15 +47,6 @@ type Props = TDropdownProps & {
   renderByDefault?: boolean;
   labelClassName?: string;
   includeTime?: boolean;
-};
-
-const stopInputEventPropagation = (e: React.SyntheticEvent<HTMLInputElement>) => {
-  e.stopPropagation();
-};
-
-const handleTimeInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-  e.stopPropagation();
-  if (e.key === "Enter") e.currentTarget.blur();
 };
 
 export const DateDropdown = observer(function DateDropdown(props: Props) {
@@ -123,7 +115,6 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
   });
 
   const selectedDate = useMemo(() => (includeTime ? getDateTime(value) : getDate(value)), [includeTime, value]);
-  const [timeInput, setTimeInput] = useState(getTimeInputValue(selectedDate));
 
   const getLabel = (date: Date | string | null | undefined) => {
     if (!date) return undefined;
@@ -145,24 +136,12 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
   };
 
   const handleTimeChange = (time: string) => {
-    setTimeInput(time);
     if (!selectedDate) return;
 
     // The dropdown portal can unmount before blur fires, so persist a complete value immediately.
     const updatedDate = applyTimeInputToDate(selectedDate, time);
     if (updatedDate) dropdownOnChange(updatedDate, false);
   };
-
-  const commitTimeChange = (time: string) => {
-    if (!selectedDate) return;
-    if (!isValidTimeInput(time)) {
-      setTimeInput(getTimeInputValue(selectedDate));
-    }
-  };
-
-  useEffect(() => {
-    setTimeInput(getTimeInputValue(selectedDate));
-  }, [selectedDate]);
 
   const disabledDays: Matcher[] = [];
   if (minDate) disabledDays.push({ before: minDate });
@@ -245,15 +224,7 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
                 selected={selectedDate}
                 defaultMonth={selectedDate}
                 onSelect={(date: Date | undefined) => {
-                  dropdownOnChange(
-                    date
-                      ? includeTime
-                        ? isValidTimeInput(timeInput)
-                          ? (applyTimeInputToDate(date, timeInput) ?? mergeDateAndTime(date, selectedDate))
-                          : mergeDateAndTime(date, selectedDate)
-                        : date
-                      : null
-                  );
+                  dropdownOnChange(date ? (includeTime ? mergeDateAndTime(date, selectedDate) : date) : null);
                 }}
                 showOutsideDays
                 initialFocus
@@ -265,14 +236,10 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
               {includeTime && (
                 <div className="flex items-center gap-2 border-t border-subtle px-3 py-2">
                   <Clock className="h-3.5 w-3.5 flex-shrink-0 text-secondary" />
-                  <input
-                    type="time"
-                    value={timeInput}
-                    onChange={(e) => handleTimeChange(e.target.value)}
-                    onBlur={(e) => commitTimeChange(e.currentTarget.value)}
-                    onClick={stopInputEventPropagation}
-                    onFocus={stopInputEventPropagation}
-                    onKeyDown={handleTimeInputKeyDown}
+                  <TimeInput
+                    ariaLabel="Time"
+                    date={selectedDate}
+                    onValidTimeChange={handleTimeChange}
                     disabled={!selectedDate}
                     className="focus:border-custom-primary-100 h-7 rounded border-[0.5px] border-strong bg-transparent px-2 text-body-xs-regular outline-none disabled:cursor-not-allowed disabled:text-placeholder"
                   />
