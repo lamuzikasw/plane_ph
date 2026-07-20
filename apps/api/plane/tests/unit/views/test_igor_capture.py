@@ -1512,6 +1512,54 @@ def test_spec_reduce_does_not_duplicate_semantically_equal_source_question():
     assert len(plan["open_questions"]) == 1
 
 
+def test_spec_fallback_restores_unknown_even_when_map_classifies_it_as_constraint():
+    endpoint = IgorChatEndpoint()
+    units = [
+        {"id": "S1", "kind": "heading", "text": "Email-пинги", "section": "", "section_path": []},
+        {
+            "id": "S2",
+            "kind": "paragraph",
+            "text": "Нужно отправить клиенту финальное письмо.",
+            "section": "Требования",
+            "section_path": ["Требования"],
+        },
+        {
+            "id": "S3",
+            "kind": "paragraph",
+            "text": "Размер скидки пока не определён.",
+            "section": "Открытые вопросы",
+            "section_path": ["Открытые вопросы"],
+        },
+    ]
+    semantic_map = {
+        "document_candidates": [],
+        "facts": [
+            {
+                "id": "F1",
+                "kind": "functional_requirement",
+                "text": "Нужно отправить клиенту финальное письмо.",
+                "source_ids": ["S2"],
+            }
+        ],
+        "constraints": [
+            {
+                "id": "C1",
+                "kind": "invariant",
+                "text": "Размер скидки пока не определён.",
+                "source_ids": ["S3"],
+            }
+        ],
+        "open_questions": [],
+        "contradictions": [],
+    }
+
+    plan = endpoint._fallback_spec_decomposition(units, semantic_map)
+
+    assert [item["question"] for item in plan["open_questions"]] == [
+        "Какой размер скидки нужно указать в финальном письме?"
+    ]
+
+
 def test_spec_fallback_combines_template_variable_fragments_into_one_clear_requirement():
     endpoint = IgorChatEndpoint()
     lines = endpoint._fallback_spec_description_lines(

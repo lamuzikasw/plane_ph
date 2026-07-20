@@ -2399,6 +2399,9 @@ class IgorCaptureMixin:
                     fact["kind"] = "functional_requirement"
 
         repair = self._fallback_spec_repair_plan(units, fallback_map)
+        # The provider can label an explicit unknown as a constraint. Restore
+        # such questions directly from the source before the review is built.
+        self._merge_source_derived_spec_questions(repair, units)
         candidates = [
             candidate for candidate in fallback_map.get("document_candidates") or [] if isinstance(candidate, dict)
         ]
