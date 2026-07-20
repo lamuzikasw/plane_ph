@@ -65,6 +65,10 @@ class IgorCaptureMixin:
     # review screen must be able to preserve legitimate work packages from all
     # chunks instead of silently forcing the whole document into 25 tasks.
     capture_spec_task_limit = 100
+    # A review task with dozens of unrelated source fragments is not a usable
+    # unit of work even when every fragment is technically linked. Reject
+    # reducer "mega-tasks" so the worker can use the source-backed decomposition.
+    capture_spec_task_source_limit = 48
     capture_clarification_limit = 5
     capture_clarification_answer_limit = 2000
     capture_spec_document_types = frozenset(
@@ -1872,9 +1876,9 @@ class IgorCaptureMixin:
             copied["id"] = f"Q{index}"
             copied["related_task_ids"] = []
             questions.append(copied)
-        seen_questions = {self._normalize_search(question["question"]) for question in questions}
+        seen_questions = {self._spec_question_dedupe_key(question["question"]) for question in questions}
         for question in derived_questions:
-            normalized_question = self._normalize_search(question["question"])
+            normalized_question = self._spec_question_dedupe_key(question["question"])
             if normalized_question in seen_questions:
                 continue
             seen_questions.add(normalized_question)
@@ -2093,7 +2097,7 @@ class IgorCaptureMixin:
         if not isinstance(questions, list):
             return 0
         existing = {
-            self._normalize_search(str(question.get("question") or ""))
+            self._spec_question_dedupe_key(str(question.get("question") or ""))
             for question in questions
             if isinstance(question, dict)
         }
@@ -2104,7 +2108,7 @@ class IgorCaptureMixin:
                 continue
             source_id = str(unit["id"])
             question = self._fallback_spec_derived_question({"text": unit.get("text"), "source_ids": [source_id]})
-            normalized = self._normalize_search(question)
+            normalized = self._spec_question_dedupe_key(question)
             if not normalized or normalized in existing:
                 continue
             questions.append(
@@ -2121,6 +2125,14 @@ class IgorCaptureMixin:
             next_id += 1
             added += 1
         return added
+
+    def _spec_question_dedupe_key(self, question):
+        normalized = self._normalize_search(str(question or ""))
+        if "размер скидк" in normalized:
+            return "discount_amount"
+        if "финальн" in normalized and any(marker in normalized for marker in ("текст", "шаблон")):
+            return "final_template_text"
+        return normalized
 
     def _fallback_spec_humanize_fact(self, fact):
         text = self._clean_capture_text(fact.get("text"), 1000).strip()
@@ -3192,6 +3204,8 @@ class IgorCaptureMixin:
                 errors.append(f"duplicate_tasks:{normalized_titles[normalized]},{task_id}")
             normalized_titles[normalized] = task_id
             comparable.append((task_id, normalized, set(normalized.split()), set(task.get("source_ids") or [])))
+            if len(set(task.get("source_ids") or [])) > self.capture_spec_task_source_limit:
+                errors.append(f"{task_id}:overloaded_task")
             if (
                 len(normalized.split()) < 2
                 or (title and title[0].islower())

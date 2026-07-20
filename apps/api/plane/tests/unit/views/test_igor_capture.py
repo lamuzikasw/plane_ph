@@ -1489,6 +1489,29 @@ def test_spec_reduce_restores_explicit_unknowns_missed_by_semantic_map():
     assert [item["source_ids"] for item in plan["open_questions"]] == [["S1"], ["S2"]]
 
 
+def test_spec_reduce_does_not_duplicate_semantically_equal_source_question():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    plan["open_questions"] = [
+        {
+            "id": "Q1",
+            "question": "Какой размер скидки будет предложен в третьем письме?",
+            "reason": "Размер скидки пока не определён.",
+            "blocking": True,
+            "source_ids": ["S1"],
+            "related_task_ids": [],
+        }
+    ]
+
+    added = endpoint._merge_source_derived_spec_questions(
+        plan,
+        [{"id": "S1", "text": "Размер скидки пока не определён."}],
+    )
+
+    assert added == 0
+    assert len(plan["open_questions"]) == 1
+
+
 def test_spec_fallback_combines_template_variable_fragments_into_one_clear_requirement():
     endpoint = IgorChatEndpoint()
     lines = endpoint._fallback_spec_description_lines(
@@ -1534,6 +1557,16 @@ def test_spec_contract_rejects_tasks_with_nearly_identical_source_responsibility
         endpoint._validate_spec_decomposition_contract(plan, units)
 
     assert "task_source_overlap:T1,T2" in str(exception.value)
+
+
+def test_spec_contract_rejects_task_that_swallows_too_many_source_fragments():
+    endpoint = IgorChatEndpoint()
+    task = copy.deepcopy(_valid_spec_decomposition()["tasks"][0])
+    task["source_ids"] = [f"S{index}" for index in range(1, endpoint.capture_spec_task_source_limit + 2)]
+
+    errors = endpoint._spec_deterministic_quality_errors([task])
+
+    assert "T1:overloaded_task" in errors
 
 
 def test_spec_fallback_attaches_all_action_sources_without_inventing_planning_fields():
