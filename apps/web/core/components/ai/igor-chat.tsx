@@ -24,11 +24,15 @@ import {
   ShieldAlert,
   X,
 } from "lucide-react";
+import { observer } from "mobx-react";
 import { Link } from "react-router";
 // plane imports
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import { Tooltip } from "@plane/propel/tooltip";
+import { EIssueServiceType } from "@plane/types";
 import { cn, generateWorkItemLink } from "@plane/utils";
+// hooks
+import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 // services
 import {
   AIService,
@@ -46,6 +50,7 @@ import {
   getIgorCapturePollDelay,
   getIgorCaptureProcessingWidget,
   getIgorContextSegments,
+  getIgorLauncherPositionClassName,
   getIgorMessageLimit,
   IGOR_CAPTURE_MESSAGE_LENGTH,
   IGOR_COMPOSER_DEFAULT_HEIGHT,
@@ -174,7 +179,7 @@ const buildHistoryPayload = (messages: TIgorMessage[]): TIgorChatHistoryItem[] =
     context: message.response?.context ?? null,
   }));
 
-export function IgorChat({ workspaceSlug }: Props) {
+export const IgorChat = observer(function IgorChat({ workspaceSlug }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -194,6 +199,9 @@ export function IgorChat({ workspaceSlug }: Props) {
   const composerHeightRef = useRef(composerHeight);
   const activeWorkspaceRef = useRef(workspaceSlug);
   const currentMessageLimit = getIgorMessageLimit(input);
+  const { isPeekOpen: isIssuePeekOpen } = useIssueDetail();
+  const { isPeekOpen: isEpicPeekOpen } = useIssueDetail(EIssueServiceType.EPICS);
+  const isAnyPeekOpen = isIssuePeekOpen || isEpicPeekOpen;
 
   panelSizeRef.current = panelSize;
   composerHeightRef.current = composerHeight;
@@ -708,7 +716,11 @@ export function IgorChat({ workspaceSlug }: Props) {
           <button
             type="button"
             onClick={() => setIsOpen(true)}
-            className="text-sm shadow-md fixed right-5 bottom-5 z-40 flex h-12 items-center gap-2.5 rounded-full border border-subtle bg-surface-1 py-1.5 pr-4 pl-1.5 font-semibold text-primary transition hover:-translate-y-0.5 hover:border-[#0b6ea8]/40 hover:bg-surface-2 focus:ring-2 focus:ring-[#0b6ea8]/30 focus:ring-offset-2 focus:outline-none motion-reduce:transform-none"
+            className={cn(
+              "text-sm shadow-md fixed bottom-5 z-40 h-12 items-center gap-2.5 rounded-full border border-subtle bg-surface-1 py-1.5 pr-4 pl-1.5 font-semibold text-primary transition-[right,transform,background-color,border-color] hover:-translate-y-0.5 hover:border-[#0b6ea8]/40 hover:bg-surface-2 focus:ring-2 focus:ring-[#0b6ea8]/30 focus:ring-offset-2 focus:outline-none motion-reduce:transform-none",
+              getIgorLauncherPositionClassName(isAnyPeekOpen)
+            )}
+            data-prevent-outside-click
           >
             <IgorMark size="sm" />
             Игорь
@@ -729,6 +741,7 @@ export function IgorChat({ workspaceSlug }: Props) {
             "shadow-2xl @container fixed right-5 bottom-5 z-40 flex max-h-[calc(100vh-40px)] max-w-[calc(100vw-40px)] flex-col overflow-hidden rounded-2xl border border-subtle bg-surface-1 ring-1 ring-black/5",
             !isResizing && "transition-[width,height] duration-200"
           )}
+          data-prevent-outside-click
         >
           {!isMaximized && (
             <button
@@ -960,7 +973,7 @@ export function IgorChat({ workspaceSlug }: Props) {
       )}
     </>
   );
-}
+});
 
 function IgorMark({ size = "md", className }: { size?: "xs" | "sm" | "md" | "lg"; className?: string }) {
   return (

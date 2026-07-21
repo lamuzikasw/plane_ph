@@ -23,6 +23,9 @@ export const IGOR_COMPOSER_MAX_HEIGHT = 360;
 export const IGOR_REGULAR_MESSAGE_LENGTH = 5000;
 export const IGOR_CAPTURE_MESSAGE_LENGTH = 80000;
 
+export const getIgorLauncherPositionClassName = (isPeekOpen: boolean): string =>
+  isPeekOpen ? "hidden md:right-[calc(50%+1.25rem)] md:flex" : "right-5 flex";
+
 export const clampIgorComposerHeight = (height: number, panelHeight: number): number => {
   const availableMaximum = Math.max(IGOR_COMPOSER_MIN_HEIGHT, Math.min(IGOR_COMPOSER_MAX_HEIGHT, panelHeight - 260));
   return Math.min(Math.max(height, IGOR_COMPOSER_MIN_HEIGHT), availableMaximum);

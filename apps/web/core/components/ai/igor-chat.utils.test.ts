@@ -8,6 +8,7 @@ import {
   getIgorCapturePollDelay,
   getIgorCaptureProcessingWidget,
   getIgorContextSegments,
+  getIgorLauncherPositionClassName,
   getIgorMessageLimit,
   IGOR_CAPTURE_MESSAGE_LENGTH,
   IGOR_COMPOSER_MAX_HEIGHT,
@@ -17,6 +18,20 @@ import {
   type TIgorMessage,
   upsertIgorCaptureJobMessage,
 } from "./igor-chat.utils";
+
+describe("getIgorLauncherPositionClassName", () => {
+  it("keeps Igor in the viewport corner when no work item is open", () => {
+    expect(getIgorLauncherPositionClassName(false)).toBe("right-5 flex");
+  });
+
+  it("moves Igor beside a desktop peek panel and hides it behind a full-width mobile panel", () => {
+    const className = getIgorLauncherPositionClassName(true);
+
+    expect(className).toContain("hidden");
+    expect(className).toContain("md:flex");
+    expect(className).toContain("md:right-[calc(50%+1.25rem)]");
+  });
+});
 
 const createContext = (overrides: Partial<TIgorChatContext> = {}): TIgorChatContext => ({
   intent: "weekly_summary",
