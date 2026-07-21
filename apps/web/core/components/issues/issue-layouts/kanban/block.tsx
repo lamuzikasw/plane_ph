@@ -38,6 +38,7 @@ import { IssueStats } from "@/plane-web/components/issues/issue-layouts/issue-st
 import type { TRenderQuickActions } from "../list/list-view-types";
 import { IssueProperties } from "../properties/all-properties";
 import { WithDisplayPropertiesHOC } from "../properties/with-display-properties-HOC";
+import { KanbanIssueTitle } from "./issue-title";
 
 interface IssueBlockProps {
   issueId: string;
@@ -66,34 +67,40 @@ interface IssueDetailsBlockProps {
   isEpic?: boolean;
 }
 
+const handleEventPropagation = (event: React.SyntheticEvent) => {
+  event.stopPropagation();
+  event.preventDefault();
+};
+
+const stopEventPropagation = (event: React.SyntheticEvent) => {
+  event.stopPropagation();
+};
+
 const KanbanIssueDetailsBlock = observer(function KanbanIssueDetailsBlock(props: IssueDetailsBlockProps) {
   const { cardRef, issue, updateIssue, quickActions, isReadOnly, displayProperties, isEpic = false } = props;
   // refs
-  const menuActionRef = useRef<HTMLDivElement | null>(null);
+  const menuActionRef = useRef<HTMLButtonElement | null>(null);
   // states
   const [isMenuActive, setIsMenuActive] = useState(false);
   // hooks
   const { isMobile } = usePlatformOS();
 
   const customActionButton = (
-    <div
+    <button
+      type="button"
       ref={menuActionRef}
+      aria-label="More actions"
       className={`flex h-full w-full cursor-pointer items-center rounded-sm p-1 text-placeholder hover:bg-layer-1 ${
         isMenuActive ? "bg-layer-1 text-primary" : "text-secondary"
       }`}
       onClick={() => setIsMenuActive(!isMenuActive)}
     >
       <MoreHorizontal className="h-3.5 w-3.5" />
-    </div>
+    </button>
   );
 
   // derived values
   const subIssueCount = issue?.sub_issues_count ?? 0;
-
-  const handleEventPropagation = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-  };
 
   useOutsideClickDetector(menuActionRef, () => setIsMenuActive(false));
 
@@ -115,6 +122,8 @@ const KanbanIssueDetailsBlock = observer(function KanbanIssueDetailsBlock(props:
             "!block": isMenuActive,
           })}
           onClick={handleEventPropagation}
+          onKeyDown={stopEventPropagation}
+          role="presentation"
         >
           {quickActions({
             issue,
@@ -125,9 +134,7 @@ const KanbanIssueDetailsBlock = observer(function KanbanIssueDetailsBlock(props:
       </div>
 
       <Tooltip tooltipContent={issue.name} isMobile={isMobile} renderByDefault={false}>
-        <div className="line-clamp-1 w-full text-body-sm-medium text-primary">
-          <span>{issue.name}</span>
-        </div>
+        <KanbanIssueTitle name={issue.name} />
       </Tooltip>
 
       <IssueProperties
@@ -246,7 +253,7 @@ export const KanbanIssueBlock = observer(function KanbanIssueBlock(props: IssueB
         },
       })
     );
-  }, [cardRef?.current, issue?.id, isDragAllowed, canDropOverIssue, setIsCurrentBlockDragging, setIsDraggingOverBlock]);
+  }, [issue?.id, isDragAllowed, canDropOverIssue, setIsKanbanDragging]);
 
   if (!issue) return null;
 
