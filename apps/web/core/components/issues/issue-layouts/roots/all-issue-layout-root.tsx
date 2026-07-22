@@ -25,6 +25,7 @@ import { useIssues } from "@/hooks/store/use-issues";
 import { useAppRouter } from "@/hooks/use-app-router";
 import { IssuesStoreContext } from "@/hooks/use-issue-layout-store";
 import { useWorkspaceIssueProperties } from "@/hooks/use-workspace-issue-properties";
+import { runWorkspaceViewLoad } from "./all-issue-layout-root.utils";
 
 type Props = {
   isDefaultView: boolean;
@@ -100,13 +101,13 @@ export const AllIssueLayoutRoot = observer(function AllIssueLayoutRoot(props: Pr
     async () => {
       if (workspaceSlug && globalViewId) {
         clear();
-        toggleLoading(true);
-        await fetchFilters(workspaceSlug, globalViewId);
-        await fetchIssues(workspaceSlug, globalViewId, groupedIssueIds ? "mutation" : "init-loader", {
-          canGroup: false,
-          perPageCount: 100,
+        await runWorkspaceViewLoad(toggleLoading, async () => {
+          await fetchFilters(workspaceSlug, globalViewId);
+          await fetchIssues(workspaceSlug, globalViewId, groupedIssueIds ? "mutation" : "init-loader", {
+            canGroup: false,
+            perPageCount: 100,
+          });
         });
-        toggleLoading(false);
       }
     },
     { revalidateIfStale: false, revalidateOnFocus: false }
