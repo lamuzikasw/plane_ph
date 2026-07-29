@@ -55,6 +55,31 @@ export const getIgorCapturePollDelay = (status?: TIgorCaptureProcessingWidget["s
   return status === "failed" ? 10000 : 2500;
 };
 
+export const getIgorRequestErrorMessage = (error: unknown): string => {
+  const errorDetails = error as
+    | {
+        code?: unknown;
+        data?: { answer?: unknown };
+        response?: { data?: { answer?: unknown }; status?: unknown };
+        status?: unknown;
+      }
+    | undefined;
+  const response = errorDetails?.response ?? errorDetails;
+  const serverAnswer = response?.data?.answer;
+  if (typeof serverAnswer === "string" && serverAnswer.trim()) return serverAnswer;
+
+  const status = typeof response?.status === "number" ? response.status : undefined;
+  if (status === 401) return "Сессия Plane истекла. Обнови страницу и повтори запрос.";
+  if (status === 403) return "У тебя нет доступа к этому действию Игоря.";
+  if (status === 429) return "Игорь получил слишком много запросов. Повтори через минуту.";
+  if (status && [502, 503, 504].includes(status))
+    return `Сервис Игоря временно недоступен (${status}). Исходный текст не потерян; повтори запрос через минуту.`;
+  if (errorDetails?.code === "ERR_NETWORK")
+    return "Браузер не смог связаться с API Plane. Проверь соединение и повтори запрос.";
+
+  return "Игорь не получил корректный ответ от API Plane. Исходный текст не потерян; повтори запрос.";
+};
+
 export const upsertIgorCaptureJobMessage = (
   messages: TIgorMessage[],
   jobId: string,

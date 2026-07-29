@@ -52,6 +52,7 @@ import {
   getIgorContextSegments,
   getIgorLauncherPositionClassName,
   getIgorMessageLimit,
+  getIgorRequestErrorMessage,
   IGOR_CAPTURE_MESSAGE_LENGTH,
   IGOR_COMPOSER_DEFAULT_HEIGHT,
   IGOR_COMPOSER_MAX_HEIGHT,
@@ -530,11 +531,7 @@ export const IgorChat = observer(function IgorChat({ workspaceSlug }: Props) {
       ]);
     } catch (error) {
       if (activeWorkspaceRef.current !== requestWorkspaceSlug) return;
-      const serverAnswer = (error as { data?: { answer?: unknown } } | undefined)?.data?.answer;
-      const errorMessage =
-        typeof serverAnswer === "string"
-          ? serverAnswer
-          : "Я не смог достучаться до задач. Давай попробуем ещё раз через пару секунд.";
+      const errorMessage = getIgorRequestErrorMessage(error);
       setToast({
         type: TOAST_TYPE.ERROR,
         title: "Игорь не ответил",

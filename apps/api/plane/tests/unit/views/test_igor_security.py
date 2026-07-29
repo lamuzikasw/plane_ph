@@ -105,7 +105,14 @@ def test_untrusted_or_insecure_llm_base_url_disables_igor_key(monkeypatch):
     monkeypatch.setattr(
         external_base,
         "get_configuration_value",
-        lambda _keys: ("test-api-key", "gpt-4o-mini", "http://169.254.169.254/latest", "8"),
+        lambda _keys: (
+            "test-api-key",
+            None,
+            "gpt-4o-mini",
+            None,
+            "http://169.254.169.254/latest",
+            "8",
+        ),
     )
 
     api_key, model, base_url, timeout = IgorChatEndpoint()._get_igor_llm_config()
@@ -114,6 +121,63 @@ def test_untrusted_or_insecure_llm_base_url_disables_igor_key(monkeypatch):
     assert model == "gpt-4o-mini"
     assert base_url is None
     assert timeout == 8.0
+
+
+@pytest.mark.unit
+def test_igor_reuses_shared_instance_ai_configuration(monkeypatch):
+    requested_keys = []
+    configured_values = {
+        "IGOR_OPENAI_API_KEY": None,
+        "LLM_API_KEY": "shared-test-key",
+        "IGOR_OPENAI_MODEL": None,
+        "LLM_MODEL": "gpt-4o-mini",
+        "IGOR_OPENAI_API_BASE": None,
+        "IGOR_OPENAI_TIMEOUT_SECONDS": "8",
+    }
+
+    def get_config(keys):
+        requested_keys.extend(item["key"] for item in keys)
+        return tuple(configured_values.get(item["key"], item.get("default")) for item in keys)
+
+    monkeypatch.setattr(external_base, "get_configuration_value", get_config)
+
+    api_key, model, base_url, timeout = IgorChatEndpoint()._get_igor_llm_config()
+
+    assert api_key == "shared-test-key"
+    assert model == "gpt-4o-mini"
+    assert base_url is None
+    assert timeout == 8.0
+    assert requested_keys == [
+        "IGOR_OPENAI_API_KEY",
+        "LLM_API_KEY",
+        "IGOR_OPENAI_MODEL",
+        "LLM_MODEL",
+        "IGOR_OPENAI_API_BASE",
+        "IGOR_OPENAI_TIMEOUT_SECONDS",
+    ]
+
+
+@pytest.mark.unit
+def test_igor_specific_configuration_overrides_shared_ai_configuration(monkeypatch):
+    monkeypatch.setattr(
+        external_base,
+        "get_configuration_value",
+        lambda _keys: (
+            "igor-test-key",
+            "shared-test-key",
+            "gpt-4.1-mini",
+            "gpt-4o-mini",
+            None,
+            "12",
+        ),
+    )
+
+    api_key, model, base_url, timeout = IgorChatEndpoint()._get_igor_llm_config()
+
+    assert api_key == "igor-test-key"
+    assert model == "gpt-4.1-mini"
+    assert base_url is None
+    assert timeout == 12.0
 
 
 @pytest.mark.unit

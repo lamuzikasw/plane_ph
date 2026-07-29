@@ -2923,17 +2923,30 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             return False
 
     def _get_igor_llm_config(self):
-        api_key, model, base_url, timeout_seconds = get_configuration_value(
+        (
+            igor_api_key,
+            shared_api_key,
+            igor_model,
+            shared_model,
+            base_url,
+            timeout_seconds,
+        ) = get_configuration_value(
             [
                 {
                     "key": "IGOR_OPENAI_API_KEY",
-                    "default": os.environ.get("IGOR_OPENAI_API_KEY")
-                    or os.environ.get("LLM_API_KEY")
-                    or os.environ.get("OPENAI_API_KEY"),
+                    "default": os.environ.get("IGOR_OPENAI_API_KEY"),
+                },
+                {
+                    "key": "LLM_API_KEY",
+                    "default": os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY"),
                 },
                 {
                     "key": "IGOR_OPENAI_MODEL",
-                    "default": os.environ.get("IGOR_OPENAI_MODEL") or os.environ.get("LLM_MODEL") or "gpt-4o-mini",
+                    "default": os.environ.get("IGOR_OPENAI_MODEL"),
+                },
+                {
+                    "key": "LLM_MODEL",
+                    "default": os.environ.get("LLM_MODEL") or "gpt-4o-mini",
                 },
                 {
                     "key": "IGOR_OPENAI_API_BASE",
@@ -2945,6 +2958,8 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
                 },
             ]
         )
+        api_key = igor_api_key or shared_api_key
+        model = igor_model or shared_model or "gpt-4o-mini"
 
         try:
             timeout_seconds = max(2.0, min(float(timeout_seconds), 20.0))

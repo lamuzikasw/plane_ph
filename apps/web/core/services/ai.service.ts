@@ -359,7 +359,7 @@ export class AIService extends APIService {
     return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, data)
       .then((response) => response?.data)
       .catch((error) => {
-        throw error?.response;
+        throw error?.response ?? error;
       });
   }
 
@@ -367,7 +367,7 @@ export class AIService extends APIService {
     return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, data)
       .then((response) => response?.data)
       .catch((error) => {
-        throw error?.response;
+        throw error?.response ?? error;
       });
   }
 
@@ -375,7 +375,7 @@ export class AIService extends APIService {
     return this.post(`/api/workspaces/${workspaceSlug}/igor-chat/`, data)
       .then((response) => response?.data)
       .catch((error) => {
-        throw error?.response;
+        throw error?.response ?? error;
       });
   }
 
@@ -386,7 +386,7 @@ export class AIService extends APIService {
     } satisfies TIgorCaptureJobPayload)
       .then((response) => response?.data)
       .catch((error) => {
-        throw error?.response;
+        throw error?.response ?? error;
       });
   }
 
@@ -397,7 +397,7 @@ export class AIService extends APIService {
     } satisfies TIgorCaptureJobPayload)
       .then((response) => response?.data)
       .catch((error) => {
-        throw error?.response;
+        throw error?.response ?? error;
       });
   }
 

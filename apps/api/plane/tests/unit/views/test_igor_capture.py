@@ -2240,6 +2240,56 @@ def test_spec_pipeline_maps_requirements_before_global_task_synthesis(monkeypatc
     assert len(result["tasks"]) == 1
 
 
+def test_sync_spec_validation_failure_returns_source_backed_review(monkeypatch):
+    endpoint = IgorChatEndpoint()
+    units = [
+        {
+            "id": "S1",
+            "kind": "paragraph",
+            "text": "Добавить отправку email после создания заявки.",
+            "section": "Уведомления",
+            "section_path": ["Уведомления"],
+        }
+    ]
+
+    def fake_map(batch, *_args, **_kwargs):
+        return {
+            "document": {
+                "type": "technical_spec",
+                "title": "Email-уведомления",
+                "goal": "Уведомлять о новых заявках",
+                "summary": "",
+                "source_ids": ["S1"],
+            },
+            "facts": [
+                {
+                    "kind": "functional_requirement",
+                    "text": batch[0]["text"],
+                    "source_ids": ["S1"],
+                }
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+
+    def fail_reduce(*_args, **_kwargs):
+        raise ValueError("spec_reduce_validation_failed|duplicate_tasks:T1,T2")
+
+    monkeypatch.setattr(endpoint, "_get_llm_spec_map_strict", fake_map)
+    monkeypatch.setattr(endpoint, "_get_llm_spec_reduce_strict", fail_reduce)
+
+    result, batch_count = endpoint._get_llm_spec_decomposition_batched(
+        units,
+        [],
+        SimpleNamespace(),
+    )
+
+    assert batch_count == 1
+    assert {source_id for task in result["tasks"] for source_id in task["source_ids"]} == {"S1"}
+    assert result["_quality_report"]["warnings"][-1]["code"] == "spec_reducer_validation_fallback"
+
+
 B2B_MEETING_NOTES = """Саммари встречи по запуску B2B-направления
 
 1. Страница B2B
@@ -2510,6 +2560,35 @@ def test_capture_endpoint_routes_technical_spec_through_v2_pipeline(monkeypatch)
     assert widget["document"]["goal"].startswith("Возвращать клиентов")
     assert widget["spec_constraints"][0]["kind"] == "out_of_scope"
     assert len(widget["tasks"]) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_small_technical_spec_reports_missing_ai_configuration(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-spec-no-ai")
+    monkeypatch.setattr(
+        IgorChatEndpoint,
+        "_get_igor_llm_config",
+        lambda _self: (None, "gpt-4o-mini", None, 8.0),
+    )
+
+    response = _post_igor(
+        user,
+        workspace,
+        {
+            "message": (
+                "Разбери ТЗ:\n"
+                "Нужно настроить стадии воронки.\n"
+                "Нельзя удалить используемую стадию.\n"
+                "Изменения должны создавать audit event."
+            )
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.data["failure_code"] == "configuration_missing"
+    assert "God mode → AI" in response.data["answer"]
+    assert "задачи не создавались" not in response.data["answer"]
 
 
 @pytest.mark.unit

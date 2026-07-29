@@ -10,6 +10,7 @@ import {
   getIgorContextSegments,
   getIgorLauncherPositionClassName,
   getIgorMessageLimit,
+  getIgorRequestErrorMessage,
   IGOR_CAPTURE_MESSAGE_LENGTH,
   IGOR_COMPOSER_MAX_HEIGHT,
   IGOR_COMPOSER_MIN_HEIGHT,
@@ -129,6 +130,30 @@ describe("getIgorMessageLimit", () => {
     );
     expect(specification.length).toBeGreaterThan(IGOR_REGULAR_MESSAGE_LENGTH);
     expect(getIgorMessageLimit(specification)).toBe(IGOR_CAPTURE_MESSAGE_LENGTH);
+  });
+});
+
+describe("getIgorRequestErrorMessage", () => {
+  it("shows the safe explanation returned by the API", () => {
+    expect(
+      getIgorRequestErrorMessage({
+        status: 503,
+        data: { answer: "Игорь не настроен. Администратору нужно добавить API-ключ." },
+      })
+    ).toBe("Игорь не настроен. Администратору нужно добавить API-ключ.");
+  });
+
+  it("distinguishes a gateway timeout from a task access problem", () => {
+    expect(getIgorRequestErrorMessage({ status: 504, data: "<html>Gateway Timeout</html>" })).toContain(
+      "временно недоступен (504)"
+    );
+  });
+
+  it("reports a network failure without claiming that work items are unavailable", () => {
+    const message = getIgorRequestErrorMessage({ code: "ERR_NETWORK" });
+
+    expect(message).toContain("не смог связаться с API Plane");
+    expect(message).not.toContain("задач");
   });
 });
 

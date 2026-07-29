@@ -499,13 +499,39 @@ class IgorCaptureMixin:
             else:
                 raw_plan, batch_count = self._get_llm_capture_plan_batched(units, writable_projects, user, members)
         except Exception as exception:
-            self._log_safe_failure("capture-spec-analysis", exception)
+            failure_code = self._log_safe_failure("capture-spec-analysis", exception)
+            failure_answers = {
+                "configuration_missing": (
+                    "Игорь не настроен для разбора ТЗ: в настройках Plane отсутствует API-ключ модели. "
+                    "Администратору нужно сохранить ключ в God mode → AI."
+                ),
+                "provider_auth_failed": (
+                    "AI-провайдер отклонил API-ключ Игоря. Администратору нужно проверить ключ в God mode → AI."
+                ),
+                "provider_rate_limited": (
+                    "AI-провайдер временно ограничил запросы. Исходный текст не потерян; повтори разбор через минуту."
+                ),
+                "provider_timeout": (
+                    "Модель не ответила вовремя. Исходный текст не потерян; повтори разбор через минуту."
+                ),
+                "provider_connection_failed": (
+                    "Сервер Plane временно не смог связаться с AI-провайдером. Повтори разбор через минуту."
+                ),
+                "provider_unavailable": (
+                    "AI-провайдер временно недоступен. Исходный текст не потерян; повтори разбор через минуту."
+                ),
+                "provider_request_rejected": (
+                    "AI-провайдер отклонил формат запроса. Администратору нужно проверить модель Игоря."
+                ),
+            }
             return {
                 "error": "capture_analysis_unavailable",
+                "failure_code": failure_code,
                 "status": 503,
-                "answer": (
+                "answer": failure_answers.get(
+                    failure_code,
                     "Не удалось качественно разобрать ТЗ. Исходный текст не потерян и задачи не создавались. "
-                    "Попробуй повторить разбор через минуту."
+                    "Попробуй повторить разбор через минуту.",
                 ),
             }
         return self._assemble_capture_review(
@@ -1176,13 +1202,23 @@ class IgorCaptureMixin:
             for index, batch in enumerate(batches)
         ]
         normalized_map = self._normalize_spec_maps(mapped, units)
-        decomposition = self._get_llm_spec_reduce_strict(
-            units,
-            normalized_map,
-            projects,
-            user,
-            members,
-        )
+        try:
+            decomposition = self._get_llm_spec_reduce_strict(
+                units,
+                normalized_map,
+                projects,
+                user,
+                members,
+            )
+        except ValueError as exception:
+            if not str(exception).startswith("spec_reduce_validation_failed|"):
+                raise
+            self._log_safe_failure("capture-spec-reduce", exception)
+            decomposition = self._fallback_spec_decomposition(
+                units,
+                normalized_map,
+                warning_code="spec_reducer_validation_fallback",
+            )
         return decomposition, len(batches)
 
     def _get_llm_spec_map_strict(self, units, projects, user, members=None, batch_index=0):
