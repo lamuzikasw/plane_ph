@@ -2526,18 +2526,22 @@ def test_capture_endpoint_returns_complete_review_and_only_writable_projects(mon
 
 @pytest.mark.unit
 @pytest.mark.django_db
-def test_capture_endpoint_routes_technical_spec_through_v2_pipeline(monkeypatch):
+def test_capture_endpoint_queues_technical_spec_for_v2_pipeline(monkeypatch):
     user, workspace, _project = _capture_workspace("capture-spec-v2")
-    plan = _valid_spec_decomposition()
+    queued = []
     monkeypatch.setattr(
         IgorChatEndpoint,
         "_get_llm_spec_decomposition_batched",
-        lambda *_args: (plan, 1),
+        lambda *_args: pytest.fail("Technical specifications must not block the HTTP request"),
     )
     monkeypatch.setattr(
         IgorChatEndpoint,
         "_get_llm_capture_plan_batched",
         lambda *_args: pytest.fail("Technical specifications must not use the legacy sentence parser"),
+    )
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda workspace_id, user_id, job_id: queued.append((workspace_id, user_id, job_id)),
     )
 
     response = _post_igor(
@@ -2555,21 +2559,27 @@ def test_capture_endpoint_routes_technical_spec_through_v2_pipeline(monkeypatch)
 
     assert response.status_code == 200
     widget = response.data["widgets"][0]
+    assert response.data["intent"] == "capture_processing"
+    assert widget["type"] == "capture_processing"
     assert widget["title"] == "Разбор ТЗ"
-    assert widget["schema_version"] == "igor.spec_decomposition.v2"
-    assert widget["document"]["goal"].startswith("Возвращать клиентов")
-    assert widget["spec_constraints"][0]["kind"] == "out_of_scope"
-    assert len(widget["tasks"]) == 1
+    assert queued == [(str(workspace.id), str(user.id), widget["job_id"])]
+    job = cache.get(IgorChatEndpoint()._capture_job_cache_key(workspace, user, widget["job_id"]))
+    assert job["document_type"] == "technical_spec"
 
 
 @pytest.mark.unit
 @pytest.mark.django_db
-def test_small_technical_spec_reports_missing_ai_configuration(monkeypatch):
+def test_small_technical_spec_does_not_block_http_when_ai_configuration_is_missing(monkeypatch):
     user, workspace, _project = _capture_workspace("capture-spec-no-ai")
+    queued = []
     monkeypatch.setattr(
         IgorChatEndpoint,
         "_get_igor_llm_config",
         lambda _self: (None, "gpt-4o-mini", None, 8.0),
+    )
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda workspace_id, user_id, job_id: queued.append((workspace_id, user_id, job_id)),
     )
 
     response = _post_igor(
@@ -2585,10 +2595,10 @@ def test_small_technical_spec_reports_missing_ai_configuration(monkeypatch):
         },
     )
 
-    assert response.status_code == 503
-    assert response.data["failure_code"] == "configuration_missing"
-    assert "God mode → AI" in response.data["answer"]
-    assert "задачи не создавались" not in response.data["answer"]
+    assert response.status_code == 200
+    assert response.data["intent"] == "capture_processing"
+    widget = response.data["widgets"][0]
+    assert queued == [(str(workspace.id), str(user.id), widget["job_id"])]
 
 
 @pytest.mark.unit
@@ -2649,13 +2659,16 @@ def test_capture_refinement_adds_answers_as_sources_and_rebuilds_tasks(monkeypat
         },
         timeout=60,
     )
-    captured_units = []
-
-    def rebuild(_self, refined_units, *_args):
-        captured_units.extend(refined_units)
-        return _valid_spec_decomposition(), 1
-
-    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_spec_decomposition_batched", rebuild)
+    queued = []
+    monkeypatch.setattr(
+        IgorChatEndpoint,
+        "_get_llm_spec_decomposition_batched",
+        lambda *_args: pytest.fail("Technical-spec refinement must not block the HTTP request"),
+    )
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda workspace_id, user_id, job_id: queued.append((workspace_id, user_id, job_id)),
+    )
 
     response = _post_igor(
         user,
@@ -2672,14 +2685,15 @@ def test_capture_refinement_adds_answers_as_sources_and_rebuilds_tasks(monkeypat
     )
 
     assert response.status_code == 200
-    assert response.data["intent"] == "capture_review"
+    assert response.data["intent"] == "capture_processing"
     widget = response.data["widgets"][0]
-    assert widget["token"] != token
-    assert widget["clarification_round"] == 1
-    assert widget["original_source_count"] == 3
-    assert widget["clarification_count"] == 3
-    assert widget["clarification_questions"] == []
-    answer_units = [unit for unit in captured_units if unit.get("kind") == "clarification"]
+    assert widget["type"] == "capture_processing"
+    assert queued == [(str(workspace.id), str(user.id), widget["job_id"])]
+    job = cache.get(endpoint._capture_job_cache_key(workspace, user, widget["job_id"]))
+    assert job["clarification_round"] == 1
+    assert job["original_source_count"] == 3
+    assert len(job["clarification_answers"]) == 3
+    answer_units = [unit for unit in job["units"] if unit.get("kind") == "clarification"]
     assert [unit["id"] for unit in answer_units] == ["A1_1", "A1_2", "A1_3"]
     assert "Проект B2B" in answer_units[0]["text"]
     assert cache.get(endpoint._capture_cache_key(workspace, user, token))["status"] == "superseded"

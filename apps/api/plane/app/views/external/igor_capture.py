@@ -486,6 +486,9 @@ class IgorCaptureMixin:
                 ),
             }
 
+        if document_type == "technical_spec":
+            return self._enqueue_capture_review(units, workspace, user, document_type=document_type)
+
         if len(message) > self.capture_async_character_threshold or len(units) > self.capture_async_unit_threshold:
             return self._enqueue_capture_review(units, workspace, user, document_type=document_type)
 
@@ -4063,7 +4066,7 @@ class IgorCaptureMixin:
                 }:
                     result = self._capture_job_result(active_job)
                     result["answer"] = (
-                        "Я уже разбираю предыдущее большое ТЗ. Дождись результата — прогресс сохранится, "
+                        "Я уже разбираю предыдущее ТЗ. Дождись результата — прогресс сохранится, "
                         "даже если закрыть окно Игоря."
                     )
                     return result
@@ -4229,7 +4232,8 @@ class IgorCaptureMixin:
             *cleaned_answers,
         ]
         if (
-            len(units) > self.capture_async_unit_threshold
+            document_type == "technical_spec"
+            or len(units) > self.capture_async_unit_threshold
             or sum(len(str(unit.get("text") or "")) for unit in units) > self.capture_async_character_threshold
         ):
             capture = self._enqueue_capture_review(
@@ -4351,7 +4355,7 @@ class IgorCaptureMixin:
             )
         else:
             answer = (
-                f"Принял большое ТЗ: {job.get('source_count', 0)} смысловых пунктов, "
+                f"Принял ТЗ: {job.get('source_count', 0)} смысловых пунктов, "
                 f"{total_batches} пакетов. Можно закрыть Игоря — результат сохранится."
             )
         return {
@@ -4360,7 +4364,7 @@ class IgorCaptureMixin:
             "job_id": job.get("job_id"),
             "widget": {
                 "type": "capture_processing",
-                "title": "Разбор большого ТЗ",
+                "title": "Разбор ТЗ",
                 "job_id": job.get("job_id"),
                 "status": status_value,
                 "source_count": int(job.get("source_count") or 0),
