@@ -57,6 +57,7 @@ import {
   IGOR_COMPOSER_DEFAULT_HEIGHT,
   IGOR_COMPOSER_MAX_HEIGHT,
   IGOR_COMPOSER_MIN_HEIGHT,
+  isIgorCaptureJobComplete,
   resolveIgorSuggestions,
   type TIgorMessage,
   upsertIgorCaptureJobMessage,
@@ -285,7 +286,7 @@ export const IgorChat = observer(function IgorChat({ workspaceSlug }: Props) {
         setMessages((currentMessages) => upsertIgorCaptureJobMessage(currentMessages, activeCaptureJobId, response));
 
         const processingWidget = getIgorCaptureProcessingWidget(response);
-        if (!processingWidget) {
+        if (isIgorCaptureJobComplete(response)) {
           clearActiveJob();
           setToast({
             type: TOAST_TYPE.SUCCESS,
@@ -294,7 +295,10 @@ export const IgorChat = observer(function IgorChat({ workspaceSlug }: Props) {
           });
           return;
         }
-        pollTimer = window.setTimeout(poll, getIgorCapturePollDelay(processingWidget.status));
+        pollTimer = window.setTimeout(
+          poll,
+          processingWidget ? getIgorCapturePollDelay(processingWidget.status) : getIgorCapturePollDelay(undefined, true)
+        );
       } catch (error) {
         if (cancelled) return;
         const responseStatus = (error as { status?: number } | undefined)?.status;

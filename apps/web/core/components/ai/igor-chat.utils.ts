@@ -50,6 +50,9 @@ export const getIgorCaptureJobStorageKey = (workspaceSlug: string): string => `p
 export const getIgorCaptureProcessingWidget = (response: TIgorChatResponse): TIgorCaptureProcessingWidget | undefined =>
   response.widgets.find((widget): widget is TIgorCaptureProcessingWidget => widget.type === "capture_processing");
 
+export const isIgorCaptureJobComplete = (response: TIgorChatResponse): boolean =>
+  response.intent === "capture_review" && response.widgets.some((widget) => widget.type === "capture_review");
+
 export const getIgorCapturePollDelay = (status?: TIgorCaptureProcessingWidget["status"], failed = false): number => {
   if (failed) return 5000;
   return status === "failed" ? 10000 : 2500;
@@ -85,7 +88,13 @@ export const upsertIgorCaptureJobMessage = (
   jobId: string,
   response: TIgorChatResponse
 ): TIgorMessage[] => {
-  const messageIndex = messages.findIndex((message) => message.response?.capture_job_id === jobId);
+  let messageIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].response?.capture_job_id === jobId) {
+      messageIndex = index;
+      break;
+    }
+  }
   const currentMessage = messageIndex >= 0 ? messages[messageIndex] : undefined;
   const updatedMessage: TIgorMessage = {
     ...currentMessage,
@@ -95,9 +104,10 @@ export const upsertIgorCaptureJobMessage = (
     response,
   };
   if (messageIndex < 0) return [...messages, updatedMessage];
-  const nextMessages = [...messages];
-  nextMessages[messageIndex] = updatedMessage;
-  return nextMessages;
+  return messages.flatMap((message, index) => {
+    if (message.response?.capture_job_id !== jobId) return [message];
+    return index === messageIndex ? [updatedMessage] : [];
+  });
 };
 
 export const getIgorContextSegments = (context: TIgorChatContext): string[] => {

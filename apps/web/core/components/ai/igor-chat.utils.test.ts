@@ -15,6 +15,7 @@ import {
   IGOR_COMPOSER_MAX_HEIGHT,
   IGOR_COMPOSER_MIN_HEIGHT,
   IGOR_REGULAR_MESSAGE_LENGTH,
+  isIgorCaptureJobComplete,
   resolveIgorSuggestions,
   type TIgorMessage,
   upsertIgorCaptureJobMessage,
@@ -203,13 +204,34 @@ describe("capture job recovery", () => {
     });
   });
 
+  it("updates the latest duplicate job message and removes stale progress copies", () => {
+    const jobId = "job_12345678901234567890";
+    const firstResponse = createResponse({ answer: "Принял ТЗ", capture_job_id: jobId });
+    const latestResponse = createResponse({ answer: "Разобрал 2 из 3 пакетов", capture_job_id: jobId });
+    const completedResponse = createResponse({
+      answer: "ТЗ разобрано",
+      capture_job_id: jobId,
+      intent: "capture_review",
+    });
+    const messages: TIgorMessage[] = [
+      { id: "assistant-stale", role: "assistant", text: firstResponse.answer, response: firstResponse },
+      { id: "user-repeat", role: "user", text: "Проверь прогресс" },
+      { id: "assistant-latest", role: "assistant", text: latestResponse.answer, response: latestResponse },
+    ];
+
+    const updatedMessages = upsertIgorCaptureJobMessage(messages, jobId, completedResponse);
+
+    expect(updatedMessages.map((message) => message.id)).toEqual(["user-repeat", "assistant-latest"]);
+    expect(updatedMessages[1]).toMatchObject({ text: "ТЗ разобрано", response: completedResponse });
+  });
+
   it("uses slower polling for a failed job and backs off after network errors", () => {
     expect(getIgorCapturePollDelay("processing")).toBe(2500);
     expect(getIgorCapturePollDelay("failed")).toBe(10000);
     expect(getIgorCapturePollDelay(undefined, true)).toBe(5000);
   });
 
-  it("finds a processing widget and treats a review response as terminal", () => {
+  it("finds a processing widget and requires an explicit review widget for completion", () => {
     const processingResponse = createResponse({
       widgets: [
         {
@@ -228,6 +250,15 @@ describe("capture job recovery", () => {
     });
 
     expect(getIgorCaptureProcessingWidget(processingResponse)?.progress).toBe(33);
-    expect(getIgorCaptureProcessingWidget(createResponse({ intent: "capture_review", widgets: [] }))).toBeUndefined();
+    expect(isIgorCaptureJobComplete(processingResponse)).toBe(false);
+    expect(isIgorCaptureJobComplete(createResponse({ intent: "capture_review", widgets: [] }))).toBe(false);
+    expect(
+      isIgorCaptureJobComplete(
+        createResponse({
+          intent: "capture_review",
+          widgets: [{ type: "capture_review" } as TIgorChatResponse["widgets"][number]],
+        })
+      )
+    ).toBe(true);
   });
 });
