@@ -1042,21 +1042,24 @@ function IgorCaptureProcessingWidget({
 
   return (
     <div className="shadow-xs mt-3 rounded-xl border border-subtle bg-surface-1 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[13px] font-semibold text-primary">{widget.title}</div>
-          <div className="mt-0.5 text-[11px] text-secondary">
-            {widget.source_count} смысловых пунктов · {widget.completed_batches}/{widget.total_batches} пакетов
-          </div>
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1">
+        <div className="min-w-0 truncate text-[13px] font-semibold text-primary" title={widget.title}>
+          {widget.title}
         </div>
         <span
           className={cn(
-            "rounded-full px-2 py-1 text-[10px] font-medium",
+            "max-w-full shrink-0 rounded-full px-2 py-1 text-[10px] leading-4 font-medium whitespace-nowrap",
             widget.status === "failed" ? "bg-amber-500/10 text-amber-700" : "bg-[#0b6ea8]/10 text-[#0b6ea8]"
           )}
         >
           {statusText}
         </span>
+        <div className="col-span-2 min-w-0 text-[11px] text-secondary">
+          {widget.source_count} пунктов ·{" "}
+          <span className="whitespace-nowrap">
+            {widget.completed_batches}/{widget.total_batches} пакетов
+          </span>
+        </div>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-2" aria-label={`Прогресс ${widget.progress}%`}>
         <div
@@ -1067,8 +1070,8 @@ function IgorCaptureProcessingWidget({
           style={{ width: `${widget.progress}%` }}
         />
       </div>
-      <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-secondary">
-        <span>{widget.progress}% · результат сохраняется после каждого пакета</span>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-[11px] text-secondary">
+        <span className="min-w-0">{widget.progress}% · результат сохраняется после каждого пакета</span>
         {widget.can_retry && (
           <button
             type="button"
@@ -1090,7 +1093,7 @@ function IgorCaptureProcessingWidget({
         </div>
       )}
       <p className="mt-2 text-[10px] leading-4 text-tertiary">
-        Окно можно закрыть. При временной ошибке Игорь повторяет только текущий пакет, а готовые результаты не теряет.
+        Окно можно закрыть — готовые пакеты сохраняются. При сбое Игорь повторит только текущий пакет.
       </p>
     </div>
   );
