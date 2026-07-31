@@ -1429,6 +1429,32 @@ def test_spec_fallback_splits_overloaded_deliverables_without_losing_sources():
     assert len({task["title"] for task in plan["tasks"]}) == 3
 
 
+def test_spec_quality_allows_numbered_fallback_blocks_with_shared_traceability_sources():
+    endpoint = IgorChatEndpoint()
+    tasks = [
+        {
+            "id": "T1",
+            "title": "Реализовать основную логику — блок 1 из 2",
+            "goal": "Реализовать проверяемую часть основной логики системы",
+            "description": "Что сделать:\n- Реализовать требования первого блока основной логики.",
+            "acceptance_criteria": [],
+            "source_ids": ["S1", "S2", "S3"],
+        },
+        {
+            "id": "T2",
+            "title": "Реализовать основную логику — блок 2 из 2",
+            "goal": "Реализовать проверяемую часть основной логики системы",
+            "description": "Что сделать:\n- Реализовать требования второго блока основной логики.",
+            "acceptance_criteria": [],
+            "source_ids": ["S3", "S4", "S5"],
+        },
+    ]
+
+    errors = endpoint._spec_deterministic_quality_errors(tasks)
+
+    assert not any(error.startswith("duplicate_tasks:") for error in errors)
+
+
 def test_spec_fallback_keeps_lifecycle_rules_and_filters_structural_or_uncertain_text():
     endpoint = IgorChatEndpoint()
     units = [

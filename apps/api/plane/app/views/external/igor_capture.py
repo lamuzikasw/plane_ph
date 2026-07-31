@@ -3318,14 +3318,15 @@ class IgorCaptureMixin:
             if normalized in normalized_titles:
                 errors.append(f"duplicate_tasks:{normalized_titles[normalized]},{task_id}")
             normalized_titles[normalized] = task_id
-            partition_match = re.fullmatch(r"(.+?)\s+блок\s+\d+\s+из\s+\d+", normalized)
+            partition_match = re.fullmatch(r"(.+?)\s+блок\s+(\d+)\s+из\s+(\d+)", normalized)
             comparable.append(
                 (
                     task_id,
                     normalized,
                     set(normalized.split()),
                     set(task.get("source_ids") or []),
-                    partition_match.group(1) if partition_match else None,
+                    (partition_match.group(1), partition_match.group(3)) if partition_match else None,
+                    partition_match.group(2) if partition_match else None,
                 )
             )
             if len(set(task.get("source_ids") or [])) > self.capture_spec_task_source_limit:
@@ -3354,10 +3355,16 @@ class IgorCaptureMixin:
                 source_similarity = len(left[3] & right[3]) / len(source_union) if source_union else 0
                 shared_source_count = len(left[3] & right[3])
                 source_containment = shared_source_count / max(1, min(len(left[3]), len(right[3])))
-                is_disjoint_fallback_partition = bool(left[4] and left[4] == right[4] and not shared_source_count)
+                # Deterministic fallback tasks intentionally share the same base
+                # title and can also share a few traceability sources (for example,
+                # acceptance criteria referenced by two adjacent chunks). Distinct
+                # numbered blocks of the same partition are not semantic duplicates.
+                # The source-overlap guard above still rejects substantially
+                # overlapping blocks independently.
+                is_fallback_partition_pair = bool(left[4] and left[4] == right[4] and left[5] != right[5])
                 if shared_source_count >= 5 and source_containment >= 0.75:
                     errors.append(f"task_source_overlap:{left[0]},{right[0]}")
-                if not is_disjoint_fallback_partition and (
+                if not is_fallback_partition_pair and (
                     title_similarity >= 0.92
                     or (title_similarity >= 0.78 and token_similarity >= 0.65 and source_similarity >= 0.6)
                 ):
