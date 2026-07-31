@@ -167,7 +167,17 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
         try:
             mapped = [batch_results.get(str(index)) or {} for index in range(len(batches))]
             semantic_map = endpoint._normalize_spec_maps(mapped, units)
-            combined = endpoint._get_llm_spec_reduce_strict(units, semantic_map, projects, user, members)
+            reduce_kwargs = {}
+            if len(units) >= endpoint.capture_spec_large_reduce_unit_threshold:
+                reduce_kwargs["_attempt_limit"] = 1
+            combined = endpoint._get_llm_spec_reduce_strict(
+                units,
+                semantic_map,
+                projects,
+                user,
+                members,
+                **reduce_kwargs,
+            )
         except Exception as exception:
             error_code = endpoint._log_safe_failure("capture-job-reduce", exception)
             reduction_attempts = int(job.get("reduction_attempts") or 0) + 1
@@ -188,11 +198,23 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
             # and faster than repeating the same request. Transient provider errors
             # still get bounded Celery retries before the source-backed fallback.
             if error_code == "response_validation_failed":
-                combined = endpoint._fallback_spec_decomposition(
-                    units,
-                    semantic_map,
-                    warning_code="spec_reducer_validation_fallback",
-                )
+                try:
+                    combined = endpoint._fallback_spec_decomposition(
+                        units,
+                        semantic_map,
+                        warning_code="spec_reducer_validation_fallback",
+                    )
+                except Exception as fallback_exception:
+                    fallback_error_code = endpoint._log_safe_failure(
+                        "capture-job-source-backed-fallback", fallback_exception
+                    )
+                    job["status"] = "failed"
+                    job["error"] = "reduction_failed"
+                    job["failure_code"] = fallback_error_code
+                    job["failure_stage"] = "source_backed_fallback"
+                    job["validation_errors"] = endpoint._safe_capture_validation_errors(fallback_exception)
+                    endpoint._cache_capture_job(cache_key, job)
+                    return
             elif error_code in fallback_codes and reduction_attempts < endpoint.capture_job_max_attempts:
                 job["status"] = "retrying"
                 endpoint._cache_capture_job(cache_key, job)

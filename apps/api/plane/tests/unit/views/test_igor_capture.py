@@ -1387,6 +1387,48 @@ def test_spec_fallback_groups_requirements_by_deliverable_and_keeps_criteria_out
     assert plan["constraints"][-1]["source_ids"] == ["S9"]
 
 
+def test_spec_fallback_splits_overloaded_deliverables_without_losing_sources():
+    endpoint = IgorChatEndpoint()
+    units = [
+        {
+            "id": f"S{index}",
+            "kind": "paragraph",
+            "text": f"Система должна выполнить шаг рабочего сценария {index}.",
+            "section_path": ["Логика рабочего сценария"],
+        }
+        for index in range(1, 111)
+    ]
+    semantic_map = {
+        "document_candidates": [
+            {
+                "type": "technical_spec",
+                "title": "Большой сценарий",
+                "goal": "Реализовать рабочий сценарий",
+                "source_ids": ["S1"],
+            }
+        ],
+        "facts": [
+            {
+                "id": f"F{index}",
+                "kind": "functional_requirement",
+                "text": unit["text"],
+                "source_ids": [unit["id"]],
+            }
+            for index, unit in enumerate(units, start=1)
+        ],
+        "constraints": [],
+        "open_questions": [],
+        "contradictions": [],
+    }
+
+    plan = endpoint._fallback_spec_decomposition(units, semantic_map)
+
+    assert len(plan["tasks"]) == 3
+    assert all(len(set(task["source_ids"])) <= endpoint.capture_spec_task_source_limit for task in plan["tasks"])
+    assert {source_id for task in plan["tasks"] for source_id in task["source_ids"]} == {unit["id"] for unit in units}
+    assert len({task["title"] for task in plan["tasks"]}) == 3
+
+
 def test_spec_fallback_keeps_lifecycle_rules_and_filters_structural_or_uncertain_text():
     endpoint = IgorChatEndpoint()
     units = [
@@ -3057,6 +3099,125 @@ def test_background_spec_validation_failure_returns_source_backed_review(monkeyp
     assert widget["analysis"]["quality_status"] == "review"
     assert widget["analysis"]["linked_source_count"] == 1
     assert widget["analysis"]["quality_warnings"][0]["code"] == "spec_reducer_validation_fallback"
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_background_spec_fallback_failure_is_saved_instead_of_leaving_job_processing(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-spec-fallback-failure")
+    endpoint = IgorChatEndpoint()
+    units = [{"id": "S1", "text": "Добавить отправку email"}]
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda *_args: None,
+    )
+    capture = endpoint._enqueue_capture_review(units, workspace, user, document_type="technical_spec")
+    job_id = capture["job_id"]
+    cache_key = endpoint._capture_job_cache_key(workspace, user, job_id)
+    job = cache.get(cache_key)
+    job["batch_results"] = {
+        "0": {
+            "document": {"type": "technical_spec", "title": "Email", "source_ids": ["S1"]},
+            "facts": [
+                {
+                    "kind": "functional_requirement",
+                    "text": "Добавить отправку email",
+                    "source_ids": ["S1"],
+                }
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+    }
+    cache.set(cache_key, job, timeout=endpoint.capture_job_timeout)
+
+    monkeypatch.setattr(
+        IgorChatEndpoint,
+        "_get_llm_spec_reduce_strict",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("spec_reduce_validation_failed")),
+    )
+    monkeypatch.setattr(
+        IgorChatEndpoint,
+        "_fallback_spec_decomposition",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("T1:overloaded_task")),
+    )
+    from plane.bgtasks.igor_capture_task import process_igor_capture_job
+
+    process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+
+    saved = cache.get(cache_key)
+    assert saved["status"] == "failed"
+    assert saved["error"] == "reduction_failed"
+    assert saved["failure_code"] == "response_validation_failed"
+    assert saved["failure_stage"] == "source_backed_fallback"
+    assert saved["validation_errors"] == ["T1:overloaded_task"]
+    assert endpoint._capture_job_result(saved)["widget"]["can_retry"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_background_large_spec_uses_one_validation_driven_reduce_attempt(monkeypatch):
+    user, workspace, _project = _capture_workspace("capture-spec-large-reduce")
+    endpoint = IgorChatEndpoint()
+    monkeypatch.setattr(
+        IgorChatEndpoint,
+        "_capture_batches",
+        lambda _self, batch_units, **_kwargs: [batch_units],
+    )
+    units = [
+        {
+            "id": f"S{index}",
+            "kind": "paragraph",
+            "text": f"Система должна выполнить требование {index}.",
+            "section_path": ["Требования"],
+        }
+        for index in range(1, endpoint.capture_spec_large_reduce_unit_threshold + 1)
+    ]
+    monkeypatch.setattr(
+        "plane.bgtasks.igor_capture_task.process_igor_capture_job.delay",
+        lambda *_args: None,
+    )
+    capture = endpoint._enqueue_capture_review(units, workspace, user, document_type="technical_spec")
+    job_id = capture["job_id"]
+    cache_key = endpoint._capture_job_cache_key(workspace, user, job_id)
+    job = cache.get(cache_key)
+    job["batch_results"] = {
+        "0": {
+            "document": {"type": "technical_spec", "title": "Большое ТЗ", "source_ids": ["S1"]},
+            "facts": [
+                {
+                    "kind": "functional_requirement",
+                    "text": unit["text"],
+                    "source_ids": [unit["id"]],
+                }
+                for unit in units
+            ],
+            "constraints": [],
+            "open_questions": [],
+            "contradictions": [],
+        }
+    }
+    cache.set(cache_key, job, timeout=endpoint.capture_job_timeout)
+    reduce_kwargs = []
+
+    def record_reduce(_self, *_args, **kwargs):
+        reduce_kwargs.append(kwargs)
+        return {"marker": "combined"}
+
+    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_spec_reduce_strict", record_reduce)
+    monkeypatch.setattr(
+        IgorChatEndpoint,
+        "_assemble_capture_review",
+        lambda *_args, **_kwargs: {"answer": "Готово", "widget": {"type": "capture_review"}},
+    )
+    from plane.bgtasks.igor_capture_task import process_igor_capture_job
+
+    process_igor_capture_job.run(str(workspace.id), str(user.id), job_id)
+
+    saved = cache.get(cache_key)
+    assert saved["status"] == "completed"
+    assert reduce_kwargs == [{"_attempt_limit": 1}]
 
 
 @pytest.mark.unit

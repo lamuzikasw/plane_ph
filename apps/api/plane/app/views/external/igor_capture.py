@@ -45,6 +45,11 @@ class IgorCaptureMixin:
     capture_job_parallelism = 3
     capture_spec_repair_parallelism = 3
     capture_spec_repair_min_batch_size = 12
+    # Repeating a full validation-driven reduce for a large specification can
+    # add several minutes without changing the provider's result. Large jobs
+    # fall back to the source-backed decomposition after the first rejected
+    # reduce; transient provider failures still use the bounded Celery retries.
+    capture_spec_large_reduce_unit_threshold = 120
     # Structured Outputs for a 60-unit specification can legitimately take much
     # longer than a short chat response. Keep connection/provider configuration
     # as the lower bound, while allowing the batch job enough read time to finish.
@@ -1909,6 +1914,24 @@ class IgorCaptureMixin:
                 if bucket_facts
             }
 
+        # Acceptance criteria are traceability inputs, not standalone tasks.
+        # Place them into the closest deliverable before chunking so their
+        # source ids remain covered without pushing any generated task above
+        # the deterministic quality limit.
+        for fact, unit in acceptance_facts:
+            preferred_bucket = self._fallback_spec_fact_bucket(fact, unit)
+            if preferred_bucket not in grouped_facts:
+                preferred_bucket = next(
+                    (bucket for bucket in ("workflow", "core") if bucket in grouped_facts),
+                    next(iter(grouped_facts), preferred_bucket),
+                )
+            grouped_facts.setdefault(preferred_bucket, []).append(fact)
+        grouped_facts = {
+            bucket: self._fallback_spec_unique_facts(bucket_facts)
+            for bucket, bucket_facts in grouped_facts.items()
+            if bucket_facts
+        }
+
         questions = []
         for index, question in enumerate(semantic_map.get("open_questions") or [], start=1):
             copied = copy.deepcopy(question)
@@ -1929,22 +1952,28 @@ class IgorCaptureMixin:
             candidate for candidate in semantic_map.get("document_candidates") or [] if isinstance(candidate, dict)
         ]
         document_title = self._clean_capture_text((candidates[0] if candidates else {}).get("title"), 180)
+        task_groups = [
+            (bucket, chunk_index, chunks, chunk)
+            for bucket, bucket_facts in grouped_facts.items()
+            for chunks in [self._fallback_spec_fact_chunks(bucket_facts)]
+            for chunk_index, chunk in enumerate(chunks, start=1)
+        ]
         tasks = []
-        for index, (bucket, facts) in enumerate(grouped_facts.items(), start=1):
+        for index, (bucket, chunk_index, chunks, facts) in enumerate(task_groups, start=1):
             source_ids = list(
                 dict.fromkeys(str(source_id) for fact in facts for source_id in fact.get("source_ids") or [])
             )
             fact_ids = [str(fact.get("id")) for fact in facts if fact.get("id")]
             title = self._fallback_spec_bucket_title(bucket, document_title)
+            if len(chunks) > 1:
+                title = f"{title} — блок {chunk_index} из {len(chunks)}"
+            chunk_source_ids = set(source_ids)
             bucket_acceptance_pairs = [
-                (fact, unit) for fact, unit in acceptance_facts if self._fallback_spec_fact_bucket(fact, unit) == bucket
+                (fact, unit)
+                for fact, unit in acceptance_facts
+                if self._fallback_spec_fact_bucket(fact, unit) == bucket
+                and chunk_source_ids.intersection(str(value) for value in fact.get("source_ids") or [])
             ]
-            if bucket in {"workflow", "core"}:
-                bucket_acceptance_pairs.extend(
-                    (fact, unit)
-                    for fact, unit in acceptance_facts
-                    if self._fallback_spec_fact_bucket(fact, unit) not in grouped_facts
-                )
             explicit_acceptance = [
                 fact for fact, unit in bucket_acceptance_pairs if self._fallback_spec_acceptance_rank(unit) == 0
             ]
@@ -1956,14 +1985,13 @@ class IgorCaptureMixin:
                 criteria_candidates = facts
             criteria_facts = self._fallback_spec_unique_facts(criteria_candidates)
             criteria_facts = [fact for fact in criteria_facts if not self._fallback_spec_fact_is_uncertain(fact)][:8]
-            source_ids = list(
-                dict.fromkeys(
-                    [
-                        *source_ids,
-                        *(str(source_id) for fact in trace_acceptance for source_id in fact.get("source_ids") or []),
-                    ]
-                )
-            )
+            for fact in trace_acceptance:
+                for source_id in (str(value) for value in fact.get("source_ids") or []):
+                    if source_id in source_ids:
+                        continue
+                    if len(source_ids) >= self.capture_spec_task_source_limit:
+                        break
+                    source_ids.append(source_id)
             related_question_ids = [
                 question["id"]
                 for question in questions
@@ -1984,9 +2012,14 @@ class IgorCaptureMixin:
                     "acceptance_criteria": [
                         {
                             "text": self._fallback_spec_criterion_text(fact),
-                            "source_ids": list(fact.get("source_ids") or []),
+                            "source_ids": [
+                                str(source_id)
+                                for source_id in fact.get("source_ids") or []
+                                if str(source_id) in source_ids
+                            ],
                         }
                         for fact in criteria_facts
+                        if any(str(source_id) in source_ids for source_id in fact.get("source_ids") or [])
                     ],
                     "fact_ids": fact_ids,
                     "source_ids": source_ids,
@@ -2024,6 +2057,37 @@ class IgorCaptureMixin:
             "contradictions": contradictions,
             "_coverage_fallback": True,
         }
+
+    def _fallback_spec_fact_chunks(self, facts):
+        """Keep deterministic fallback tasks below the traceability limit."""
+        chunks = []
+        current = []
+        current_source_ids = set()
+        limit = max(int(self.capture_spec_task_source_limit), 1)
+
+        for fact in facts:
+            source_ids = list(dict.fromkeys(str(value) for value in fact.get("source_ids") or []))
+            fact_parts = []
+            if len(source_ids) > limit:
+                for offset in range(0, len(source_ids), limit):
+                    copied = copy.deepcopy(fact)
+                    copied["source_ids"] = source_ids[offset : offset + limit]
+                    fact_parts.append(copied)
+            else:
+                fact_parts.append(fact)
+
+            for part in fact_parts:
+                part_source_ids = set(str(value) for value in part.get("source_ids") or [])
+                if current and len(current_source_ids | part_source_ids) > limit:
+                    chunks.append(current)
+                    current = []
+                    current_source_ids = set()
+                current.append(part)
+                current_source_ids.update(part_source_ids)
+
+        if current:
+            chunks.append(current)
+        return chunks or [[]]
 
     def _fallback_spec_low_signal_text(self, normalized_text):
         if not normalized_text:
@@ -3254,7 +3318,16 @@ class IgorCaptureMixin:
             if normalized in normalized_titles:
                 errors.append(f"duplicate_tasks:{normalized_titles[normalized]},{task_id}")
             normalized_titles[normalized] = task_id
-            comparable.append((task_id, normalized, set(normalized.split()), set(task.get("source_ids") or [])))
+            partition_match = re.fullmatch(r"(.+?)\s+блок\s+\d+\s+из\s+\d+", normalized)
+            comparable.append(
+                (
+                    task_id,
+                    normalized,
+                    set(normalized.split()),
+                    set(task.get("source_ids") or []),
+                    partition_match.group(1) if partition_match else None,
+                )
+            )
             if len(set(task.get("source_ids") or [])) > self.capture_spec_task_source_limit:
                 errors.append(f"{task_id}:overloaded_task")
             if (
@@ -3281,10 +3354,12 @@ class IgorCaptureMixin:
                 source_similarity = len(left[3] & right[3]) / len(source_union) if source_union else 0
                 shared_source_count = len(left[3] & right[3])
                 source_containment = shared_source_count / max(1, min(len(left[3]), len(right[3])))
+                is_disjoint_fallback_partition = bool(left[4] and left[4] == right[4] and not shared_source_count)
                 if shared_source_count >= 5 and source_containment >= 0.75:
                     errors.append(f"task_source_overlap:{left[0]},{right[0]}")
-                if title_similarity >= 0.92 or (
-                    title_similarity >= 0.78 and token_similarity >= 0.65 and source_similarity >= 0.6
+                if not is_disjoint_fallback_partition and (
+                    title_similarity >= 0.92
+                    or (title_similarity >= 0.78 and token_similarity >= 0.65 and source_similarity >= 0.6)
                 ):
                     errors.append(f"duplicate_tasks:{left[0]},{right[0]}")
         return errors
@@ -4388,7 +4463,7 @@ class IgorCaptureMixin:
         codes = []
         for value in str(exception).split("|"):
             code = value.strip()
-            if re.fullmatch(r"[a-z][a-z0-9_]*(?::[A-Za-z0-9_,-]+){0,2}", code):
+            if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?::[A-Za-z0-9_,-]+){0,2}", code):
                 codes.append(code)
         return list(dict.fromkeys(codes))[:20]
 
