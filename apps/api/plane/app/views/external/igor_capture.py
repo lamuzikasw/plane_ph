@@ -2549,12 +2549,20 @@ class IgorCaptureMixin:
             }
             for code in provider_warning_codes
         ]
+        is_planned_large_decomposition = warning_code == "spec_large_source_backed_decomposition"
         quality_warnings.append(
             {
                 "code": warning_code,
                 "message": (
-                    "LLM не завершила этап после повторов. Игорь собрал проверяемый черновик "
-                    "только из исходных пунктов; задачи требуют ручной проверки перед созданием."
+                    (
+                        "Большое ТЗ собрано из обработанных пакетов без дополнительного долгого запроса. "
+                        "Все задачи связаны с исходными пунктами; проверьте их перед созданием."
+                    )
+                    if is_planned_large_decomposition
+                    else (
+                        "LLM не завершила этап после повторов. Игорь собрал проверяемый черновик "
+                        "только из исходных пунктов; задачи требуют ручной проверки перед созданием."
+                    )
                 ),
                 "source_ids": source_ids,
                 "task_ids": [task["id"] for task in repair["tasks"]],

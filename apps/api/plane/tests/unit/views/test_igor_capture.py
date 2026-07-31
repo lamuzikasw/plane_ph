@@ -3183,7 +3183,7 @@ def test_background_spec_fallback_failure_is_saved_instead_of_leaving_job_proces
 
 @pytest.mark.unit
 @pytest.mark.django_db
-def test_background_large_spec_uses_one_validation_driven_reduce_attempt(monkeypatch):
+def test_background_large_spec_uses_fast_source_backed_decomposition(monkeypatch):
     user, workspace, _project = _capture_workspace("capture-spec-large-reduce")
     endpoint = IgorChatEndpoint()
     monkeypatch.setattr(
@@ -3225,13 +3225,18 @@ def test_background_large_spec_uses_one_validation_driven_reduce_attempt(monkeyp
         }
     }
     cache.set(cache_key, job, timeout=endpoint.capture_job_timeout)
-    reduce_kwargs = []
+    fallback_warning_codes = []
 
-    def record_reduce(_self, *_args, **kwargs):
-        reduce_kwargs.append(kwargs)
+    def record_fallback(_self, *_args, **kwargs):
+        fallback_warning_codes.append(kwargs.get("warning_code"))
         return {"marker": "combined"}
 
-    monkeypatch.setattr(IgorChatEndpoint, "_get_llm_spec_reduce_strict", record_reduce)
+    monkeypatch.setattr(IgorChatEndpoint, "_fallback_spec_decomposition", record_fallback)
+    monkeypatch.setattr(
+        IgorChatEndpoint,
+        "_get_llm_spec_reduce_strict",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("large reducer must not be called")),
+    )
     monkeypatch.setattr(
         IgorChatEndpoint,
         "_assemble_capture_review",
@@ -3243,7 +3248,7 @@ def test_background_large_spec_uses_one_validation_driven_reduce_attempt(monkeyp
 
     saved = cache.get(cache_key)
     assert saved["status"] == "completed"
-    assert reduce_kwargs == [{"_attempt_limit": 1}]
+    assert fallback_warning_codes == ["spec_large_source_backed_decomposition"]
 
 
 @pytest.mark.unit

@@ -167,17 +167,25 @@ def _process_igor_capture_job(task, endpoint, workspace_id, user_id, job_id, cac
         try:
             mapped = [batch_results.get(str(index)) or {} for index in range(len(batches))]
             semantic_map = endpoint._normalize_spec_maps(mapped, units)
-            reduce_kwargs = {}
             if len(units) >= endpoint.capture_spec_large_reduce_unit_threshold:
-                reduce_kwargs["_attempt_limit"] = 1
-            combined = endpoint._get_llm_spec_reduce_strict(
-                units,
-                semantic_map,
-                projects,
-                user,
-                members,
-                **reduce_kwargs,
-            )
+                # The semantic-map batches have already interpreted every source
+                # unit. A second monolithic provider request adds minutes of
+                # latency for large documents and commonly exceeds the reducer's
+                # validation/context limits. Build the review deterministically
+                # from those saved packages instead.
+                combined = endpoint._fallback_spec_decomposition(
+                    units,
+                    semantic_map,
+                    warning_code="spec_large_source_backed_decomposition",
+                )
+            else:
+                combined = endpoint._get_llm_spec_reduce_strict(
+                    units,
+                    semantic_map,
+                    projects,
+                    user,
+                    members,
+                )
         except Exception as exception:
             error_code = endpoint._log_safe_failure("capture-job-reduce", exception)
             reduction_attempts = int(job.get("reduction_attempts") or 0) + 1
