@@ -1,4 +1,5 @@
 import type {
+  TIgorClarificationQuestion,
   TIgorCaptureProcessingWidget,
   TIgorChatContext,
   TIgorChatHistoryItem,
@@ -52,6 +53,30 @@ export const getIgorCaptureProcessingWidget = (response: TIgorChatResponse): TIg
 
 export const isIgorCaptureJobComplete = (response: TIgorChatResponse): boolean =>
   response.intent === "capture_review" && response.widgets.some((widget) => widget.type === "capture_review");
+
+export const getUnresolvedBlockingIgorClarifications = (
+  questions: TIgorClarificationQuestion[],
+  selectedTaskIds: string[],
+  projectAssignments: Record<string, string>,
+  assigneeAssignments: Record<string, string>,
+  targetDateAssignments: Record<string, string | null | undefined>
+): TIgorClarificationQuestion[] => {
+  const selectedTaskIdSet = new Set(selectedTaskIds);
+
+  return questions.filter((question) => {
+    if (!question.blocking) return false;
+    const scopedTaskIds =
+      question.related_task_ids.length > 0
+        ? question.related_task_ids.filter((taskId) => selectedTaskIdSet.has(taskId))
+        : selectedTaskIds;
+    if (scopedTaskIds.length === 0) return false;
+
+    if (question.kind === "project") return scopedTaskIds.some((taskId) => !projectAssignments[taskId]);
+    if (question.kind === "assignee") return scopedTaskIds.some((taskId) => !assigneeAssignments[taskId]);
+    if (question.kind === "deadline") return scopedTaskIds.some((taskId) => !targetDateAssignments[taskId]);
+    return true;
+  });
+};
 
 export const getIgorCapturePollDelay = (status?: TIgorCaptureProcessingWidget["status"], failed = false): number => {
   if (failed) return 5000;

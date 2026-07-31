@@ -53,6 +53,7 @@ import {
   getIgorLauncherPositionClassName,
   getIgorMessageLimit,
   getIgorRequestErrorMessage,
+  getUnresolvedBlockingIgorClarifications,
   IGOR_CAPTURE_MESSAGE_LENGTH,
   IGOR_COMPOSER_DEFAULT_HEIGHT,
   IGOR_COMPOSER_MAX_HEIGHT,
@@ -1460,21 +1461,33 @@ function IgorCaptureWidget({
   }, [widget]);
 
   const clarificationQuestions = widget.clarification_questions ?? [];
-  const clarificationsRequired = clarificationQuestions.length > 0;
+  const selectedTasks = widget.tasks.filter((task) => selectedTaskIds.has(task.id));
+  const unresolvedBlockingClarifications = getUnresolvedBlockingIgorClarifications(
+    clarificationQuestions,
+    selectedTasks.map((task) => task.id),
+    projectAssignments,
+    assigneeAssignments,
+    Object.fromEntries(selectedTasks.map((task) => [task.id, taskOverrides[task.id]?.target_date]))
+  );
+  const clarificationsRequired = unresolvedBlockingClarifications.length > 0;
   const canRefine =
     Boolean(widget.token) &&
-    clarificationsRequired &&
+    clarificationQuestions.length > 0 &&
     clarificationQuestions.every((question) => clarificationAnswers[question.id]?.trim());
-  const selectedTasks = widget.tasks.filter((task) => selectedTaskIds.has(task.id));
   const tasksWithoutProject = selectedTasks.filter((task) => !projectAssignments[task.id]);
+  const tasksWithIncompleteContent = selectedTasks.filter(
+    (task) => !taskOverrides[task.id]?.title.trim() || !taskOverrides[task.id]?.description.trim()
+  );
+  const parentIncomplete =
+    createParent && (!parentProjectId || !parentOverride.title.trim() || !parentOverride.description.trim());
   const canCreate =
     Boolean(widget.token) &&
     !isCreated &&
     !clarificationsRequired &&
     selectedTasks.length > 0 &&
     tasksWithoutProject.length === 0 &&
-    (!createParent || Boolean(parentProjectId && parentOverride.title.trim() && parentOverride.description.trim())) &&
-    selectedTasks.every((task) => taskOverrides[task.id]?.title.trim() && taskOverrides[task.id]?.description.trim());
+    !parentIncomplete &&
+    tasksWithIncompleteContent.length === 0;
 
   const toggleTask = (taskId: string) => {
     setSelectedTaskIds((current) => {
@@ -2217,6 +2230,22 @@ function IgorCaptureWidget({
             {tasksWithoutProject.length > 0 && (
               <div className="text-xs text-amber-600 mb-2">
                 Выбери проект ещё для {tasksWithoutProject.length} задач.
+              </div>
+            )}
+            {clarificationsRequired && (
+              <div className="text-xs text-amber-600 mb-2">
+                Заполни связанные поля или ответь на обязательные уточнения выше. Осталось:{" "}
+                {unresolvedBlockingClarifications.length}.
+              </div>
+            )}
+            {parentIncomplete && (
+              <div className="text-xs text-amber-600 mb-2">
+                Для рабочего пакета заполни проект, название и описание результата либо отключи родительскую задачу.
+              </div>
+            )}
+            {tasksWithIncompleteContent.length > 0 && (
+              <div className="text-xs text-amber-600 mb-2">
+                Заполни название и описание ещё для {tasksWithIncompleteContent.length} задач.
               </div>
             )}
             <button

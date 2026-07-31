@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { TIgorChatContext, TIgorChatResponse } from "@/services/ai.service";
+import type { TIgorClarificationQuestion, TIgorChatContext, TIgorChatResponse } from "@/services/ai.service";
 
 import {
   clampIgorComposerHeight,
@@ -11,6 +11,7 @@ import {
   getIgorLauncherPositionClassName,
   getIgorMessageLimit,
   getIgorRequestErrorMessage,
+  getUnresolvedBlockingIgorClarifications,
   IGOR_CAPTURE_MESSAGE_LENGTH,
   IGOR_COMPOSER_MAX_HEIGHT,
   IGOR_COMPOSER_MIN_HEIGHT,
@@ -61,6 +62,18 @@ const createResponse = (overrides: Partial<TIgorChatResponse> = {}): TIgorChatRe
   context: createContext({ intent: "capture_processing", period_label: null }),
   widgets: [],
   suggestions: [],
+  ...overrides,
+});
+
+const createClarificationQuestion = (overrides: Partial<TIgorClarificationQuestion>): TIgorClarificationQuestion => ({
+  id: "CQ1",
+  kind: "project",
+  question: "В какой проект создать задачи?",
+  reason: "Проект не указан в ТЗ.",
+  blocking: true,
+  source_ids: [],
+  related_task_ids: ["T1", "T2"],
+  answer_hint: "Выберите проект",
   ...overrides,
 });
 
@@ -260,5 +273,43 @@ describe("capture job recovery", () => {
         })
       )
     ).toBe(true);
+  });
+});
+
+describe("capture clarification readiness", () => {
+  it("treats a blocking project question as resolved after projects are assigned", () => {
+    const unresolved = getUnresolvedBlockingIgorClarifications(
+      [createClarificationQuestion({})],
+      ["T1", "T2"],
+      { T1: "project-1", T2: "project-1" },
+      {},
+      {}
+    );
+
+    expect(unresolved).toEqual([]);
+  });
+
+  it("does not block creation on optional assignee or deadline questions", () => {
+    const unresolved = getUnresolvedBlockingIgorClarifications(
+      [
+        createClarificationQuestion({ kind: "assignee", blocking: false }),
+        createClarificationQuestion({ id: "CQ2", kind: "deadline", blocking: false }),
+      ],
+      ["T1"],
+      { T1: "project-1" },
+      {},
+      {}
+    );
+
+    expect(unresolved).toEqual([]);
+  });
+
+  it("keeps an unresolved blocking ambiguity but ignores tasks that were not selected", () => {
+    const ambiguity = createClarificationQuestion({ kind: "ambiguity", related_task_ids: ["T1"] });
+    const unrelatedProject = createClarificationQuestion({ id: "CQ2", related_task_ids: ["T2"] });
+
+    expect(
+      getUnresolvedBlockingIgorClarifications([ambiguity, unrelatedProject], ["T1"], { T1: "project-1" }, {}, {})
+    ).toEqual([ambiguity]);
   });
 });
