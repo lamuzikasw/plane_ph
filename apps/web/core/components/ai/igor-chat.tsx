@@ -53,6 +53,7 @@ import {
   getIgorLauncherPositionClassName,
   getIgorMessageLimit,
   getIgorRequestErrorMessage,
+  getIgorSuggestionDraft,
   getUnresolvedBlockingIgorClarifications,
   IGOR_CAPTURE_MESSAGE_LENGTH,
   IGOR_COMPOSER_DEFAULT_HEIGHT,
@@ -699,16 +700,29 @@ export const IgorChat = observer(function IgorChat({ workspaceSlug }: Props) {
     askIgor(input);
   };
 
+  const draftIgorInput = (draft: string) => {
+    setInput(draft);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(draft.length, draft.length);
+    });
+  };
+
   const handleQuickAction = (action: TIgorQuickAction) => {
     if (action.mode === "ask") {
       askIgor(action.prompt);
       return;
     }
-    setInput(action.prompt);
-    window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(action.prompt.length, action.prompt.length);
-    });
+    draftIgorInput(action.prompt);
+  };
+
+  const handleSuggestion = (suggestion: string) => {
+    const draft = getIgorSuggestionDraft(suggestion);
+    if (draft) {
+      draftIgorInput(draft);
+      return;
+    }
+    askIgor(suggestion);
   };
 
   return (
@@ -896,7 +910,7 @@ export const IgorChat = observer(function IgorChat({ workspaceSlug }: Props) {
                   <button
                     key={suggestion}
                     type="button"
-                    onClick={() => askIgor(suggestion)}
+                    onClick={() => handleSuggestion(suggestion)}
                     disabled={isSubmitting}
                     className="text-xs shrink-0 rounded-full border border-subtle bg-surface-2 px-3 py-1.5 text-secondary transition hover:border-[#0b6ea8]/40 hover:bg-surface-1 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                   >

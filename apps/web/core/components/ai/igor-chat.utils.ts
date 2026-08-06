@@ -37,6 +37,14 @@ export const resolveIgorSuggestions = (
   initialSuggestions: string[]
 ): string[] => responseSuggestions ?? initialSuggestions;
 
+export const getIgorSuggestionDraft = (suggestion: string): string | null => {
+  const normalized = suggestion.trim().toLocaleLowerCase("ru-RU");
+  if (/^разбери (?:ещ[её] одно )?тз(?:\s|$)/.test(normalized)) return "Разбери ТЗ и предложи задачи:\n\n";
+  if (/^разбери заметки (?:встречи|со встречи)(?:\s|$)/.test(normalized))
+    return "Разбери заметки встречи и предложи задачи:\n\n";
+  return null;
+};
+
 export const getIgorMessageLimit = (message: string): number => {
   const isCaptureRequest =
     /разбер|обработ|структур|разлож|декомпоз|преврат|вытащ|выдел|предлож|поручен|договорен|задач.*из|\bтз\b|техническ.*задан|meeting notes|action items|turn this into tasks|categorize these notes|break down this (?:spec|prd)/i.test(

@@ -11,6 +11,7 @@ import {
   getIgorLauncherPositionClassName,
   getIgorMessageLimit,
   getIgorRequestErrorMessage,
+  getIgorSuggestionDraft,
   getUnresolvedBlockingIgorClarifications,
   IGOR_CAPTURE_MESSAGE_LENGTH,
   IGOR_COMPOSER_MAX_HEIGHT,
@@ -124,6 +125,25 @@ describe("resolveIgorSuggestions", () => {
 
   it("uses initial suggestions only when the API did not provide them", () => {
     expect(resolveIgorSuggestions(undefined, ["Собери мой summary"])).toEqual(["Собери мой summary"]);
+  });
+});
+
+describe("getIgorSuggestionDraft", () => {
+  it.each(["Разбери ещё одно ТЗ", "Разбери еще одно ТЗ", "Разбери ТЗ и предложи задачи"])(
+    "turns a specification action into an editable composer draft: %s",
+    (suggestion) => {
+      expect(getIgorSuggestionDraft(suggestion)).toBe("Разбери ТЗ и предложи задачи:\n\n");
+    }
+  );
+
+  it("turns a meeting-notes action into an editable composer draft", () => {
+    expect(getIgorSuggestionDraft("Разбери заметки встречи и предложи задачи")).toBe(
+      "Разбери заметки встречи и предложи задачи:\n\n"
+    );
+  });
+
+  it("keeps self-contained suggestions as immediate requests", () => {
+    expect(getIgorSuggestionDraft("Покажи мои просроченные задачи")).toBeNull();
   });
 });
 
