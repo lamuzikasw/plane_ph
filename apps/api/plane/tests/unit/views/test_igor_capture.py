@@ -1429,6 +1429,100 @@ def test_spec_fallback_splits_overloaded_deliverables_without_losing_sources():
     assert len({task["title"] for task in plan["tasks"]}) == 3
 
 
+def test_large_spec_fallback_preserves_explicit_author_parts_as_tasks():
+    endpoint = IgorChatEndpoint()
+    units = [
+        {
+            "id": "S1",
+            "kind": "paragraph",
+            "text": "Область реализации — только backend.",
+            "section_path": ["Общая информация"],
+        }
+    ]
+    facts = [
+        {
+            "id": "F1",
+            "kind": "functional_requirement",
+            "text": "Область реализации — только backend.",
+            "source_ids": ["S1"],
+        }
+    ]
+    source_index = 2
+    parts = [
+        "Часть 1. Общий JSON contract",
+        "Часть 2. Audit",
+        "Часть 3. Transactional outbox",
+        "Часть 4. Тестирование и приёмка",
+    ]
+
+    for part_index, part_title in enumerate(parts, start=1):
+        heading_id = f"S{source_index}"
+        units.append(
+            {
+                "id": heading_id,
+                "kind": "heading",
+                "text": part_title,
+                "section_path": [part_title],
+            }
+        )
+        facts.append(
+            {
+                "id": f"F{source_index}",
+                "kind": "metadata",
+                "text": part_title,
+                "source_ids": [heading_id],
+            }
+        )
+        source_index += 1
+        for requirement_index in range(1, 61):
+            source_id = f"S{source_index}"
+            text = f"Реализовать требование {requirement_index} части {part_index}."
+            units.append(
+                {
+                    "id": source_id,
+                    "kind": "paragraph",
+                    "text": text,
+                    "section_path": [part_title],
+                }
+            )
+            facts.append(
+                {
+                    "id": f"F{source_index}",
+                    "kind": "functional_requirement",
+                    "text": text,
+                    "source_ids": [source_id],
+                }
+            )
+            source_index += 1
+
+    semantic_map = {
+        "document_candidates": [
+            {
+                "type": "technical_spec",
+                "title": "0005_audit_and_outbox",
+                "goal": "Реализовать audit и transactional outbox",
+                "source_ids": ["S1"],
+            }
+        ],
+        "facts": facts,
+        "constraints": [],
+        "open_questions": [],
+        "contradictions": [],
+    }
+
+    plan = endpoint._fallback_spec_decomposition(units, semantic_map)
+
+    assert [task["title"] for task in plan["tasks"]] == [
+        "Реализовать часть 1: Общий JSON contract",
+        "Реализовать часть 2: Audit",
+        "Реализовать часть 3: Transactional outbox",
+        "Провести часть 4: Тестирование и приёмка",
+    ]
+    assert all("блок" not in task["title"].lower() for task in plan["tasks"])
+    assert all(len(task["source_ids"]) > endpoint.capture_spec_task_source_limit for task in plan["tasks"])
+    assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == []
+
+
 def test_spec_quality_allows_numbered_fallback_blocks_with_shared_traceability_sources():
     endpoint = IgorChatEndpoint()
     tasks = [

@@ -1789,6 +1789,18 @@ class IgorCaptureMixin:
 
     def _fallback_spec_repair_plan(self, units, semantic_map):
         unit_by_id = {str(unit["id"]): unit for unit in units}
+        major_sections, source_major_sections = self._fallback_spec_major_sections(units)
+
+        def fact_bucket(fact, unit):
+            fallback_bucket = self._fallback_spec_fact_bucket(fact, unit)
+            return self._fallback_spec_major_section_bucket(
+                fact,
+                unit,
+                major_sections,
+                source_major_sections,
+                fallback_bucket,
+            )
+
         facts = [copy.deepcopy(fact) for fact in semantic_map.get("facts") or [] if isinstance(fact, dict)]
         for constraint in semantic_map.get("constraints") or []:
             if not isinstance(constraint, dict) or constraint.get("kind") == "out_of_scope":
@@ -1862,7 +1874,7 @@ class IgorCaptureMixin:
                 )
                 acceptance_facts.append((fact, unit))
                 if self._fallback_spec_fact_is_task_material(fact, unit):
-                    bucket = self._fallback_spec_fact_bucket(fact, unit)
+                    bucket = fact_bucket(fact, unit)
                     grouped_facts.setdefault(bucket, []).append(fact)
                 continue
             if fact.get("kind") == "acceptance_criterion" or any(
@@ -1879,7 +1891,7 @@ class IgorCaptureMixin:
                 continue
             if not self._fallback_spec_fact_is_task_material(fact, unit):
                 continue
-            bucket = self._fallback_spec_fact_bucket(fact, unit)
+            bucket = fact_bucket(fact, unit)
             grouped_facts.setdefault(bucket, []).append(fact)
 
         grouped_facts = {
@@ -1906,7 +1918,7 @@ class IgorCaptureMixin:
                 copied = copy.deepcopy(fact)
                 refs = [str(source_id) for source_id in copied.get("source_ids") or []]
                 unit = self._fallback_spec_fact_unit(copied, unit_by_id)
-                bucket = self._fallback_spec_fact_bucket(copied, unit)
+                bucket = fact_bucket(copied, unit)
                 grouped_facts.setdefault(bucket, []).append(copied)
             grouped_facts = {
                 bucket: self._fallback_spec_unique_facts(bucket_facts)
@@ -1916,10 +1928,10 @@ class IgorCaptureMixin:
 
         # Acceptance criteria are traceability inputs, not standalone tasks.
         # Place them into the closest deliverable before chunking so their
-        # source ids remain covered without pushing any generated task above
-        # the deterministic quality limit.
+        # source ids remain covered. Unstructured fallback buckets are still
+        # chunked below the quality limit; explicit author parts remain intact.
         for fact, unit in acceptance_facts:
-            preferred_bucket = self._fallback_spec_fact_bucket(fact, unit)
+            preferred_bucket = fact_bucket(fact, unit)
             if preferred_bucket not in grouped_facts:
                 preferred_bucket = next(
                     (bucket for bucket in ("workflow", "core") if bucket in grouped_facts),
@@ -1952,10 +1964,17 @@ class IgorCaptureMixin:
             candidate for candidate in semantic_map.get("document_candidates") or [] if isinstance(candidate, dict)
         ]
         document_title = self._clean_capture_text((candidates[0] if candidates else {}).get("title"), 180)
+        ordered_buckets = [
+            *[key for key in major_sections if key in grouped_facts],
+            *[key for key in grouped_facts if key not in major_sections],
+        ]
         task_groups = [
             (bucket, chunk_index, chunks, chunk)
-            for bucket, bucket_facts in grouped_facts.items()
-            for chunks in [self._fallback_spec_fact_chunks(bucket_facts)]
+            for bucket in ordered_buckets
+            for bucket_facts in [grouped_facts[bucket]]
+            for chunks in [
+                [bucket_facts] if bucket in major_sections else self._fallback_spec_fact_chunks(bucket_facts)
+            ]
             for chunk_index, chunk in enumerate(chunks, start=1)
         ]
         tasks = []
@@ -1964,14 +1983,19 @@ class IgorCaptureMixin:
                 dict.fromkeys(str(source_id) for fact in facts for source_id in fact.get("source_ids") or [])
             )
             fact_ids = [str(fact.get("id")) for fact in facts if fact.get("id")]
-            title = self._fallback_spec_bucket_title(bucket, document_title)
+            major_section = major_sections.get(bucket)
+            title = (
+                self._fallback_spec_major_section_title(major_section)
+                if major_section
+                else self._fallback_spec_bucket_title(bucket, document_title)
+            )
             if len(chunks) > 1:
                 title = f"{title} — блок {chunk_index} из {len(chunks)}"
             chunk_source_ids = set(source_ids)
             bucket_acceptance_pairs = [
                 (fact, unit)
                 for fact, unit in acceptance_facts
-                if self._fallback_spec_fact_bucket(fact, unit) == bucket
+                if fact_bucket(fact, unit) == bucket
                 and chunk_source_ids.intersection(str(value) for value in fact.get("source_ids") or [])
             ]
             explicit_acceptance = [
@@ -2004,9 +2028,17 @@ class IgorCaptureMixin:
             tasks.append(
                 {
                     "id": task_id,
-                    "kind": self._fallback_spec_bucket_task_kind(bucket),
+                    "kind": (
+                        self._fallback_spec_major_section_task_kind(major_section)
+                        if major_section
+                        else self._fallback_spec_bucket_task_kind(bucket)
+                    ),
                     "title": title,
-                    "goal": self._fallback_spec_bucket_goal(bucket, document_title),
+                    "goal": (
+                        self._fallback_spec_major_section_goal(major_section)
+                        if major_section
+                        else self._fallback_spec_bucket_goal(bucket, document_title)
+                    ),
                     "description": "Что сделать:\n"
                     + "\n".join(f"- {line}" for line in self._fallback_spec_description_lines(facts)),
                     "acceptance_criteria": [
@@ -2030,6 +2062,7 @@ class IgorCaptureMixin:
                     "target_date": None,
                     "priority": "none",
                     "confidence": "low",
+                    **({"_allow_overloaded_source_ids": True} if major_section else {}),
                 }
             )
 
@@ -2427,6 +2460,125 @@ class IgorCaptureMixin:
         if any(marker in section_normalized for marker in ("тестирован", "тесты", "qa")):
             return "testing"
         return "core"
+
+    def _fallback_spec_major_sections(self, units):
+        """Find explicit top-level parts that the document author intended as deliverables."""
+        sections = {}
+        source_sections = {}
+        current_key = None
+
+        for unit in units:
+            if unit.get("kind") == "heading":
+                raw_title = self._clean_capture_text(unit.get("text"), 255).strip()
+                normalized_title = self._normalize_search(raw_title)
+                match = re.fullmatch(r"(?:часть|part)\s+(\d+)\s+(.+)", normalized_title)
+                if match:
+                    number = int(match.group(1))
+                    detail = re.sub(
+                        r"^\s*(?:часть|part)\s+\d+\s*[.):—-]*\s*",
+                        "",
+                        raw_title,
+                        flags=re.IGNORECASE,
+                    ).strip()
+                    current_key = f"major_section:{unit['id']}"
+                    sections[current_key] = {
+                        "key": current_key,
+                        "number": number,
+                        "title": raw_title,
+                        "detail": detail or raw_title,
+                        "normalized_detail": self._normalize_search(detail or raw_title),
+                    }
+            if current_key:
+                source_sections[str(unit["id"])] = current_key
+
+        numbers = [section["number"] for section in sections.values()]
+        if len(numbers) < 2 or numbers != sorted(numbers) or len(numbers) != len(set(numbers)):
+            return {}, {}
+        return sections, source_sections
+
+    def _fallback_spec_major_section_bucket(
+        self,
+        fact,
+        unit,
+        major_sections,
+        source_major_sections,
+        fallback_bucket,
+    ):
+        if not major_sections:
+            return fallback_bucket
+
+        referenced_sections = [
+            source_major_sections[str(source_id)]
+            for source_id in fact.get("source_ids") or []
+            if str(source_id) in source_major_sections
+        ]
+        if referenced_sections:
+            return max(
+                dict.fromkeys(referenced_sections),
+                key=lambda key: (referenced_sections.count(key), -list(major_sections).index(key)),
+            )
+
+        normalized = self._normalize_search(
+            " ".join(
+                [
+                    self._clean_capture_text(fact.get("text"), 1500),
+                    *(unit.get("section_path") or []),
+                    str(unit.get("section") or ""),
+                ]
+            )
+        )
+        domain_markers = {
+            "json": ("json", "snapshot", "utf", "nul", "mapping", "tuple", "scalar"),
+            "audit": (
+                "audit",
+                "authorization",
+                "permission",
+                "login",
+                "logout",
+                "bootstrap",
+                "security event",
+            ),
+            "outbox": ("outbox", "claim", "lease", "fencing", "relay", "deduplication", "published"),
+            "тест": ("тест", "pytest", "провер", "приемк", "definition of done", "openapi"),
+            "test": ("test", "pytest", "verification", "acceptance", "definition of done", "openapi"),
+        }
+        best_key = None
+        best_score = 0
+        for key, section in major_sections.items():
+            detail = section["normalized_detail"]
+            detail_terms = {
+                token
+                for token in detail.split()
+                if len(token) >= 3 and token not in {"часть", "part", "общий", "transactional"}
+            }
+            score = sum(3 for token in detail_terms if token in normalized)
+            for anchor, markers in domain_markers.items():
+                if anchor in detail:
+                    score += sum(2 for marker in markers if marker in normalized)
+            if score > best_score:
+                best_key = key
+                best_score = score
+        # Requirements before the first explicit part describe the whole
+        # document. Keep them inside the author's structure instead of
+        # inventing an extra generic task next to the numbered parts.
+        return best_key or next(iter(major_sections))
+
+    def _fallback_spec_major_section_title(self, section):
+        detail = section["detail"]
+        verb = "Провести" if self._fallback_spec_major_section_task_kind(section) == "testing" else "Реализовать"
+        return f"{verb} часть {section['number']}: {detail}"[:255]
+
+    def _fallback_spec_major_section_goal(self, section):
+        detail = section["detail"]
+        if self._fallback_spec_major_section_task_kind(section) == "testing":
+            return f"Подтвердить реализацию требованиями раздела «{detail}» и зафиксировать результат приёмки."
+        return f"Доставить самостоятельный результат, определённый разделом «{detail}»."
+
+    def _fallback_spec_major_section_task_kind(self, section):
+        normalized = section["normalized_detail"]
+        if any(marker in normalized for marker in ("тест", "test", "приемк", "acceptance", "definition of done")):
+            return "testing"
+        return "implementation"
 
     def _fallback_spec_bucket_title(self, bucket, document_title):
         title = document_title or "технического задания"
@@ -3337,7 +3489,9 @@ class IgorCaptureMixin:
                     partition_match.group(2) if partition_match else None,
                 )
             )
-            if len(set(task.get("source_ids") or [])) > self.capture_spec_task_source_limit:
+            if len(set(task.get("source_ids") or [])) > self.capture_spec_task_source_limit and not task.get(
+                "_allow_overloaded_source_ids"
+            ):
                 errors.append(f"{task_id}:overloaded_task")
             if (
                 len(normalized.split()) < 2
