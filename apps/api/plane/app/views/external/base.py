@@ -2824,32 +2824,62 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         if self._contains_secret_material(message):
             return True
         text = self._normalize_search(message)
-        return any(
-            marker in text
-            for marker in [
-                "api key",
-                "api ключ",
-                "ключ api",
-                "openai key",
-                "openai ключ",
-                "chatgpt key",
-                "chatgpt ключ",
-                "secret key",
-                "секретный ключ",
-                "секретного ключа",
-                "переменные окружения",
-                "переменных окружения",
-                "system prompt",
-                "системный промпт",
-                "системные инструкции",
-                "покажи пароль",
-                "выведи пароль",
-                "access token",
-                "токен доступа",
-                "покажи токен",
-                "выведи токен",
-            ]
+        secret_targets = (
+            "api key",
+            "api ключ",
+            "ключ api",
+            "openai key",
+            "openai ключ",
+            "chatgpt key",
+            "chatgpt ключ",
+            "secret key",
+            "секретный ключ",
+            "секретного ключа",
+            "environment variables",
+            "env vars",
+            "переменные окружения",
+            "переменных окружения",
+            "system prompt",
+            "system instructions",
+            "системный промпт",
+            "системные инструкции",
+            "password",
+            "пароль",
+            "server secret",
+            "server secrets",
+            "секрет сервера",
+            "секреты сервера",
+            "access token",
+            "token",
+            "токен доступа",
+            "токен",
         )
+        if not any(target in text for target in secret_targets):
+            return False
+
+        # Security terminology is common in technical specifications. Refuse
+        # only an actual request to disclose it, not a document that merely
+        # describes how keys, tokens, prompts, or environment variables work.
+        extraction_requests = (
+            r"\b(?:покажи|покажите|выведи|выведите|раскрой|раскройте|дай|дайте|пришли|пришлите|верни|верните)\b",
+            r"\b(?:какой|какие|где хранится|где лежит|как получить|как узнать)\b",
+            r"\b(?:show|reveal|print|output|dump|give|send|expose)\b",
+            r"\b(?:what is|what are|where is|where are|how (?:do i|to) get)\b",
+        )
+        segments = re.split(r"[\n\r.!?;]+", str(message or "").lower().replace("ё", "е"))
+        for segment in segments:
+            request_text = self._normalize_search(
+                re.sub(
+                    r"\b(?:do not|don't|never)\s+(?:show|reveal|print|output|dump|give|send|expose)\b",
+                    "",
+                    segment,
+                )
+            )
+            if any(target in request_text for target in secret_targets) and any(
+                re.search(pattern, request_text) for pattern in extraction_requests
+            ):
+                return True
+        return False
 
     def _contains_secret_material(self, value):
         text = str(value or "")
