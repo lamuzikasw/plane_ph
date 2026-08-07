@@ -9,12 +9,12 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from plane.app.permissions import WorkSpaceAdminPermission, WorkSpaceSuperAdminPermission
 from plane.app.views.analytic.advance import AdvanceAnalyticsEndpoint
 from plane.app.views.analytic.management import ManagementAnalyticsEndpoint
-from plane.app.views.issue.base import IssueBulkUpdateDateEndpoint
+from plane.app.views.issue.base import IssueBulkUpdateDateEndpoint, IssueViewSet
 from plane.app.views.issue.relation import IssueRelationViewSet
 from plane.app.views.project.member import ProjectMemberViewSet
 from plane.app.views.workspace.invite import WorkspaceInvitationsViewset
 from plane.app.views.workspace.member import WorkSpaceMemberViewSet
-from plane.db.models import Issue, Project, ProjectMember, State, WorkspaceMember
+from plane.db.models import Issue, IssueAssignee, Project, ProjectMember, State, WorkspaceMember
 from plane.tests.factories import UserFactory, WorkspaceFactory
 
 
@@ -77,6 +77,44 @@ def test_bulk_datetime_preserves_time_and_rejects_partial_unknown_id(monkeypatch
     assert response.status_code == 404
     issue.refresh_from_db()
     assert issue.target_date == old_target
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_og_can_drag_assigned_work_item_to_done_without_planning_fields(monkeypatch):
+    user, workspace, project, todo = _setup_project("og-completion")
+    WorkspaceMember.objects.filter(workspace=workspace, member=user).update(role=30)
+    done = State.objects.create(
+        workspace=workspace,
+        project=project,
+        name="Done",
+        group="completed",
+        color="#46A758",
+    )
+    issue = Issue.objects.create(project=project, state=todo, name="No deadline or priority")
+    IssueAssignee.objects.create(workspace=workspace, project=project, issue=issue, assignee=user)
+    monkeypatch.setattr("plane.app.views.issue.base.issue_activity.delay", lambda **_kwargs: None)
+    monkeypatch.setattr("plane.app.views.issue.base.model_activity.delay", lambda **_kwargs: None)
+    monkeypatch.setattr("plane.app.views.issue.base.issue_description_version_task.delay", lambda **_kwargs: None)
+
+    request = APIRequestFactory().patch(
+        "/work-items",
+        {"state_id": str(done.id)},
+        format="json",
+    )
+    force_authenticate(request, user=user)
+    response = IssueViewSet.as_view({"patch": "partial_update"})(
+        request,
+        slug=workspace.slug,
+        project_id=project.id,
+        pk=issue.id,
+    )
+
+    assert response.status_code == 204
+    issue.refresh_from_db()
+    assert issue.state_id == done.id
+    assert issue.target_date is None
+    assert issue.priority == "none"
 
 
 @pytest.mark.unit

@@ -31,7 +31,10 @@ from plane.db.models import (
 )
 from plane.db.models.issue import IssueAttachment
 from plane.utils.uuid import convert_uuid_to_integer
-from plane.utils.issue_completion import ensure_completion_requirements
+from plane.utils.issue_completion import (
+    completion_optional_fields_for_actor,
+    ensure_completion_requirements,
+)
 
 
 class IssueMoveConflict(Exception):
@@ -79,6 +82,10 @@ def move_issue_to_project(*, issue, target_project, target_state, actor):
         has_assignee=has_target_assignee,
         target_date=issue.target_date,
         priority=issue.priority,
+        optional_fields=completion_optional_fields_for_actor(
+            actor=actor,
+            workspace_id=target_project.workspace_id,
+        ),
     )
 
     # Project-specific planning metadata cannot be carried across projects.
@@ -114,8 +121,10 @@ def move_issue_to_project(*, issue, target_project, target_state, actor):
         model.objects.filter(issue=issue).update(**common_update)
 
     comment_ids = IssueComment.objects.filter(issue=issue).values_list("id", flat=True)
-    description_ids = IssueComment.objects.filter(issue=issue).exclude(description_id__isnull=True).values_list(
-        "description_id", flat=True
+    description_ids = (
+        IssueComment.objects.filter(issue=issue)
+        .exclude(description_id__isnull=True)
+        .values_list("description_id", flat=True)
     )
     Description.objects.filter(id__in=description_ids).update(**common_update)
     CommentReaction.objects.filter(comment_id__in=comment_ids).update(**common_update)

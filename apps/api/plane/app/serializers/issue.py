@@ -49,6 +49,7 @@ from plane.utils.content_validator import (
 )
 from plane.utils.issue_completion import (
     IssueCompletionRequirementsError,
+    completion_optional_fields_for_actor,
     ensure_completion_requirements,
 )
 
@@ -213,6 +214,10 @@ class IssueCreateSerializer(BaseSerializer):
                     has_assignee=has_assignee,
                     target_date=attrs.get("target_date", getattr(self.instance, "target_date", None)),
                     priority=attrs.get("priority", getattr(self.instance, "priority", None)),
+                    optional_fields=completion_optional_fields_for_actor(
+                        actor=self.context.get("actor"),
+                        workspace_id=self.context.get("workspace_id"),
+                    ),
                 )
             except IssueCompletionRequirementsError as exc:
                 raise serializers.ValidationError(exc.response_data)

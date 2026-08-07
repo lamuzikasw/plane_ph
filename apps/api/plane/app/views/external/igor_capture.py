@@ -4978,6 +4978,7 @@ class IgorCaptureMixin:
                 "project_id": str(project.id),
                 "workspace_id": str(workspace.id),
                 "default_assignee_id": project.default_assignee_id,
+                "actor": request.user,
             },
         )
         serializer.is_valid(raise_exception=True)
