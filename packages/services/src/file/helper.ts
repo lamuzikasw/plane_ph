@@ -82,6 +82,19 @@ const detectMimeTypeFromSignature = async (file: File): Promise<string> => {
 };
 
 /**
+ * Text formats such as HTML do not have a binary signature that `file-type`
+ * can detect. Keep the fallback deliberately narrow instead of trusting the
+ * browser-provided MIME type for every unknown file.
+ */
+const detectMimeTypeFromExtension = (filename: string): string => {
+  const extension = filename.split(".").pop()?.toLowerCase();
+
+  if (extension === "html" || extension === "htm") return "text/html";
+
+  return "";
+};
+
+/**
  * @description Validate and detect the MIME type of a file using signature detection
  * Also performs basic security checks on filename
  * @param {File} file
@@ -99,12 +112,13 @@ const validateAndDetectFileType = async (file: File): Promise<string> => {
     if (signatureType) {
       return signatureType;
     }
+
+    return detectMimeTypeFromExtension(file.name);
   } catch (_error) {
     console.warn("Error detecting file type from signature:", _error);
   }
 
-  // fallback for unknown files
-  return "";
+  return detectMimeTypeFromExtension(file.name);
 };
 
 /**

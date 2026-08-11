@@ -546,6 +546,12 @@ ATTACHMENT_MIME_TYPES = [
     "text/markdown",
 ]
 
+# Work item attachments are always served through an authenticated endpoint
+# that forces ``Content-Disposition: attachment``. HTML is therefore safe to
+# support there without enabling it for generic/editor assets that may be
+# rendered inline.
+ISSUE_ATTACHMENT_MIME_TYPES = [*ATTACHMENT_MIME_TYPES, "text/html"]
+
 # Seed directory path
 SEED_DIR = os.path.join(BASE_DIR, "seeds")
 
