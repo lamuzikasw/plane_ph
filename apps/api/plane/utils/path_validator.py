@@ -51,6 +51,20 @@ def sanitize_filename(filename):
     return filename
 
 
+def resolve_issue_attachment_content_type(filename, content_type):
+    """Resolve MIME types that browsers cannot reliably detect.
+
+    HTML has no binary signature, so older or cached clients can submit an
+    empty MIME type. Work item attachments are downloaded with
+    ``Content-Disposition: attachment``, making an extension-based fallback
+    appropriate for this specific upload flow.
+    """
+    extension = os.path.splitext(filename or "")[1].lower()
+    if extension in {".html", ".htm"}:
+        return "text/html"
+    return content_type
+
+
 def _contains_suspicious_patterns(path: str) -> bool:
     """
     Check for suspicious patterns that might indicate malicious intent.

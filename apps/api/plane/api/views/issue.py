@@ -80,7 +80,7 @@ from plane.db.models import (
     Workspace,
 )
 from plane.settings.storage import S3Storage
-from plane.utils.path_validator import sanitize_filename
+from plane.utils.path_validator import resolve_issue_attachment_content_type, sanitize_filename
 from plane.utils.order_queryset import ACTIVITY_ORDER_BY_ALLOWLIST, sanitize_order_by
 from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
 from .base import BaseAPIView
@@ -1971,7 +1971,7 @@ class IssueAttachmentListCreateAPIEndpoint(BaseAPIView):
             )
 
         name = sanitize_filename(request.data.get("name"))
-        type = request.data.get("type", False)
+        type = resolve_issue_attachment_content_type(name, request.data.get("type", False))
         size = request.data.get("size")
         external_id = request.data.get("external_id")
         external_source = request.data.get("external_source")
