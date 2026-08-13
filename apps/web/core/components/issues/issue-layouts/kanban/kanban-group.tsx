@@ -314,16 +314,6 @@ export const KanbanGroup = observer(function KanbanGroup(props: IKanbanGroup) {
         isEpic={isEpic}
       />
 
-      {issueIds.length === 0 && groupIssueCount === 0 && !isPaginating && (
-        <div className="payholder-kanban-empty-state">
-          <span className="payholder-kanban-empty-state-mark" aria-hidden="true">
-            ✶
-          </span>
-          <p className="payholder-kanban-empty-state-title">Свободно</p>
-          <p className="payholder-kanban-empty-state-copy">Перетащите задачу сюда или создайте новую.</p>
-        </div>
-      )}
-
       {shouldLoadMore &&
         (isSubGroup ? (
           <>{loadMore}</>

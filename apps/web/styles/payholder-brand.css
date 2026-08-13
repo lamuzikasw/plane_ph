@@ -6,11 +6,6 @@
   font-display: swap;
 }
 
-/* Branded preview-only content stays out of every regular Plane project. */
-.payholder-kanban-empty-state {
-  display: none;
-}
-
 @font-face {
   font-family: "PayHolder Inter Tight";
   src: url("/fonts/payholder/inter-tight-variable.ttf") format("truetype");
@@ -406,51 +401,6 @@ html[data-brand-theme="payholder"] .payholder-kanban-column-body {
   padding-inline: 0.5rem;
 }
 
-html[data-brand-theme="payholder"] .payholder-kanban-empty-state {
-  display: flex;
-  min-height: 14rem;
-  margin: 0.75rem 0.25rem;
-  padding: 2rem 1.5rem;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  border: 1px dashed var(--ph-blue-300);
-  border-radius: var(--ph-card-radius);
-  color: var(--ph-color-text-secondary);
-  background: rgb(255 255 255 / 58%);
-  text-align: center;
-  backdrop-filter: blur(5px);
-}
-
-html[data-brand-theme="payholder"] .payholder-kanban-empty-state-mark {
-  display: grid;
-  width: 2.4rem;
-  height: 2.4rem;
-  margin-bottom: 0.75rem;
-  place-items: center;
-  border: 1px solid var(--ph-blue-300);
-  border-radius: 50%;
-  color: var(--ph-color-action);
-  background: var(--ph-blue-50);
-  font-family: var(--ph-font-display);
-  font-size: 1rem;
-}
-
-html[data-brand-theme="payholder"] .payholder-kanban-empty-state-title {
-  color: var(--ph-color-text);
-  font-family: var(--ph-font-display);
-  font-size: 0.9rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-html[data-brand-theme="payholder"] .payholder-kanban-empty-state-copy {
-  max-width: 14rem;
-  margin-top: 0.35rem;
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
 html[data-brand-theme="payholder"] .payholder-kanban-quick-add-root {
   padding: 0.25rem;
   background: transparent;
@@ -678,10 +628,6 @@ html[data-brand-theme="payholder"][data-theme*="dark"] .payholder-kanban-canvas 
 
 html[data-brand-theme="payholder"][data-theme*="dark"] .payholder-kanban-column-header > div {
   background: rgb(38 38 38 / 94%);
-}
-
-html[data-brand-theme="payholder"][data-theme*="dark"] .payholder-kanban-empty-state {
-  background: rgb(38 38 38 / 66%);
 }
 
 html[data-brand-theme="payholder"][data-theme*="dark"] .payholder-header-layout-control > div,
