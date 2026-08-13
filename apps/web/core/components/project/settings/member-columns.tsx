@@ -77,12 +77,7 @@ export const NameColumn = observer(function NameColumn(props: NameProps) {
           {first_name} {last_name}
         </div>
         {(canRemoveMember || canLeaveProject) && (
-          <CustomMenu
-            ellipsis
-            buttonClassName="p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-            optionsClassName="p-1.5"
-            placement="bottom-end"
-          >
+          <CustomMenu ellipsis buttonClassName="p-0.5" optionsClassName="p-1.5" placement="bottom-end">
             <CustomMenu.MenuItem
               className="flex cursor-pointer items-center gap-x-1 font-medium text-danger-primary"
               data-ph-element={MEMBER_TRACKER_ELEMENTS.PROJECT_MEMBER_TABLE_CONTEXT_MENU}
