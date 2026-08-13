@@ -10,6 +10,7 @@ import { renderFormattedPayloadDateTime } from "@plane/utils";
 import {
   applyTimeInputToDate,
   getSynchronizedTimeInputValue,
+  isDateTimeRangeChronological,
   isValidTimeInput,
   mergeDateAndTime,
 } from "./date-time-input.utils";
@@ -82,6 +83,15 @@ describe("date time input helpers", () => {
     expect(start).toEqual(new Date(2026, 7, 13, 10, 0, 0, 0));
     expect(due).toEqual(new Date(2026, 7, 13, 23, 59, 0, 0));
     expect(due.getTime()).toBeGreaterThanOrEqual(start.getTime());
+  });
+
+  it("rejects a due time earlier than the start time on the same day", () => {
+    expect(isDateTimeRangeChronological(new Date(2026, 7, 13, 10, 0), new Date(2026, 7, 13, 9, 59))).toBe(false);
+    expect(isDateTimeRangeChronological(new Date(2026, 7, 13, 10, 0), new Date(2026, 7, 13, 10, 0))).toBe(true);
+  });
+
+  it("accepts any due time on a later calendar day", () => {
+    expect(isDateTimeRangeChronological(new Date(2026, 7, 13, 23, 59), new Date(2026, 7, 14, 0, 0))).toBe(true);
   });
 
   it("does not overwrite a focused native time input during segmented typing", () => {

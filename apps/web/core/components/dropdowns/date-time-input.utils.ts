@@ -46,3 +46,6 @@ export const mergeDateAndTime = (date: Date, timeSource?: Date, defaultTime: TDe
   updatedDate.setHours(timeSource?.getHours() ?? defaultHours, timeSource?.getMinutes() ?? defaultMinutes, 0, 0);
   return updatedDate;
 };
+
+export const isDateTimeRangeChronological = (start?: Date, end?: Date): boolean =>
+  !start || !end || end.getTime() >= start.getTime();

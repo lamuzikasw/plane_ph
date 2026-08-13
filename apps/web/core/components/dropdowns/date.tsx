@@ -6,15 +6,18 @@
 
 /* eslint-disable jsx-a11y/no-static-element-interactions -- ComboDropDown owns the keyboard interaction contract. */
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { createPortal } from "react-dom";
 import { usePopper } from "react-popper";
 import { CalendarDays, Clock } from "lucide-react";
 import { Combobox } from "@headlessui/react";
+// plane imports
+import { useTranslation } from "@plane/i18n";
 // ui
 import type { Matcher } from "@plane/propel/calendar";
 import { Calendar } from "@plane/propel/calendar";
+import { Button } from "@plane/propel/button";
 import { CloseIcon } from "@plane/propel/icons";
 import { ComboDropDown } from "@plane/ui";
 import { cn, renderFormattedDate, getDate, getDateTime } from "@plane/utils";
@@ -52,6 +55,7 @@ type Props = TDropdownProps & {
 };
 
 export const DateDropdown = observer(function DateDropdown(props: Props) {
+  const { t } = useTranslation();
   const {
     buttonClassName = "",
     buttonContainerClassName,
@@ -82,6 +86,7 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
   } = props;
   // states
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [draftDate, setDraftDate] = useState<Date>();
   // refs
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   // hooks
@@ -105,19 +110,34 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
 
   const isDateSelected = value && value.toString().trim() !== "";
 
+  const selectedDate = useMemo(() => (includeTime ? getDateTime(value) : getDate(value)), [includeTime, value]);
+  const selectedTimestamp = selectedDate?.getTime();
+
+  const resetDraft = () => {
+    setDraftDate(selectedDate ? new Date(selectedDate) : undefined);
+  };
+
+  const handleDropdownClose = () => {
+    resetDraft();
+    onClose?.();
+  };
+
   const onOpen = () => {
+    resetDraft();
     if (referenceElement) referenceElement.focus();
   };
 
   const { handleClose, handleKeyDown, handleOnClick } = useDropdown({
     dropdownRef,
     isOpen,
-    onClose,
+    onClose: handleDropdownClose,
     onOpen,
     setIsOpen,
   });
 
-  const selectedDate = useMemo(() => (includeTime ? getDateTime(value) : getDate(value)), [includeTime, value]);
+  useEffect(() => {
+    setDraftDate(selectedTimestamp === undefined ? undefined : new Date(selectedTimestamp));
+  }, [selectedTimestamp]);
 
   const getLabel = (date: Date | string | null | undefined) => {
     if (!date) return undefined;
@@ -139,11 +159,18 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
   };
 
   const handleTimeChange = (time: string) => {
-    if (!selectedDate) return;
+    if (!draftDate) return;
 
-    // The dropdown portal can unmount before blur fires, so persist a complete value immediately.
-    const updatedDate = applyTimeInputToDate(selectedDate, time);
-    if (updatedDate) dropdownOnChange(updatedDate, false);
+    const updatedDate = applyTimeInputToDate(draftDate, time);
+    if (updatedDate) setDraftDate(updatedDate);
+  };
+
+  const applyDateTime = () => {
+    if (!draftDate) return;
+    onChange(draftDate);
+    setIsOpen(false);
+    onClose?.();
+    referenceElement?.blur();
   };
 
   const disabledDays: Matcher[] = [];
@@ -224,12 +251,15 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
               <Calendar
                 className="rounded-md border border-subtle p-3"
                 captionLayout="dropdown"
-                selected={selectedDate}
-                defaultMonth={selectedDate}
+                selected={includeTime ? draftDate : selectedDate}
+                defaultMonth={includeTime ? draftDate : selectedDate}
                 onSelect={(date: Date | undefined) => {
-                  dropdownOnChange(
-                    date ? (includeTime ? mergeDateAndTime(date, selectedDate, defaultTime) : date) : null
-                  );
+                  if (!includeTime) {
+                    dropdownOnChange(date ?? null);
+                    return;
+                  }
+
+                  setDraftDate(date ? mergeDateAndTime(date, draftDate ?? selectedDate, defaultTime) : undefined);
                 }}
                 showOutsideDays
                 initialFocus
@@ -243,11 +273,22 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
                   <Clock className="h-3.5 w-3.5 flex-shrink-0 text-secondary" />
                   <TimeInput
                     ariaLabel="Time"
-                    date={selectedDate}
+                    date={draftDate}
+                    focusWhenEnabled={!!draftDate}
                     onValidTimeChange={handleTimeChange}
-                    disabled={!selectedDate}
+                    disabled={!draftDate}
                     className="focus:border-custom-primary-100 h-7 rounded border-[0.5px] border-strong bg-transparent px-2 text-body-xs-regular outline-none disabled:cursor-not-allowed disabled:text-placeholder"
                   />
+                </div>
+              )}
+              {includeTime && (
+                <div className="flex items-center justify-end gap-2 border-t border-subtle px-3 py-2">
+                  <Button variant="secondary" size="sm" onClick={handleClose}>
+                    {t("common.cancel")}
+                  </Button>
+                  <Button variant="primary" size="sm" onClick={applyDateTime} disabled={!draftDate}>
+                    {t("common.apply")}
+                  </Button>
                 </div>
               )}
             </div>

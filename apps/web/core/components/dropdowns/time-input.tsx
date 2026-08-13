@@ -13,6 +13,7 @@ type Props = {
   className?: string;
   date?: Date;
   disabled?: boolean;
+  focusWhenEnabled?: boolean;
   onValidTimeChange: (time: string) => void;
 };
 
@@ -29,7 +30,7 @@ const stopInputEventPropagation = (event: React.SyntheticEvent<HTMLInputElement>
  * changes while the field is not focused. Complete values are still persisted
  * immediately, so closing a portal cannot lose a time change.
  */
-export const TimeInput = ({ ariaLabel, className, date, disabled, onValidTimeChange }: Props) => {
+export const TimeInput = ({ ariaLabel, className, date, disabled, focusWhenEnabled, onValidTimeChange }: Props) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const externalValue = getTimeInputValue(date);
   const lastValidValueRef = useRef(externalValue);
@@ -42,6 +43,10 @@ export const TimeInput = ({ ariaLabel, className, date, disabled, onValidTimeCha
       input.value = getSynchronizedTimeInputValue(input.value, externalValue, document.activeElement === input);
     }
   }, [externalValue]);
+
+  useEffect(() => {
+    if (focusWhenEnabled && !disabled) inputRef.current?.focus();
+  }, [disabled, focusWhenEnabled]);
 
   return (
     <input

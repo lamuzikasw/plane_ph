@@ -18,6 +18,7 @@ import { useTranslation } from "@plane/i18n";
 // ui
 import type { DateRange, Matcher } from "@plane/propel/calendar";
 import { Calendar } from "@plane/propel/calendar";
+import { Button } from "@plane/propel/button";
 import { CloseIcon, DueDatePropertyIcon } from "@plane/propel/icons";
 import { ComboDropDown } from "@plane/ui";
 import { cn, renderFormattedDate } from "@plane/utils";
@@ -28,7 +29,7 @@ import { useDropdown } from "@/hooks/use-dropdown";
 // components
 import { DropdownButton } from "./buttons";
 import { MergedDateDisplay } from "./merged-date";
-import { applyTimeInputToDate, mergeDateAndTime } from "./date-time-input.utils";
+import { applyTimeInputToDate, isDateTimeRangeChronological, mergeDateAndTime } from "./date-time-input.utils";
 import { TimeInput } from "./time-input";
 // types
 import type { TButtonVariants } from "./types";
@@ -83,6 +84,8 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
     buttonFromDateClassName,
     buttonToDateClassName,
     buttonVariant,
+    applyButtonText = t("common.apply"),
+    cancelButtonText = t("common.cancel"),
     className,
     clearIconClassName = "",
     disabled = false,
@@ -137,13 +140,22 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
     ],
   });
 
+  const resetDraft = () => {
+    setDateRange({
+      from: fromTimestamp === undefined ? undefined : new Date(fromTimestamp),
+      to: toTimestamp === undefined ? undefined : new Date(toTimestamp),
+    });
+  };
+
   const onOpen = () => {
+    resetDraft();
     if (referenceElement) referenceElement.focus();
   };
 
-  const { handleKeyDown, handleOnClick } = useDropdown({
+  const { handleClose, handleKeyDown, handleOnClick } = useDropdown({
     dropdownRef,
     isOpen,
+    onClose: resetDraft,
     onOpen,
     setIsOpen,
   });
@@ -170,7 +182,7 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
     };
 
     setDateRange(updatedRange);
-    onSelect?.(updatedRange);
+    if (!includeTime) onSelect?.(updatedRange);
   };
 
   const handleTimeChange = (key: "from" | "to", time: string) => {
@@ -183,7 +195,15 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
 
     const updatedRange = { ...dateRange, [key]: updatedDate };
     setDateRange(updatedRange);
-    onSelect?.(updatedRange);
+  };
+
+  const isChronological = isDateTimeRangeChronological(dateRange.from, dateRange.to);
+
+  const applyDateTimeRange = () => {
+    if (!isChronological) return;
+    onSelect?.(dateRange);
+    setIsOpen(false);
+    referenceElement?.blur();
   };
 
   useEffect(() => {
@@ -331,28 +351,45 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
           initialFocus
         />
         {includeTime && (
-          <div className="grid grid-cols-2 gap-2 border-t border-subtle px-3 py-2">
-            <div className="flex items-center gap-2 text-body-xs-regular text-secondary">
-              <Clock className="h-3.5 w-3.5 flex-shrink-0" />
-              <TimeInput
-                ariaLabel="Start time"
-                date={dateRange.from}
-                onValidTimeChange={(time) => handleTimeChange("from", time)}
-                disabled={!dateRange.from}
-                className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
-              />
+          <>
+            <div className="grid grid-cols-2 gap-2 border-t border-subtle px-3 py-2">
+              <div className="flex items-center gap-2 text-body-xs-regular text-secondary">
+                <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+                <TimeInput
+                  ariaLabel="Start time"
+                  date={dateRange.from}
+                  focusWhenEnabled={!!dateRange.from && !dateRange.to}
+                  onValidTimeChange={(time) => handleTimeChange("from", time)}
+                  disabled={!dateRange.from}
+                  className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
+                />
+              </div>
+              <div className="flex items-center gap-2 text-body-xs-regular text-secondary">
+                <ArrowRight className="h-3.5 w-3.5 flex-shrink-0" />
+                <TimeInput
+                  ariaLabel="End time"
+                  date={dateRange.to}
+                  focusWhenEnabled={!!dateRange.to}
+                  onValidTimeChange={(time) => handleTimeChange("to", time)}
+                  disabled={!dateRange.to}
+                  className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-body-xs-regular text-secondary">
-              <ArrowRight className="h-3.5 w-3.5 flex-shrink-0" />
-              <TimeInput
-                ariaLabel="End time"
-                date={dateRange.to}
-                onValidTimeChange={(time) => handleTimeChange("to", time)}
-                disabled={!dateRange.to}
-                className="focus:border-custom-primary-100 min-w-0 flex-1 rounded border-[0.5px] border-strong bg-transparent px-2 py-1 text-body-xs-regular text-primary outline-none disabled:cursor-not-allowed disabled:text-placeholder"
-              />
+            {!isChronological && (
+              <p className="px-3 pb-2 text-body-xs-regular text-danger-primary">
+                End time must not be earlier than start time.
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-2 border-t border-subtle px-3 py-2">
+              <Button variant="secondary" size="sm" onClick={handleClose}>
+                {cancelButtonText}
+              </Button>
+              <Button variant="primary" size="sm" onClick={applyDateTimeRange} disabled={!isChronological}>
+                {applyButtonText}
+              </Button>
             </div>
-          </div>
+          </>
         )}
       </div>
     </Combobox.Options>
