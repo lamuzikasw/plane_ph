@@ -33,6 +33,7 @@ from .user.base import (
 
 
 from .base import BaseAPIView, BaseViewSet
+from .recurring_issue import RecurringIssueScheduleViewSet
 
 from .workspace.base import (
     WorkSpaceViewSet,

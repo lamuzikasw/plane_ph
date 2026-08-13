@@ -350,6 +350,7 @@ CELERY_IMPORTS = (
     "plane.bgtasks.issue_description_version_sync",
     # Igor large specification processing
     "plane.bgtasks.igor_capture_task",
+    "plane.bgtasks.recurring_issue_task",
 )
 
 FILE_SIZE_LIMIT = int(os.environ.get("FILE_SIZE_LIMIT", 5242880))

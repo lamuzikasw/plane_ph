@@ -83,6 +83,8 @@ from .issue_type import IssueType
 
 from .recent_visit import UserRecentVisit
 
+from .recurring_issue import RecurringIssueOccurrence, RecurringIssueSchedule
+
 from .label import Label
 
 from .device import Device, DeviceSession

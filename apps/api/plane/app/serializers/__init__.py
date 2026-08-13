@@ -135,3 +135,5 @@ from .draft import (
     DraftIssueSerializer,
     DraftIssueDetailSerializer,
 )
+
+from .recurring_issue import RecurringIssueScheduleSerializer
