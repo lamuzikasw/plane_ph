@@ -481,6 +481,7 @@
     "general": "General",
     "features": "Features",
     "automation": "Automation",
+    "project_settings": "Project settings",
     "project_name": "Project name",
     "project_id": "Project ID",
     "project_timezone": "Project Timezone",

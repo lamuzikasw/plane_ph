@@ -20,6 +20,7 @@
     },
     "members": {
       "label": "Members",
+      "guest_access": "Guest access",
       "project_lead": "Project lead",
       "project_lead_description": "Select the project lead for the project.",
       "default_assignee": "Default assignee",
