@@ -4,6 +4,7 @@ import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { TRecurringFrequency, TRecurringWorkItem, TRecurringWorkItemPayload } from "@plane/types";
 import { Button, EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 import { recurringWorkItemService } from "@/services/recurring-work-item.service";
+import { normalizeBoundedIntegerInput, parseBoundedIntegerInput } from "./schedule-modal.utils";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
@@ -58,45 +59,53 @@ export function RecurringWorkItemScheduleModal(props: Props) {
   const { isOpen, workspaceSlug, projectId, sourceIssueId, sourceIssueName, schedule, onClose, onSaved } = props;
   const [isSaving, setIsSaving] = useState(false);
   const [frequency, setFrequency] = useState<TRecurringFrequency>("daily");
-  const [interval, setInterval] = useState(1);
+  const [interval, setInterval] = useState("1");
   const [weekdays, setWeekdays] = useState<number[]>([0, 1, 2, 3, 4]);
   const [startDate, setStartDate] = useState(localDateValue(new Date()));
   const [endDate, setEndDate] = useState("");
   const [runTime, setRunTime] = useState("09:00");
-  const [dueOffsetDays, setDueOffsetDays] = useState(0);
+  const [dueOffsetDays, setDueOffsetDays] = useState("0");
   const [dueTime, setDueTime] = useState("18:00");
 
   useEffect(() => {
     if (!isOpen) return;
     setFrequency(schedule?.frequency ?? "daily");
-    setInterval(schedule?.interval ?? 1);
+    setInterval(String(schedule?.interval ?? 1));
     setWeekdays(schedule?.weekdays?.length ? schedule.weekdays : [0, 1, 2, 3, 4]);
     setStartDate(schedule?.start_date ?? localDateValue(new Date()));
     setEndDate(schedule?.end_date ?? "");
     setRunTime(schedule?.run_time?.slice(0, 5) ?? "09:00");
-    setDueOffsetDays(schedule?.due_offset_days ?? 0);
+    setDueOffsetDays(String(schedule?.due_offset_days ?? 0));
     setDueTime(schedule?.due_time?.slice(0, 5) ?? "18:00");
   }, [isOpen, schedule]);
 
+  const parsedInterval = parseBoundedIntegerInput(interval, 1, 365);
+  const parsedDueOffsetDays = parseBoundedIntegerInput(dueOffsetDays, 0, 365);
   const payload = useMemo<TRecurringWorkItemPayload>(
     () => ({
       source_issue_id: sourceIssueId,
       frequency,
-      interval,
+      interval: parsedInterval ?? 0,
       weekdays: frequency === "weekly" ? weekdays : [],
       start_date: startDate,
       end_date: endDate || null,
       run_time: runTime,
-      due_offset_days: dueOffsetDays,
+      due_offset_days: parsedDueOffsetDays ?? 0,
       due_time: dueTime,
       is_active: true,
     }),
-    [dueOffsetDays, dueTime, endDate, frequency, interval, runTime, sourceIssueId, startDate, weekdays]
+    [dueTime, endDate, frequency, parsedDueOffsetDays, parsedInterval, runTime, sourceIssueId, startDate, weekdays]
   );
   const previewDates = useMemo(() => getPreviewDates(payload), [payload]);
-  const hasValidDueTime = dueOffsetDays > 0 || dueTime >= runTime;
+  const hasValidDueTime = parsedDueOffsetDays !== null && (parsedDueOffsetDays > 0 || dueTime >= runTime);
   const isValid = Boolean(
-    startDate && runTime && dueTime && interval > 0 && hasValidDueTime && (frequency === "daily" || weekdays.length)
+    startDate &&
+    runTime &&
+    dueTime &&
+    parsedInterval !== null &&
+    parsedDueOffsetDays !== null &&
+    hasValidDueTime &&
+    (frequency === "daily" || weekdays.length)
   );
 
   const handleSave = async () => {
@@ -229,7 +238,8 @@ export function RecurringWorkItemScheduleModal(props: Props) {
                     min={1}
                     max={365}
                     value={interval}
-                    onChange={(event) => setInterval(Math.max(1, Number(event.target.value)))}
+                    onChange={(event) => setInterval(event.target.value)}
+                    onBlur={() => setInterval((value) => normalizeBoundedIntegerInput(value, 1, 1, 365))}
                   />
                   <span className="text-body-xs-regular text-tertiary">{frequency === "daily" ? "дн." : "нед."}</span>
                 </div>
@@ -269,7 +279,8 @@ export function RecurringWorkItemScheduleModal(props: Props) {
                   min={0}
                   max={365}
                   value={dueOffsetDays}
-                  onChange={(event) => setDueOffsetDays(Math.max(0, Number(event.target.value)))}
+                  onChange={(event) => setDueOffsetDays(event.target.value)}
+                  onBlur={() => setDueOffsetDays((value) => normalizeBoundedIntegerInput(value, 0, 0, 365))}
                 />
               </label>
               <label className="flex flex-col gap-1.5 text-body-xs-medium text-secondary">
@@ -315,7 +326,8 @@ export function RecurringWorkItemScheduleModal(props: Props) {
                       {date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
                     </div>
                     <div className="mt-0.5 text-caption-md-regular text-tertiary">
-                      в {runTime} · срок {dueOffsetDays === 0 ? "сегодня" : `+${dueOffsetDays} дн.`} в {dueTime}
+                      в {runTime} · срок {parsedDueOffsetDays === 0 ? "сегодня" : `+${parsedDueOffsetDays} дн.`} в{" "}
+                      {dueTime}
                     </div>
                   </div>
                 ))
