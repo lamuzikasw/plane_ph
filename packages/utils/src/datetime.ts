@@ -523,8 +523,13 @@ export const checkDateCriteria = (dateToCheck: Date | null, filterDate: Date, ty
  */
 export const formatDateRange = (
   parsedStartDate: Date | null | undefined,
-  parsedEndDate: Date | null | undefined
+  parsedEndDate: Date | null | undefined,
+  locale?: Locale
 ): string => {
+  const isRussian = locale?.code === "ru";
+  const formatWithLocale = (date: Date, formatToken: string) =>
+    format(date, formatToken, locale ? { locale } : undefined);
+
   // If no dates are provided
   if (!parsedStartDate && !parsedEndDate) {
     return "";
@@ -532,12 +537,12 @@ export const formatDateRange = (
 
   // If only start date is provided
   if (parsedStartDate && !parsedEndDate) {
-    return format(parsedStartDate, "MMM dd, yyyy");
+    return formatWithLocale(parsedStartDate, isRussian ? "dd MMM yyyy" : "MMM dd, yyyy");
   }
 
   // If only end date is provided
   if (!parsedStartDate && parsedEndDate) {
-    return format(parsedEndDate, "MMM dd, yyyy");
+    return formatWithLocale(parsedEndDate, isRussian ? "dd MMM yyyy" : "MMM dd, yyyy");
   }
 
   // If both dates are provided
@@ -549,22 +554,28 @@ export const formatDateRange = (
 
     // Same year, same month
     if (startYear === endYear && startMonth === endMonth) {
-      const startDay = format(parsedStartDate, "dd");
-      const endDay = format(parsedEndDate, "dd");
-      return `${format(parsedStartDate, "MMM")} ${startDay} - ${endDay}, ${startYear}`;
+      const startDay = formatWithLocale(parsedStartDate, "dd");
+      const endDay = formatWithLocale(parsedEndDate, "dd");
+      const month = formatWithLocale(parsedStartDate, "MMM");
+      return isRussian
+        ? `${startDay}–${endDay} ${month} ${startYear}`
+        : `${month} ${startDay} - ${endDay}, ${startYear}`;
     }
 
     // Same year, different month
     if (startYear === endYear) {
-      const startFormatted = format(parsedStartDate, "MMM dd");
-      const endFormatted = format(parsedEndDate, "MMM dd");
-      return `${startFormatted} - ${endFormatted}, ${startYear}`;
+      const startFormatted = formatWithLocale(parsedStartDate, isRussian ? "dd MMM" : "MMM dd");
+      const endFormatted = formatWithLocale(parsedEndDate, isRussian ? "dd MMM" : "MMM dd");
+      return isRussian
+        ? `${startFormatted} – ${endFormatted} ${startYear}`
+        : `${startFormatted} - ${endFormatted}, ${startYear}`;
     }
 
     // Different year
-    const startFormatted = format(parsedStartDate, "MMM dd, yyyy");
-    const endFormatted = format(parsedEndDate, "MMM dd, yyyy");
-    return `${startFormatted} - ${endFormatted}`;
+    const formatToken = isRussian ? "dd MMM yyyy" : "MMM dd, yyyy";
+    const startFormatted = formatWithLocale(parsedStartDate, formatToken);
+    const endFormatted = formatWithLocale(parsedEndDate, formatToken);
+    return `${startFormatted}${isRussian ? " – " : " - "}${endFormatted}`;
   }
 
   return "";
@@ -575,11 +586,18 @@ export const formatDateRange = (
  */
 export const formatDateTimeRange = (
   parsedStartDate: Date | null | undefined,
-  parsedEndDate: Date | null | undefined
+  parsedEndDate: Date | null | undefined,
+  locale?: Locale
 ): string => {
+  const isRussian = locale?.code === "ru";
+  const dateTimeFormat = isRussian ? "dd MMM yyyy HH:mm" : "MMM dd, yyyy HH:mm";
+  const separator = isRussian ? " – " : " - ";
+  const formatWithLocale = (date: Date, formatToken: string) =>
+    format(date, formatToken, locale ? { locale } : undefined);
+
   if (!parsedStartDate && !parsedEndDate) return "";
-  if (parsedStartDate && !parsedEndDate) return format(parsedStartDate, "MMM dd, yyyy HH:mm");
-  if (!parsedStartDate && parsedEndDate) return format(parsedEndDate, "MMM dd, yyyy HH:mm");
+  if (parsedStartDate && !parsedEndDate) return formatWithLocale(parsedStartDate, dateTimeFormat);
+  if (!parsedStartDate && parsedEndDate) return formatWithLocale(parsedEndDate, dateTimeFormat);
 
   if (parsedStartDate && parsedEndDate) {
     const isSameDay =
@@ -588,10 +606,10 @@ export const formatDateTimeRange = (
       parsedStartDate.getDate() === parsedEndDate.getDate();
 
     if (isSameDay) {
-      return `${format(parsedStartDate, "MMM dd, yyyy HH:mm")} - ${format(parsedEndDate, "HH:mm")}`;
+      return `${formatWithLocale(parsedStartDate, dateTimeFormat)}${separator}${formatWithLocale(parsedEndDate, "HH:mm")}`;
     }
 
-    return `${format(parsedStartDate, "MMM dd, yyyy HH:mm")} - ${format(parsedEndDate, "MMM dd, yyyy HH:mm")}`;
+    return `${formatWithLocale(parsedStartDate, dateTimeFormat)}${separator}${formatWithLocale(parsedEndDate, dateTimeFormat)}`;
   }
 
   return "";

@@ -7,6 +7,7 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions -- ComboDropDown owns the keyboard interaction contract. */
 
 import React, { useEffect, useRef, useState } from "react";
+import { ru } from "date-fns/locale";
 import type { Placement } from "@popperjs/core";
 import { observer } from "mobx-react";
 import { createPortal } from "react-dom";
@@ -77,7 +78,7 @@ type Props = {
 };
 
 export const DateRangeDropdown = observer(function DateRangeDropdown(props: Props) {
-  const { t } = useTranslation();
+  const { currentLocale, t } = useTranslation();
   const {
     buttonClassName,
     buttonContainerClassName,
@@ -114,6 +115,14 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
     renderInPortal = false,
     includeTime = false,
   } = props;
+  const dateLocale = currentLocale === "ru" ? ru : undefined;
+  const displayFormat = includeTime
+    ? currentLocale === "ru"
+      ? "dd MMM yyyy HH:mm"
+      : "MMM dd, yyyy HH:mm"
+    : currentLocale === "ru"
+      ? "dd MMM yyyy"
+      : undefined;
   // states
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [dateRange, setDateRange] = useState<DateRange>(value);
@@ -238,11 +247,9 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
           <>
             {customTooltipContent ?? (
               <>
-                {dateRange.from
-                  ? renderFormattedDate(dateRange.from, includeTime ? "MMM dd, yyyy HH:mm" : undefined)
-                  : ""}
+                {dateRange.from ? renderFormattedDate(dateRange.from, displayFormat, dateLocale) : ""}
                 {dateRange.from && dateRange.to ? " - " : ""}
-                {dateRange.to ? renderFormattedDate(dateRange.to, includeTime ? "MMM dd, yyyy HH:mm" : undefined) : ""}
+                {dateRange.to ? renderFormattedDate(dateRange.to, displayFormat, dateLocale) : ""}
               </>
             )}
           </>
@@ -295,7 +302,7 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
             >
               {!hideIcon.from && <CalendarDays className="h-3 w-3 flex-shrink-0" />}
               {dateRange.from
-                ? renderFormattedDate(dateRange.from, includeTime ? "MMM dd, yyyy HH:mm" : undefined)
+                ? renderFormattedDate(dateRange.from, displayFormat, dateLocale)
                 : renderPlaceholder
                   ? placeholder.from
                   : ""}
@@ -309,7 +316,7 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
             >
               {!hideIcon.to && <DueDatePropertyIcon className="h-3 w-3 flex-shrink-0" />}
               {dateRange.to
-                ? renderFormattedDate(dateRange.to, includeTime ? "MMM dd, yyyy HH:mm" : undefined)
+                ? renderFormattedDate(dateRange.to, displayFormat, dateLocale)
                 : renderPlaceholder
                   ? placeholder.to
                   : ""}
@@ -339,6 +346,7 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
         {...attributes.popper}
       >
         <Calendar
+          locale={dateLocale}
           className="rounded-md border border-subtle p-3 text-12"
           captionLayout="dropdown"
           selected={dateRange}

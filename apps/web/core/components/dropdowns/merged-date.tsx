@@ -5,7 +5,9 @@
  */
 
 import React from "react";
+import { ru } from "date-fns/locale";
 import { observer } from "mobx-react";
+import { useTranslation } from "@plane/i18n";
 // helpers
 import { formatDateRange, formatDateTimeRange, getDate, getDateTime } from "@plane/utils";
 
@@ -25,14 +27,16 @@ type Props = {
  */
 export const MergedDateDisplay = observer(function MergedDateDisplay(props: Props) {
   const { startDate, endDate, className = "", includeTime = false } = props;
+  const { currentLocale } = useTranslation();
+  const dateLocale = currentLocale === "ru" ? ru : undefined;
 
   // Parse dates
   const parsedStartDate = includeTime ? getDateTime(startDate) : getDate(startDate);
   const parsedEndDate = includeTime ? getDateTime(endDate) : getDate(endDate);
 
   const displayText = includeTime
-    ? formatDateTimeRange(parsedStartDate, parsedEndDate)
-    : formatDateRange(parsedStartDate, parsedEndDate);
+    ? formatDateTimeRange(parsedStartDate, parsedEndDate, dateLocale)
+    : formatDateRange(parsedStartDate, parsedEndDate, dateLocale);
 
   if (!displayText) {
     return null;

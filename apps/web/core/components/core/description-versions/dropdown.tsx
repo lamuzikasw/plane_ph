@@ -5,6 +5,7 @@
  */
 
 import { observer } from "mobx-react";
+import { ru } from "date-fns/locale";
 import { History } from "lucide-react";
 // plane imports
 import { useTranslation } from "@plane/i18n";
@@ -35,7 +36,8 @@ export const DescriptionVersionsDropdown = observer(function DescriptionVersions
     ? getUserDetails(latestVersion?.owned_by)?.display_name
     : entityInformation.createdByDisplayName;
   // translation
-  const { t } = useTranslation();
+  const { currentLocale, t } = useTranslation();
+  const dateLocale = currentLocale === "ru" ? ru : undefined;
 
   return (
     <CustomMenu
@@ -47,7 +49,7 @@ export const DescriptionVersionsDropdown = observer(function DescriptionVersions
           <p className="text-11">
             {t("description_versions.last_edited_by")}{" "}
             <span className="font-medium">{lastUpdatedByUserDisplayName ?? t("common.deactivated_user")}</span>{" "}
-            {calculateTimeAgo(lastUpdatedAt)}
+            {calculateTimeAgo(lastUpdatedAt, dateLocale)}
           </p>
         </div>
       }
