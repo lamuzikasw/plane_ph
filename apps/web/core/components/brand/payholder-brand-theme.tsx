@@ -6,22 +6,22 @@
 
 import { useEffect } from "react";
 
-export const PAYHOLDER_BRAND_PREVIEW_PROJECT_ID = "c4899f6f-bb85-4fb4-bcda-d493e866d1d2";
+export const PAYHOLDER_BRAND_WORKSPACE_SLUG = "payholder";
 
-export const isPayholderBrandPreviewProject = (projectId: string | undefined): boolean =>
-  projectId === PAYHOLDER_BRAND_PREVIEW_PROJECT_ID;
+export const isPayholderBrandedWorkspace = (workspaceSlug: string | undefined): boolean =>
+  workspaceSlug?.toLowerCase() === PAYHOLDER_BRAND_WORKSPACE_SLUG;
 
 type TPayholderBrandThemeProps = {
-  projectId: string | undefined;
+  workspaceSlug: string | undefined;
 };
 
 /**
- * Temporarily scopes the PayHolder visual system to the dedicated preview project.
- * The previous value is restored on navigation so the rest of Plane is unaffected.
+ * Applies the PayHolder visual system to every page in the PayHolder workspace.
+ * The previous value is restored on navigation so other workspaces remain unaffected.
  */
-export function PayholderBrandTheme({ projectId }: TPayholderBrandThemeProps) {
+export function PayholderBrandTheme({ workspaceSlug }: TPayholderBrandThemeProps) {
   useEffect(() => {
-    if (!isPayholderBrandPreviewProject(projectId)) return;
+    if (!isPayholderBrandedWorkspace(workspaceSlug)) return;
 
     const root = document.documentElement;
     const previousTheme = root.dataset.brandTheme;
@@ -33,7 +33,7 @@ export function PayholderBrandTheme({ projectId }: TPayholderBrandThemeProps) {
       if (previousTheme) root.dataset.brandTheme = previousTheme;
       else delete root.dataset.brandTheme;
     };
-  }, [projectId]);
+  }, [workspaceSlug]);
 
   return null;
 }
