@@ -24,10 +24,11 @@ type TSidebarWrapperProps = {
   title: string;
   children: React.ReactNode;
   quickActions?: React.ReactNode;
+  showCustomizeNavigation?: boolean;
 };
 
 export const SidebarWrapper = observer(function SidebarWrapper(props: TSidebarWrapperProps) {
-  const { title, children, quickActions } = props;
+  const { title, children, quickActions, showCustomizeNavigation = false } = props;
   // state
   const [isCustomizeNavDialogOpen, setIsCustomizeNavDialogOpen] = useState(false);
   // store hooks
@@ -57,7 +58,7 @@ export const SidebarWrapper = observer(function SidebarWrapper(props: TSidebarWr
           <div className="flex items-center justify-between gap-2 px-2">
             <span className="payholder-sidebar-title pt-1 text-16 font-medium text-primary">{title}</span>
             <div className="flex items-center gap-2">
-              {title === "Projects" && (
+              {showCustomizeNavigation && (
                 <IconButton
                   size="base"
                   variant="ghost"
