@@ -112,7 +112,7 @@ export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
             id={`issue-${issueId}`}
             type="button"
             className={cn(
-              "space-between group relative flex h-full w-full cursor-pointer items-center text-left transition-[filter,transform]",
+              "payholder-timeline-block space-between group relative flex h-full w-full cursor-pointer items-center text-left transition-[filter,transform]",
               {
                 "rounded-md shadow-[0_1px_2px_rgba(15,23,42,0.10)] hover:brightness-[0.98]": !isMilestone,
                 "rounded-none": isMilestone,
@@ -222,7 +222,7 @@ export const IssueGanttSidebarBlock = observer(function IssueGanttSidebarBlock(p
       id={`issue-${issueId}`}
       href={workItemLink}
       onClick={handleIssuePeekOverview}
-      className="line-clamp-1 w-full cursor-pointer text-13 text-primary"
+      className="payholder-timeline-sidebar-item line-clamp-1 w-full cursor-pointer text-13 text-primary"
       disabled={!!issueDetails?.tempId}
     >
       <div className="relative flex h-full w-full cursor-pointer items-center gap-2">

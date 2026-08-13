@@ -56,14 +56,14 @@ export const GanttChartSidebar = observer(function GanttChartSidebar(props: Prop
     <Row
       // DO NOT REMOVE THE ID
       id="gantt-sidebar"
-      className="sticky left-0 z-10 h-max min-h-full flex-shrink-0 border-r-[0.5px] border-subtle-1 bg-surface-1"
+      className="payholder-timeline-sidebar sticky left-0 z-10 h-max min-h-full flex-shrink-0 border-r-[0.5px] border-subtle-1 bg-surface-1"
       style={{
         width: `${SIDEBAR_WIDTH}px`,
       }}
       variant={ERowVariant.HUGGING}
     >
       <Row
-        className="group/list-header sticky top-0 z-10 box-border flex flex-shrink-0 items-end justify-between gap-2 border-b-[0.5px] border-subtle-1 bg-surface-1 pr-4 pb-2 text-13 font-medium text-tertiary"
+        className="payholder-timeline-sidebar-header group/list-header sticky top-0 z-10 box-border flex flex-shrink-0 items-end justify-between gap-2 border-b-[0.5px] border-subtle-1 bg-surface-1 pr-4 pb-2 text-13 font-medium text-tertiary"
         style={{
           height: `${HEADER_HEIGHT}px`,
         }}

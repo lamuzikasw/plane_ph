@@ -395,6 +395,89 @@ html[data-brand-theme="payholder"] [role="dialog"] :where(input, textarea, selec
   border-radius: 0.65rem;
 }
 
+html[data-brand-theme="payholder"] .payholder-timeline-root {
+  overflow: hidden;
+  border: 1px solid var(--ph-blue-200);
+  border-radius: var(--ph-card-radius);
+  background: var(--ph-blue-50);
+  box-shadow: 0 8px 24px rgb(15 74 190 / 8%);
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-toolbar {
+  min-height: 3.35rem;
+  border-bottom-color: var(--ph-blue-200);
+  background: linear-gradient(90deg, var(--ph-neutral-0), var(--ph-blue-50));
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-toolbar :where(button, [role="button"]) {
+  border-radius: 999px;
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-toolbar input[type="range"] {
+  accent-color: var(--ph-color-action);
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-canvas {
+  border-top-color: var(--ph-blue-200);
+  background-color: var(--ph-blue-50);
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-canvas [data-gantt-chart-content] {
+  background-image:
+    linear-gradient(90deg, rgb(15 74 190 / 4%) 1px, transparent 1px),
+    linear-gradient(rgb(15 74 190 / 3%) 1px, transparent 1px);
+  background-size: 2rem 2rem;
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-sidebar {
+  border-right-color: var(--ph-blue-200);
+  background: var(--ph-neutral-0);
+  box-shadow: 8px 0 20px rgb(15 74 190 / 5%);
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-sidebar-header {
+  border-bottom-color: var(--ph-blue-200);
+  background: var(--ph-neutral-0);
+  font-family: var(--ph-font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-sidebar-header::after {
+  position: absolute;
+  right: 0.85rem;
+  bottom: -0.35rem;
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1px dashed var(--ph-blue-400);
+  border-radius: 50%;
+  background: var(--ph-neutral-0);
+  content: "";
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-sidebar-item {
+  border-radius: 0.5rem;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-sidebar-item:hover {
+  color: var(--ph-color-action);
+  background: var(--ph-blue-50);
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-block {
+  border: 1px solid rgb(255 255 255 / 70%);
+  border-radius: 0.5rem;
+  box-shadow: 0 3px 10px rgb(15 74 190 / 14%);
+}
+
+html[data-brand-theme="payholder"] .payholder-timeline-block:hover {
+  filter: saturate(1.08) brightness(1.02);
+  transform: translateY(-1px);
+}
+
 html[data-brand-theme="payholder"] :where(button, input, textarea, select, a):focus-visible {
   outline-color: var(--ph-color-action);
 }
@@ -454,6 +537,25 @@ html[data-brand-theme="payholder"][data-theme*="dark"] .payholder-kanban-column-
 
 html[data-brand-theme="payholder"][data-theme*="dark"] .payholder-workspace-name {
   color: var(--ph-color-text);
+}
+
+html[data-brand-theme="payholder"][data-theme*="dark"] :where(.payholder-timeline-root, .payholder-timeline-canvas) {
+  background-color: var(--ph-color-canvas);
+}
+
+html[data-brand-theme="payholder"][data-theme*="dark"]
+  :where(.payholder-timeline-toolbar, .payholder-timeline-sidebar, .payholder-timeline-sidebar-header) {
+  background: var(--ph-color-surface);
+}
+
+html[data-brand-theme="payholder"][data-theme*="dark"] .payholder-timeline-canvas [data-gantt-chart-content] {
+  background-image:
+    linear-gradient(90deg, rgb(95 154 235 / 4%) 1px, transparent 1px),
+    linear-gradient(rgb(95 154 235 / 4%) 1px, transparent 1px);
+}
+
+html[data-brand-theme="payholder"][data-theme*="dark"] .payholder-timeline-sidebar-header::after {
+  background: var(--ph-color-surface);
 }
 
 @media (prefers-reduced-motion: reduce) {
