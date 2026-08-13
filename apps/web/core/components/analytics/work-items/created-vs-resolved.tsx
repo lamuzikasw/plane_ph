@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
+import { ru } from "date-fns/locale";
 // plane package imports
 import { useTranslation } from "@plane/i18n";
 import { AreaChart } from "@plane/propel/charts/area-chart";
@@ -34,7 +35,8 @@ const CreatedVsResolved = observer(function CreatedVsResolved() {
     isEpic,
   } = useAnalytics();
   const params = useParams();
-  const { t } = useTranslation();
+  const { currentLocale, t } = useTranslation();
+  const dateLocale = currentLocale === "ru" ? ru : undefined;
   const workspaceSlug = params.workspaceSlug.toString();
   const { data: createdVsResolvedData, isLoading: isCreatedVsResolvedLoading } = useSWR(
     `created-vs-resolved-${workspaceSlug}-${selectedDuration}-${selectedProjects}-${selectedCycle}-${selectedModule}-${isPeekView}-${isEpic}`,
@@ -57,15 +59,15 @@ const CreatedVsResolved = observer(function CreatedVsResolved() {
     return createdVsResolvedData.data.map((datum) => ({
       ...datum,
       [datum.key]: datum.count,
-      name: renderFormattedDate(datum.key) ?? datum.key,
+      name: renderFormattedDate(datum.key, currentLocale === "ru" ? "dd MMM yyyy" : undefined, dateLocale) ?? datum.key,
     }));
-  }, [createdVsResolvedData]);
+  }, [createdVsResolvedData, currentLocale, dateLocale]);
 
   const areas = useMemo(
     () => [
       {
         key: "completed_issues",
-        label: "Resolved",
+        label: t("common.resolved"),
         fill: "#19803833",
         fillOpacity: 1,
         stackId: "bar-one",
@@ -76,7 +78,7 @@ const CreatedVsResolved = observer(function CreatedVsResolved() {
       },
       {
         key: "created_issues",
-        label: "Created",
+        label: t("created"),
         fill: "#1192E833",
         fillOpacity: 1,
         stackId: "bar-one",
@@ -86,8 +88,10 @@ const CreatedVsResolved = observer(function CreatedVsResolved() {
         strokeOpacity: 1,
       },
     ],
-    []
+    [t]
   );
+
+  const entityLabel = isEpic ? t("common.epics") : t("common.work_items");
 
   return (
     <AnalyticsSectionWrapper
@@ -108,7 +112,9 @@ const CreatedVsResolved = observer(function CreatedVsResolved() {
           }}
           yAxis={{
             key: "count",
-            label: t("common.no_of", { entity: isEpic ? t("common.epics") : t("work_items") }),
+            label: t("common.no_of", {
+              entity: currentLocale === "ru" ? entityLabel.toLocaleLowerCase("ru") : entityLabel,
+            }),
             offset: -60,
             dx: -24,
           }}

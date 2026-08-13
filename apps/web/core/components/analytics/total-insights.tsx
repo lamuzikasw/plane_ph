@@ -26,12 +26,12 @@ const getInsightLabel = (
   analyticsType: TAnalyticsTabsBase,
   item: IInsightField,
   isEpic: boolean | undefined,
+  currentLocale: string,
   t: (key: string, params?: Record<string, unknown>) => string
 ) => {
   if (analyticsType === "work-items") {
-    return isEpic
-      ? t(item.i18nKey, { entity: t("common.epics") })
-      : t(item.i18nKey, { entity: t("common.work_items") });
+    const entity = isEpic ? t("common.epics") : t("common.work_items");
+    return t(item.i18nKey, { entity: currentLocale === "ru" ? entity.toLocaleLowerCase("ru") : entity });
   }
 
   // Get the base translation with entity
@@ -59,7 +59,7 @@ const TotalInsights = observer(function TotalInsights({
 }) {
   const params = useParams();
   const workspaceSlug = params.workspaceSlug.toString();
-  const { t } = useTranslation();
+  const { currentLocale, t } = useTranslation();
   const { selectedDuration, selectedProjects, selectedCycle, selectedModule, isPeekView, isEpic } = useAnalytics();
   const { data: totalInsightsData, isLoading } = useSWR(
     `total-insights-${analyticsType}-${selectedDuration}-${selectedProjects}-${selectedCycle}-${selectedModule}-${isEpic}`,
@@ -93,7 +93,7 @@ const TotalInsights = observer(function TotalInsights({
           key={`${analyticsType}-${item.key}`}
           isLoading={isLoading}
           data={totalInsightsData?.[item.key]}
-          label={getInsightLabel(analyticsType, item, isEpic, t)}
+          label={getInsightLabel(analyticsType, item, isEpic, currentLocale, t)}
         />
       ))}
     </div>
