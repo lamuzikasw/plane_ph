@@ -93,6 +93,7 @@ const MIN_PANEL_SIZE = { width: 380, height: 480 };
 const PANEL_VIEWPORT_GAP = 40;
 
 const INITIAL_SUGGESTIONS = [
+  "Собери отчёт по моим задачам за сегодня",
   "Собери мой summary за прошлую неделю",
   "Подготовь короткий отчёт руководителю за прошлую неделю",
   "Собери подробные итоги за текущую неделю",
@@ -102,7 +103,7 @@ const INITIAL_SUGGESTIONS = [
 ];
 
 type TIgorQuickAction = {
-  id: "weekly" | "meeting" | "risks" | "tasks";
+  id: "daily" | "weekly" | "meeting" | "risks" | "tasks";
   title: string;
   description: string;
   prompt: string;
@@ -110,6 +111,13 @@ type TIgorQuickAction = {
 };
 
 const QUICK_ACTIONS: TIgorQuickAction[] = [
+  {
+    id: "daily",
+    title: "Итоги дня",
+    description: "Выполнено сегодня, в работе и риски",
+    prompt: "Собери отчёт по моим задачам за сегодня",
+    mode: "ask",
+  },
   {
     id: "weekly",
     title: "Итоги недели",
@@ -1144,9 +1152,17 @@ function IgorWelcome({
             type="button"
             onClick={() => onAction(action)}
             disabled={isSubmitting}
-            className="group shadow-xs hover:shadow-sm flex min-h-20 items-start gap-3 rounded-xl border border-subtle bg-surface-1 p-3 text-left transition hover:-translate-y-0.5 hover:border-[#0b6ea8]/35 focus:border-[#0b6ea8] focus:ring-2 focus:ring-[#0b6ea8]/15 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transform-none"
+            className={cn(
+              "group shadow-xs hover:shadow-sm flex min-h-20 items-start gap-3 rounded-xl border border-subtle bg-surface-1 p-3 text-left transition hover:-translate-y-0.5 hover:border-[#0b6ea8]/35 focus:border-[#0b6ea8] focus:ring-2 focus:ring-[#0b6ea8]/15 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transform-none",
+              action.id === "daily" && "border-[#0b6ea8]/25 bg-[#0b6ea8]/5 @min-[27rem]:col-span-2"
+            )}
           >
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#0b6ea8]/10 text-[#0b6ea8] transition-colors group-hover:bg-[#0b6ea8] group-hover:text-white">
+            <span
+              className={cn(
+                "grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#0b6ea8]/10 text-[#0b6ea8] transition-colors group-hover:bg-[#0b6ea8] group-hover:text-white",
+                action.id === "daily" && "bg-[#0b6ea8] text-white"
+              )}
+            >
               <IgorQuickActionIcon actionId={action.id} />
             </span>
             <span className="min-w-0 pt-0.5">
@@ -1166,6 +1182,7 @@ function IgorWelcome({
 
 function IgorQuickActionIcon({ actionId }: { actionId: TIgorQuickAction["id"] }) {
   const className = "h-4.5 w-4.5";
+  if (actionId === "daily") return <ListChecks className={className} />;
   if (actionId === "weekly") return <CalendarRange className={className} />;
   if (actionId === "meeting") return <ClipboardList className={className} />;
   if (actionId === "risks") return <ShieldAlert className={className} />;

@@ -2014,7 +2014,13 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         ]
         scope_label = self._weekly_summary_scope_label(member, projects)
         period_range = self._format_period_range(period_start, period_end, user_tz)
-        title_prefix = "Отчёт руководителю" if summary_audience == "manager" else "Итоги недели"
+        title_prefix = (
+            "Отчёт руководителю"
+            if summary_audience == "manager"
+            else "Итоги дня"
+            if period_label == "сегодня"
+            else "Итоги недели"
+        )
         title = f"{title_prefix} · {scope_label}"
         overview = self._weekly_summary_overview(
             completed_total=completed_total,
@@ -2039,7 +2045,11 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             member is not None,
             sections,
         )
-        fallback_copy_text = self._weekly_summary_copy_text(sections, include_assignees=is_team_summary)
+        fallback_copy_text = self._weekly_summary_copy_text(
+            sections,
+            include_assignees=is_team_summary,
+            period_label=period_label,
+        )
         copy_text = self._get_llm_weekly_summary_copy(copy_facts, title, period_range) or fallback_copy_text
 
         if completed_total == 0 and progressed_total == 0:
@@ -2187,24 +2197,25 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             return "Название скрыто: возможно, содержит секрет"
         return text[:limit]
 
-    def _weekly_summary_copy_text(self, sections, include_assignees=False):
+    def _weekly_summary_copy_text(self, sections, include_assignees=False, period_label=None):
         section_map = {section["key"]: section for section in sections}
         sentences = []
+        period_lead = "За сегодня" if period_label == "сегодня" else "За неделю"
 
         completed = section_map["completed"]
         progressed = section_map["progressed"]
         if completed["total"]:
             sentences.append(
-                "За неделю удалось завершить: "
+                f"{period_lead} удалось завершить: "
                 f"{self._weekly_copy_section_text(completed, include_assignees=include_assignees)}."
             )
         if progressed["total"]:
-            lead = "Также в работе были" if completed["total"] else "За неделю в работе были"
+            lead = "Также в работе были" if completed["total"] else f"{period_lead} в работе были"
             sentences.append(
                 f"{lead}: {self._weekly_copy_section_text(progressed, include_assignees=include_assignees)}."
             )
         if not completed["total"] and not progressed["total"]:
-            sentences.append("За неделю завершённой работы или активности по задачам в Plane не зафиксировано.")
+            sentences.append(f"{period_lead} завершённой работы или активности по задачам в Plane не зафиксировано.")
 
         risk_parts = []
         blocked = section_map["blocked"]

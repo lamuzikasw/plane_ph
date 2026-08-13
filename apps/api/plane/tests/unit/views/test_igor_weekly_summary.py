@@ -657,6 +657,13 @@ def test_weekly_summary_follow_up_for_day_switches_to_today_and_includes_complet
         lambda *args, **kwargs: pytest.fail("Summary follow-ups must not depend on an external LLM"),
     )
     monkeypatch.setattr(endpoint, "_get_igor_llm_config", lambda: (None, "gpt-4o-mini", None, 8.0))
+    quick_action_context = endpoint._resolve_query_context(
+        "Собери отчёт по моим задачам за сегодня",
+        workspace,
+        user,
+        [],
+        {},
+    )
     initial_context = endpoint._resolve_query_context(
         "Собери мой отчёт за прошлую неделю",
         workspace,
@@ -682,10 +689,14 @@ def test_weekly_summary_follow_up_for_day_switches_to_today_and_includes_complet
     result = endpoint._build_weekly_summary(workspace, context, user)
     metrics = {metric["key"]: metric["value"] for metric in result["widget"]["metrics"]}
 
+    assert quick_action_context["intent"] == "weekly_summary"
+    assert quick_action_context["period_label"] == "сегодня"
     assert context["intent"] == "weekly_summary"
     assert context["period_label"] == "сегодня"
     assert context["period_start"] <= completed_issue.completed_at <= context["period_end"]
     assert metrics["completed"] == 1
+    assert result["widget"]["title"].startswith("Итоги дня ·")
+    assert result["widget"]["copy_text"].startswith("За сегодня удалось завершить:")
     assert "Выполненная сегодня задача" in result["widget"]["copy_text"]
 
 
