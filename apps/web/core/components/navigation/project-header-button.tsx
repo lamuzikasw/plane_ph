@@ -22,7 +22,7 @@ export function ProjectHeaderButton({ project }: TProjectHeaderButtonProps) {
           <Logo logo={project.logo_props} size={16} />
         </div>
         <div className="relative min-w-0 flex-1 hover:rounded">
-          <p className="truncate px-2 text-14 font-medium text-secondary">{project.name}</p>
+          <p className="payholder-display-text truncate px-2 text-14 font-medium text-secondary">{project.name}</p>
           <div className="pointer-events-none absolute top-0 right-0 bottom-0 flex items-center justify-end opacity-0 transition-opacity duration-200 group-hover:opacity-100">
             <div className="relative flex h-full w-8 items-center justify-end">
               <div className="absolute inset-0 rounded-r bg-gradient-to-r from-transparent to-surface-2" />

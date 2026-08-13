@@ -132,7 +132,19 @@ html[data-brand-theme="payholder"] body {
   letter-spacing: -0.005em;
 }
 
-html[data-brand-theme="payholder"] :where(h1, h2, h3) {
+html[data-brand-theme="payholder"]
+  :where(
+    h1,
+    h2,
+    h3,
+    .payholder-display-text,
+    [class*="text-h1-"],
+    [class*="text-h2-"],
+    [class*="text-h3-"],
+    [class*="text-h4-"],
+    [class*="text-h5-"],
+    [class*="text-h6-"]
+  ) {
   font-family: var(--ph-font-display);
   font-weight: 600;
   letter-spacing: -0.025em;
