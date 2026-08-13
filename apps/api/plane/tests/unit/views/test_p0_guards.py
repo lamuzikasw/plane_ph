@@ -251,43 +251,86 @@ def test_workspace_invite_rejects_an_unknown_role_before_creating_records():
 
 @pytest.mark.unit
 @pytest.mark.django_db
-def test_project_settings_cannot_change_or_remove_og_access():
-    og = UserFactory(email="project-og@plane.so", username="project-og@plane.so")
-    workspace = WorkspaceFactory(slug="project-og-boundary", owner=og)
+def test_project_settings_og_can_remove_another_og_but_cannot_change_their_role():
+    requesting_og = UserFactory(email="project-requesting-og@plane.so", username="project-requesting-og@plane.so")
+    target_og = UserFactory(email="project-target-og@plane.so", username="project-target-og@plane.so")
+    workspace = WorkspaceFactory(slug="project-og-boundary", owner=requesting_og)
     project = Project.objects.create(
         workspace=workspace,
-        project_lead=og,
+        project_lead=requesting_og,
         name="OG project",
         identifier="OGP",
     )
-    WorkspaceMember.objects.create(workspace=workspace, member=og, role=30)
-    project_member = ProjectMember.objects.create(
+    WorkspaceMember.objects.create(workspace=workspace, member=requesting_og, role=30)
+    WorkspaceMember.objects.create(workspace=workspace, member=target_og, role=30)
+    ProjectMember.objects.create(
         workspace=workspace,
         project=project,
-        member=og,
+        member=requesting_og,
         role=20,
     )
-    request = SimpleNamespace(user=og, data={"role": 15})
+    target_project_member = ProjectMember.objects.create(
+        workspace=workspace,
+        project=project,
+        member=target_og,
+        role=20,
+    )
+    request = SimpleNamespace(user=requesting_og, data={"role": 15})
     view = ProjectMemberViewSet()
 
     update_response = view.partial_update(
         request,
         slug=workspace.slug,
         project_id=project.id,
-        pk=project_member.id,
+        pk=target_project_member.id,
     )
     assert update_response.status_code == 403
     assert update_response.data["error"] == "OG access is managed at workspace level"
 
     remove_response = view.destroy(
-        SimpleNamespace(user=og),
+        SimpleNamespace(user=requesting_og),
         slug=workspace.slug,
         project_id=project.id,
-        pk=project_member.id,
+        pk=target_project_member.id,
     )
+    assert remove_response.status_code == 204
+    target_project_member.refresh_from_db()
+    assert target_project_member.is_active is False
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+def test_project_settings_non_og_admin_cannot_remove_og_access():
+    admin = UserFactory(email="project-admin@plane.so", username="project-admin@plane.so")
+    target_og = UserFactory(email="protected-project-og@plane.so", username="protected-project-og@plane.so")
+    workspace = WorkspaceFactory(slug="project-og-protection", owner=admin)
+    project = Project.objects.create(
+        workspace=workspace,
+        project_lead=admin,
+        name="Protected OG project",
+        identifier="POGP",
+    )
+    WorkspaceMember.objects.create(workspace=workspace, member=admin, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=target_og, role=30)
+    ProjectMember.objects.create(workspace=workspace, project=project, member=admin, role=20)
+    target_project_member = ProjectMember.objects.create(
+        workspace=workspace,
+        project=project,
+        member=target_og,
+        role=20,
+    )
+
+    remove_response = ProjectMemberViewSet().destroy(
+        SimpleNamespace(user=admin),
+        slug=workspace.slug,
+        project_id=project.id,
+        pk=target_project_member.id,
+    )
+
     assert remove_response.status_code == 403
-    project_member.refresh_from_db()
-    assert project_member.is_active is True
+    assert remove_response.data["error"] == "OG access is managed at workspace level"
+    target_project_member.refresh_from_db()
+    assert target_project_member.is_active is True
 
 
 @pytest.mark.unit

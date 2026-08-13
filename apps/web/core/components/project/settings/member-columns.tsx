@@ -47,6 +47,11 @@ export const NameColumn = observer(function NameColumn(props: NameProps) {
   // derived values
   const { avatar_url, display_name, email, first_name, id, last_name } = rowData.member;
   const isRowDataOG = Number(getWorkspaceMemberDetails(rowData.member.id)?.role) === EUserPermissions.SUPER_ADMIN;
+  const isCurrentUserOG =
+    !!currentUser && Number(getWorkspaceMemberDetails(currentUser.id)?.role) === EUserPermissions.SUPER_ADMIN;
+  const isCurrentUser = id === currentUser?.id;
+  const canRemoveMember = !isCurrentUser && isAdmin && (!isRowDataOG || isCurrentUserOG);
+  const canLeaveProject = isCurrentUser && !isRowDataOG;
 
   return (
     <div className="group relative">
@@ -71,7 +76,7 @@ export const NameColumn = observer(function NameColumn(props: NameProps) {
           )}
           {first_name} {last_name}
         </div>
-        {!isRowDataOG && (isAdmin || id === currentUser?.id) && (
+        {(canRemoveMember || canLeaveProject) && (
           <CustomMenu
             ellipsis
             buttonClassName="p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"

@@ -288,35 +288,41 @@ class ProjectMemberViewSet(BaseViewSet):
             member__is_bot=False,
             is_active=True,
         )
-        # check requesting user role
-        requesting_project_member = ProjectMember.objects.get(
+        requesting_workspace_role = WorkspaceMember.objects.get(
             workspace__slug=slug,
             member=request.user,
-            project_id=project_id,
             is_active=True,
-        )
+        ).role
+        is_requesting_og = requesting_workspace_role == ROLE.SUPER_ADMIN.value
         target_workspace_role = WorkspaceMember.objects.get(
             workspace__slug=slug,
             member=project_member.member,
             is_active=True,
         ).role
-        if target_workspace_role == ROLE.SUPER_ADMIN.value:
+        if target_workspace_role == ROLE.SUPER_ADMIN.value and not is_requesting_og:
             return Response(
                 {"error": "OG access is managed at workspace level"},
                 status=status.HTTP_403_FORBIDDEN,
             )
         # User cannot remove himself
-        if str(project_member.id) == str(requesting_project_member.id):
+        if str(project_member.member_id) == str(request.user.id):
             return Response(
-                {"error": "You cannot remove yourself from the workspace. Please use leave workspace"},
+                {"error": "You cannot remove yourself from the project. Please use leave project"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # User cannot deactivate higher role
-        if requesting_project_member.role < project_member.role:
-            return Response(
-                {"error": "You cannot remove a user having role higher than you"},
-                status=status.HTTP_400_BAD_REQUEST,
+        if not is_requesting_og:
+            requesting_project_member = ProjectMember.objects.get(
+                workspace__slug=slug,
+                member=request.user,
+                project_id=project_id,
+                is_active=True,
             )
+            if requesting_project_member.role < project_member.role:
+                return Response(
+                    {"error": "You cannot remove a user having role higher than you"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         project_member.is_active = False
         project_member.save()
