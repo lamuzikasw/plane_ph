@@ -1495,8 +1495,26 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         best_project = None
         best_score = 0
         text_variants = self._search_variants(message)
+        normalized_message = self._normalize_search(message)
+        has_explicit_project_cue = any(
+            token.startswith(("проект", "доск")) or token in ["project", "board"]
+            for token in normalized_message.split()
+        )
         for project in projects:
-            aliases = [project.name or "", project.identifier or ""]
+            project_name = project.name or ""
+            project_name_tokens = self._normalize_search(project_name).split()
+            has_generic_name = any(
+                token.startswith(("задач", "доск")) or token in ["work", "item", "items", "board"]
+                for token in project_name_tokens
+            )
+            # Names such as "Задачи Севы" and "Доска Ангелины" must not
+            # capture generic personal requests like "мой отчёт по задачам" or
+            # a mention of the employee. Exact full-name matches are handled in
+            # `_detect_projects`; fuzzy matching for these names is allowed only
+            # when the user explicitly says project/board.
+            aliases = [project.identifier or ""]
+            if not has_generic_name or has_explicit_project_cue:
+                aliases.append(project_name)
             score = self._score_alias_match(text_variants, aliases)
             if score > best_score:
                 best_score = score

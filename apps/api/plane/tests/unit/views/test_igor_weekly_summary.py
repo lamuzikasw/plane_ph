@@ -879,6 +879,75 @@ def test_personal_summary_only_counts_currently_assigned_issues():
 
 @pytest.mark.unit
 @pytest.mark.django_db
+def test_personal_daily_summary_does_not_confuse_generic_task_word_with_personal_board(monkeypatch):
+    user = UserFactory(
+        email="vsevolodkargashin2408@gmail.com",
+        username="vsevolodkargashin2408@gmail.com",
+        display_name="Сева",
+    )
+    workspace = WorkspaceFactory(slug="igor-personal-all-projects", owner=user, timezone="Europe/Moscow")
+    WorkspaceMember.objects.create(workspace=workspace, member=user, role=30)
+    personal_project = Project.objects.create(
+        workspace=workspace,
+        name="Задачи Севы",
+        identifier="SEVA",
+        network=0,
+        project_lead=user,
+    )
+    delivery_project = Project.objects.create(
+        workspace=workspace,
+        name="Партнерка",
+        identifier="PARTNER",
+        network=0,
+        project_lead=user,
+    )
+    for project in [personal_project, delivery_project]:
+        ProjectMember.objects.create(project=project, member=user, role=20)
+
+    done = State.objects.create(
+        workspace=workspace,
+        project=delivery_project,
+        name="Done",
+        color="#46A758",
+        group="completed",
+    )
+    completed_issue = Issue.objects.create(
+        project=delivery_project,
+        state=done,
+        name="Обсудить индексацию страницы",
+    )
+    IssueAssignee.objects.create(project=delivery_project, issue=completed_issue, assignee=user)
+
+    endpoint = IgorChatEndpoint()
+    monkeypatch.setattr(endpoint, "_get_igor_llm_config", lambda: (None, "gpt-4o-mini", None, 8.0))
+    context = endpoint._resolve_query_context(
+        "Собери отчёт по моим задачам за сегодня",
+        workspace,
+        user,
+        [],
+        {},
+    )
+    result = endpoint._build_weekly_summary(workspace, context, user)
+    completed_section = next(section for section in result["widget"]["sections"] if section["key"] == "completed")
+
+    assert context["scope"] == "personal"
+    assert context["member"] == user
+    assert context["projects"] == []
+    assert completed_section["total"] == 1
+    assert [item["name"] for item in completed_section["items"]] == ["Обсудить индексацию страницы"]
+
+    explicitly_scoped_context = endpoint._resolve_query_context(
+        "Собери отчёт по проекту Задачи Севы за сегодня",
+        workspace,
+        user,
+        [],
+        {},
+    )
+    assert explicitly_scoped_context["projects"] == [personal_project]
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
 def test_manager_personal_two_project_and_all_project_scopes_are_distinct():
     manager = UserFactory(email="propandamen@gmail.com", username="propandamen@gmail.com")
     teammate = UserFactory(email="teammate@plane.so", username="teammate@plane.so")
