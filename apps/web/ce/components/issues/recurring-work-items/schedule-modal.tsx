@@ -136,8 +136,18 @@ export function RecurringWorkItemScheduleModal(props: Props) {
   };
 
   return (
-    <ModalCore isOpen={isOpen} handleClose={onClose} position={EModalPosition.CENTER} width={EModalWidth.XXL}>
-      <div className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-lg bg-surface-1">
+    <ModalCore isOpen={isOpen} position={EModalPosition.CENTER} width={EModalWidth.XXL}>
+      <div
+        role="presentation"
+        data-prevent-outside-click
+        className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-lg bg-surface-1"
+        // The modal can be mounted from inside an issue peek. Keep its pointer events
+        // from reaching the peek's outside-click handler and closing both surfaces.
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
         <div className="flex items-start justify-between border-b border-subtle px-6 py-5">
           <div className="flex min-w-0 gap-3">
             <div className="grid size-10 shrink-0 place-items-center rounded-md bg-accent-primary/10 text-accent-primary">
@@ -176,7 +186,11 @@ export function RecurringWorkItemScheduleModal(props: Props) {
                 <button
                   key={value}
                   type="button"
-                  onClick={() => setFrequency(value)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setFrequency(value);
+                  }}
                   className={`h-9 rounded-sm text-body-xs-medium transition-colors ${frequency === value ? "shadow-sm bg-surface-1 text-primary" : "text-secondary hover:text-primary"}`}
                 >
                   {label}
@@ -191,9 +205,11 @@ export function RecurringWorkItemScheduleModal(props: Props) {
                     <button
                       key={day}
                       type="button"
-                      onClick={() =>
-                        setWeekdays(selected ? weekdays.filter((value) => value !== index) : [...weekdays, index])
-                      }
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setWeekdays(selected ? weekdays.filter((value) => value !== index) : [...weekdays, index]);
+                      }}
                       className={`grid size-9 place-items-center rounded-full border text-body-xs-medium transition-colors ${selected ? "border-accent-strong bg-accent-primary text-on-color" : "border-subtle text-secondary hover:border-strong hover:text-primary"}`}
                       aria-pressed={selected}
                     >
