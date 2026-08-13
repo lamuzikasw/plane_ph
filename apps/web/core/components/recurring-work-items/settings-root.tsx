@@ -55,7 +55,7 @@ export function RecurringWorkItemsSettingsRoot({ workspaceSlug, projectId }: Pro
         </div>
         <h3 className="mt-4 text-h5-medium text-primary">Пока нет повторяющихся задач</h3>
         <p className="mt-2 max-w-md text-body-xs-regular text-tertiary">
-          Откройте любую задачу и выберите свойство «Повторять». Здесь появятся все расписания проекта.
+          Откройте любую задачу и выберите свойство «Повторение». Здесь появятся все расписания проекта.
         </p>
         <Button className="mt-4" variant="neutral-primary" size="md" onClick={() => window.history.back()}>
           Вернуться к проекту

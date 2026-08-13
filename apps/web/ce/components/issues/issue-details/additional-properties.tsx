@@ -30,11 +30,11 @@ export function WorkItemAdditionalSidebarProperties(props: TWorkItemAdditionalSi
   const schedule = data?.[0];
   const label = schedule
     ? `${schedule.frequency === "daily" ? "Каждый день" : "По дням"} · ${schedule.run_time.slice(0, 5)}`
-    : "Не повторяется";
+    : "Не настроено";
 
   return (
     <>
-      <SidebarPropertyListItem icon={Repeat2} label="Повторять">
+      <SidebarPropertyListItem icon={Repeat2} label="Повторение">
         <button
           type="button"
           disabled={!isEditable}
