@@ -1,0 +1,268 @@
+@font-face {
+  font-family: "PayHolder Bounded";
+  src: url("/fonts/payholder/bounded-variable.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PayHolder Inter Tight";
+  src: url("/fonts/payholder/inter-tight-variable.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "PayHolder Inter Tight";
+  src: url("/fonts/payholder/inter-tight-italic-variable.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+html[data-brand-theme="payholder"] {
+  /* Primitive brand tokens — PayHolder brandbook, B2C/master palette. */
+  --ph-blue-50: #f4f9ff;
+  --ph-blue-100: #e8f1ff;
+  --ph-blue-200: #d5e6ff;
+  --ph-blue-300: #bfd8fa;
+  --ph-blue-400: #9fc1f3;
+  --ph-blue-500: #5f9aeb;
+  --ph-blue-600: #2b67cf;
+  --ph-blue-700: #0f4abe;
+  --ph-blue-800: #0d3e9f;
+  --ph-blue-900: #07245c;
+  --ph-green-500: #3dbd8c;
+  --ph-green-700: #006941;
+  --ph-red-100: #ffa8a8;
+  --ph-ink-900: #262626;
+  --ph-ink-700: #454545;
+  --ph-ink-600: #575757;
+  --ph-neutral-0: #ffffff;
+  --ph-neutral-50: #fbfcfe;
+  --ph-neutral-100: #f7f9fc;
+  --ph-neutral-200: #eef3f9;
+  --ph-neutral-300: #d9e1ec;
+  --ph-neutral-400: #c4cedc;
+  --ph-neutral-500: #aab6c5;
+  --ph-neutral-600: #8b97a5;
+  --ph-neutral-700: #6e7885;
+  --ph-blue-a50: rgb(15 74 190 / 5%);
+  --ph-blue-a100: rgb(15 74 190 / 9%);
+  --ph-blue-a200: rgb(15 74 190 / 14%);
+
+  /* Semantic brand tokens. */
+  --ph-color-canvas: var(--ph-blue-100);
+  --ph-color-surface: var(--ph-neutral-0);
+  --ph-color-surface-subtle: var(--ph-blue-50);
+  --ph-color-layer: var(--ph-neutral-50);
+  --ph-color-layer-hover: var(--ph-blue-50);
+  --ph-color-layer-active: var(--ph-blue-100);
+  --ph-color-action: var(--ph-blue-700);
+  --ph-color-action-hover: var(--ph-blue-600);
+  --ph-color-action-active: var(--ph-blue-800);
+  --ph-color-text: var(--ph-ink-900);
+  --ph-color-text-secondary: var(--ph-ink-700);
+  --ph-color-text-tertiary: var(--ph-ink-600);
+  --ph-color-border: var(--ph-neutral-300);
+  --ph-color-border-strong: var(--ph-neutral-500);
+  --ph-font-display: "PayHolder Bounded", "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --ph-font-interface: "PayHolder Inter Tight", "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+
+  /* Component tokens. */
+  --ph-card-radius: 0.875rem;
+  --ph-shell-radius: 1.125rem;
+  --ph-card-shadow: 0 3px 12px rgb(38 38 38 / 6%);
+  --ph-card-shadow-hover: 0 8px 22px rgb(15 74 190 / 12%);
+  --ph-control-point-size: 0.4rem;
+
+  /* Adapter to Plane semantic tokens. */
+  --font-heading: var(--ph-font-display);
+  --font-body: var(--ph-font-interface);
+  --bg-canvas: var(--ph-color-canvas);
+  --bg-surface-1: var(--ph-color-surface);
+  --bg-surface-2: var(--ph-color-surface-subtle);
+  --bg-layer-1: var(--ph-color-layer);
+  --bg-layer-1-hover: var(--ph-color-layer-hover);
+  --bg-layer-1-active: var(--ph-color-layer-active);
+  --bg-layer-1-selected: var(--ph-blue-100);
+  --bg-layer-2: var(--ph-color-surface);
+  --bg-layer-2-hover: var(--ph-color-layer-hover);
+  --bg-layer-2-active: var(--ph-color-layer-active);
+  --bg-layer-2-selected: var(--ph-blue-100);
+  --bg-layer-3: var(--ph-blue-50);
+  --bg-layer-3-hover: var(--ph-blue-100);
+  --bg-layer-3-active: var(--ph-blue-200);
+  --bg-layer-3-selected: var(--ph-blue-200);
+  --bg-layer-transparent-hover: var(--ph-blue-a50);
+  --bg-layer-transparent-active: var(--ph-blue-a100);
+  --bg-layer-transparent-selected: var(--ph-blue-a200);
+  --bg-accent-primary: var(--ph-color-action);
+  --bg-accent-primary-hover: var(--ph-color-action-hover);
+  --bg-accent-primary-active: var(--ph-color-action-active);
+  --bg-accent-subtle: var(--ph-blue-50);
+  --bg-accent-subtle-hover: var(--ph-blue-100);
+  --bg-accent-subtle-active: var(--ph-blue-200);
+  --border-subtle: var(--ph-color-border);
+  --border-subtle-1: var(--ph-neutral-400);
+  --border-strong: var(--ph-color-border-strong);
+  --border-strong-1: var(--ph-neutral-600);
+  --border-accent-strong: var(--ph-color-action);
+  --border-accent-subtle: var(--ph-blue-300);
+  --txt-primary: var(--ph-color-text);
+  --txt-secondary: var(--ph-color-text-secondary);
+  --txt-tertiary: var(--ph-color-text-tertiary);
+  --txt-placeholder: var(--ph-neutral-700);
+  --txt-accent-primary: var(--ph-color-action);
+  --txt-accent-secondary: var(--ph-blue-600);
+  --txt-link-primary: var(--ph-color-action);
+  --txt-link-primary-hover: var(--ph-color-action-hover);
+  --txt-icon-primary: var(--ph-color-text);
+  --txt-icon-secondary: var(--ph-color-text-secondary);
+  --txt-icon-tertiary: var(--ph-color-text-tertiary);
+  --txt-icon-accent-primary: var(--ph-color-action);
+  --txt-icon-accent-subtle: var(--ph-blue-500);
+}
+
+html[data-brand-theme="payholder"] body {
+  font-family: var(--ph-font-interface);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
+}
+
+html[data-brand-theme="payholder"] :where(h1, h2, h3) {
+  font-family: var(--ph-font-display);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+html[data-brand-theme="payholder"] ::selection {
+  color: var(--ph-ink-900);
+  background: var(--ph-blue-300);
+}
+
+html[data-brand-theme="payholder"] .payholder-workspace-shell {
+  border-color: var(--ph-color-border);
+  border-radius: var(--ph-shell-radius);
+  box-shadow: 0 10px 36px rgb(15 74 190 / 8%);
+}
+
+html[data-brand-theme="payholder"] .payholder-project-header {
+  position: relative;
+  border-bottom-color: var(--ph-blue-200);
+}
+
+html[data-brand-theme="payholder"] .payholder-project-header::before,
+html[data-brand-theme="payholder"] .payholder-project-header::after {
+  position: absolute;
+  bottom: -1px;
+  z-index: 1;
+  content: "";
+  pointer-events: none;
+}
+
+html[data-brand-theme="payholder"] .payholder-project-header::before {
+  left: 1.5rem;
+  width: 4.5rem;
+  height: 2px;
+  background: var(--ph-color-action);
+}
+
+html[data-brand-theme="payholder"] .payholder-project-header::after {
+  left: 5.8rem;
+  width: var(--ph-control-point-size);
+  height: var(--ph-control-point-size);
+  border: 2px solid var(--ph-color-action);
+  border-radius: 50%;
+  background: var(--ph-color-surface);
+  transform: translateY(calc(50% - 1px));
+}
+
+html[data-brand-theme="payholder"] .payholder-navigation-item[data-active="true"] {
+  padding-left: 1.5rem;
+  color: var(--ph-color-action);
+  background: var(--ph-blue-50) !important;
+}
+
+html[data-brand-theme="payholder"] .payholder-navigation-item[data-active="true"]::before,
+html[data-brand-theme="payholder"] .payholder-navigation-item[data-active="true"]::after {
+  position: absolute;
+  top: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+html[data-brand-theme="payholder"] .payholder-navigation-item[data-active="true"]::before {
+  left: 0.55rem;
+  width: var(--ph-control-point-size);
+  height: var(--ph-control-point-size);
+  border: 2px solid var(--ph-color-action);
+  border-radius: 50%;
+  background: var(--ph-color-surface);
+  transform: translateY(-50%);
+}
+
+html[data-brand-theme="payholder"] .payholder-navigation-item[data-active="true"]::after {
+  left: 0.9rem;
+  width: 0.45rem;
+  height: 1px;
+  background: var(--ph-color-action);
+}
+
+html[data-brand-theme="payholder"] .payholder-work-item-card {
+  border-color: var(--ph-color-border);
+  border-radius: var(--ph-card-radius);
+  box-shadow: var(--ph-card-shadow);
+}
+
+html[data-brand-theme="payholder"] .payholder-work-item-card:hover {
+  border-color: var(--ph-blue-400);
+  box-shadow: var(--ph-card-shadow-hover);
+  transform: translateY(-1px);
+}
+
+html[data-brand-theme="payholder"] :where(button, input, textarea, select, a):focus-visible {
+  outline-color: var(--ph-color-action);
+}
+
+html[data-brand-theme="payholder"][data-theme*="dark"] {
+  --ph-color-canvas: #181818;
+  --ph-color-surface: #262626;
+  --ph-color-surface-subtle: #2d2d2d;
+  --ph-color-layer: #303030;
+  --ph-color-layer-hover: #383838;
+  --ph-color-layer-active: #414141;
+  --ph-color-action: var(--ph-blue-500);
+  --ph-color-action-hover: var(--ph-blue-400);
+  --ph-color-action-active: var(--ph-blue-600);
+  --ph-color-text: var(--ph-blue-50);
+  --ph-color-text-secondary: #d9e1ec;
+  --ph-color-text-tertiary: #aab6c5;
+  --ph-color-border: #454545;
+  --ph-color-border-strong: #575757;
+  --bg-layer-1-selected: #354767;
+  --bg-layer-2: #303030;
+  --bg-layer-2-hover: #383838;
+  --bg-layer-2-active: #414141;
+  --bg-layer-2-selected: #354767;
+  --bg-layer-3: #383838;
+  --bg-layer-3-hover: #414141;
+  --bg-layer-3-active: #4a4a4a;
+  --bg-layer-3-selected: #354767;
+  --bg-layer-transparent-hover: rgb(95 154 235 / 8%);
+  --bg-layer-transparent-active: rgb(95 154 235 / 13%);
+  --bg-layer-transparent-selected: rgb(95 154 235 / 18%);
+  --bg-accent-subtle: #203762;
+  --bg-accent-subtle-hover: #294675;
+  --bg-accent-subtle-active: #31558e;
+  --txt-placeholder: #8b97a5;
+  --txt-icon-tertiary: #aab6c5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-brand-theme="payholder"] .payholder-work-item-card:hover {
+    transform: none;
+  }
+}

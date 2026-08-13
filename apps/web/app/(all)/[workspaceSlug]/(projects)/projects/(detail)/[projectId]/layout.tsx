@@ -10,6 +10,7 @@ import { Outlet } from "react-router";
 import { Header, Row } from "@plane/ui";
 import { cn } from "@plane/utils";
 // components
+import { PayholderBrandTheme } from "@/components/brand/payholder-brand-theme";
 import { TabNavigationRoot } from "@/components/navigation/tab-navigation-root";
 import { AppSidebarToggleButton } from "@/components/sidebar/sidebar-toggle-button";
 // hooks
@@ -30,9 +31,10 @@ function ProjectLayout({ params }: Route.ComponentProps) {
 
   return (
     <>
+      <PayholderBrandTheme projectId={projectId} />
       {projectPreferences.navigationMode === "TABBED" && (
         <div className="z-20">
-          <Row className="flex h-header w-full items-center gap-2 border-b border-subtle bg-surface-1">
+          <Row className="payholder-project-header flex h-header w-full items-center gap-2 border-b border-subtle bg-surface-1">
             <div className="flex h-full w-full items-center gap-2 divide-x divide-subtle">
               <div className="flex size-full flex-1 items-center gap-2">
                 {sidebarCollapsed && (
