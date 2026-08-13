@@ -74,8 +74,8 @@ export const renderFormattedPayloadDate = (date: Date | string | undefined | nul
 };
 
 /**
- * @returns {string | null} formatted date-time in the format of yyyy-MM-dd'T'HH:mm:ss to be used in payload
- * @description Returns date-time in the formatted format to be used in payload
+ * @returns {string | null} timezone-aware ISO date-time to be used in payload
+ * @description Returns the same instant in UTC so the API never interprets local wall time as UTC
  * @param {Date | string} date
  */
 export const renderFormattedPayloadDateTime = (date: Date | string | undefined | null): string | undefined => {
@@ -83,7 +83,7 @@ export const renderFormattedPayloadDateTime = (date: Date | string | undefined |
   if (!parsedDate) return;
   if (!isValid(parsedDate)) return;
 
-  return format(parsedDate, "yyyy-MM-dd'T'HH:mm:ss");
+  return parsedDate.toISOString();
 };
 
 // Format Time Helpers

@@ -52,6 +52,7 @@ from plane.utils.issue_completion import (
     completion_optional_fields_for_actor,
     ensure_completion_requirements,
 )
+from plane.utils.timezone_converter import apply_project_timezone_to_serializer_fields
 
 
 class IssueFlatSerializer(BaseSerializer):
@@ -104,6 +105,18 @@ class IssueCreateSerializer(BaseSerializer):
     )
     project_id = serializers.UUIDField(source="project.id", read_only=True)
     workspace_id = serializers.UUIDField(source="workspace.id", read_only=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not hasattr(self, "initial_data"):
+            return
+
+        project_id = self.context.get("project_id") or getattr(
+            self.instance, "project_id", None
+        )
+        apply_project_timezone_to_serializer_fields(
+            self, project_id, ("start_date", "target_date")
+        )
 
     class Meta:
         model = Issue

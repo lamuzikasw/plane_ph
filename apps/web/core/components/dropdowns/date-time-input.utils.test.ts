@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { renderFormattedPayloadDateTime } from "@plane/utils";
 
 import {
   applyTimeInputToDate,
@@ -14,6 +15,27 @@ import {
 } from "./date-time-input.utils";
 
 describe("date time input helpers", () => {
+  it("serializes local date-time values as timezone-aware UTC instants", () => {
+    expect(renderFormattedPayloadDateTime("2026-08-20T09:30:00+03:00")).toBe("2026-08-20T06:30:00.000Z");
+    expect(renderFormattedPayloadDateTime("2026-08-20T00:00:00+03:00")).toBe("2026-08-19T21:00:00.000Z");
+    expect(renderFormattedPayloadDateTime("2026-08-20T23:59:00+03:00")).toBe("2026-08-20T20:59:00.000Z");
+  });
+
+  it("preserves the wall-clock value after a Moscow timezone round trip", () => {
+    const payload = renderFormattedPayloadDateTime("2026-08-20T09:30:00+03:00");
+    const displayedValue = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Moscow",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).format(new Date(payload!));
+
+    expect(displayedValue).toBe("2026-08-20, 09:30");
+  });
+
   it("applies a manually entered 24-hour time without changing the date", () => {
     const original = new Date(2026, 6, 15, 0, 0, 45, 250);
 

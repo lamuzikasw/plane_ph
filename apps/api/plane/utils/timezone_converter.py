@@ -14,6 +14,28 @@ from django.utils import timezone
 from plane.db.models import Project
 
 
+def apply_project_timezone_to_serializer_fields(serializer, project_id, field_names):
+    """Interpret naive date-time payloads in the project's configured timezone."""
+    if not project_id:
+        return
+
+    project_timezone = (
+        Project.objects.filter(id=project_id).values_list("timezone", flat=True).first()
+    )
+    if not project_timezone:
+        return
+
+    try:
+        timezone_info = pytz.timezone(project_timezone)
+    except pytz.UnknownTimeZoneError:
+        return
+
+    for field_name in field_names:
+        field = serializer.fields.get(field_name)
+        if field is not None:
+            field.timezone = timezone_info
+
+
 def user_timezone_converter(queryset, datetime_fields, user_timezone):
     # Create a timezone object for the user's timezone
     user_tz = pytz.timezone(user_timezone)
