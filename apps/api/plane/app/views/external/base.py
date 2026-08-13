@@ -1156,6 +1156,8 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         return any(marker in text for marker in markers)
 
     def _has_explicit_period_direction(self, message):
+        if self._requests_today_period(message):
+            return True
         text = self._normalize_search(message)
         markers = [
             "прошл",
@@ -1177,6 +1179,21 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             "this week",
         ]
         return any(marker in text for marker in markers)
+
+    def _requests_today_period(self, message):
+        text = self._normalize_search(message)
+        return any(
+            phrase in text
+            for phrase in [
+                "сегодня",
+                "за день",
+                "за сегодняшний день",
+                "за текущий день",
+                "с начала дня",
+                "в течение дня",
+                "today",
+            ]
+        )
 
     def _detect_summary_format(self, message):
         text = self._normalize_search(message)
@@ -1354,7 +1371,7 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
             end = today_start - timedelta(microseconds=1)
             return start.astimezone(pytz.UTC), end.astimezone(pytz.UTC), "вчера"
 
-        if period_key == "today" or any(phrase in text for phrase in ["сегодня", "today"]):
+        if period_key == "today" or self._requests_today_period(message):
             start = today_start
             end = today_start + timedelta(days=1) - timedelta(microseconds=1)
             return start.astimezone(pytz.UTC), end.astimezone(pytz.UTC), "сегодня"
@@ -1391,6 +1408,8 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
         return start.astimezone(pytz.UTC), end.astimezone(pytz.UTC), "текущая неделя"
 
     def _period_was_requested(self, message):
+        if self._requests_today_period(message):
+            return True
         text = message.lower()
         return any(
             phrase in text

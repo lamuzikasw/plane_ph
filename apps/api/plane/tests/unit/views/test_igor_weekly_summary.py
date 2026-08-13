@@ -619,6 +619,78 @@ def test_weekly_summary_follow_up_preserves_scope_period_and_audience_but_change
 
 @pytest.mark.unit
 @pytest.mark.django_db
+def test_weekly_summary_follow_up_for_day_switches_to_today_and_includes_completed_tasks(monkeypatch):
+    user = UserFactory(email="angelina.basileba@gmail.com", username="angelina.basileba@gmail.com")
+    workspace = WorkspaceFactory(slug="igor-summary-day-follow-up", owner=user, timezone="Europe/Moscow")
+    WorkspaceMember.objects.create(workspace=workspace, member=user, role=20)
+    project = Project.objects.create(
+        workspace=workspace,
+        name="Доска Ангелины",
+        identifier="ANG",
+        project_lead=user,
+    )
+    ProjectMember.objects.create(workspace=workspace, project=project, member=user, role=20)
+    completed = State.objects.create(
+        workspace=workspace,
+        project=project,
+        name="Done",
+        color="#46A758",
+        group="completed",
+    )
+    completed_issue = Issue.objects.create(
+        workspace=workspace,
+        project=project,
+        state=completed,
+        name="Выполненная сегодня задача",
+    )
+    IssueAssignee.objects.create(
+        workspace=workspace,
+        project=project,
+        issue=completed_issue,
+        assignee=user,
+    )
+
+    endpoint = IgorChatEndpoint()
+    monkeypatch.setattr(
+        endpoint,
+        "_get_llm_work_plan",
+        lambda *args, **kwargs: pytest.fail("Summary follow-ups must not depend on an external LLM"),
+    )
+    monkeypatch.setattr(endpoint, "_get_igor_llm_config", lambda: (None, "gpt-4o-mini", None, 8.0))
+    initial_context = endpoint._resolve_query_context(
+        "Собери мой отчёт за прошлую неделю",
+        workspace,
+        user,
+        [],
+        {},
+    )
+    history = [
+        {
+            "role": "assistant",
+            "text": "Отчёт готов",
+            "context": endpoint._response_context(initial_context),
+        }
+    ]
+
+    context = endpoint._resolve_query_context(
+        "А почему Игорь не видит мои выполненные задачи за день?",
+        workspace,
+        user,
+        history,
+        {},
+    )
+    result = endpoint._build_weekly_summary(workspace, context, user)
+    metrics = {metric["key"]: metric["value"] for metric in result["widget"]["metrics"]}
+
+    assert context["intent"] == "weekly_summary"
+    assert context["period_label"] == "сегодня"
+    assert context["period_start"] <= completed_issue.completed_at <= context["period_end"]
+    assert metrics["completed"] == 1
+    assert "Выполненная сегодня задача" in result["widget"]["copy_text"]
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
 def test_manager_request_recognizes_report_subject_instead_of_treating_recipient_as_personal_scope():
     manager = UserFactory(email="propandamen@gmail.com", username="propandamen@gmail.com")
     teammate = UserFactory(
