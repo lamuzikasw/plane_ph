@@ -106,7 +106,7 @@ const KanbanIssueDetailsBlock = observer(function KanbanIssueDetailsBlock(props:
 
   return (
     <>
-      <div className="relative">
+      <div className="payholder-work-item-meta relative">
         {issue.project_id && (
           <IssueIdentifier
             issueId={issue.id}
@@ -138,7 +138,7 @@ const KanbanIssueDetailsBlock = observer(function KanbanIssueDetailsBlock(props:
       </Tooltip>
 
       <IssueProperties
-        className="flex flex-wrap items-center gap-2 pt-1.5 whitespace-nowrap text-tertiary"
+        className="payholder-work-item-properties flex flex-wrap items-center gap-2 pt-1.5 whitespace-nowrap text-tertiary"
         issue={issue}
         displayProperties={displayProperties}
         activeLayout="Kanban"

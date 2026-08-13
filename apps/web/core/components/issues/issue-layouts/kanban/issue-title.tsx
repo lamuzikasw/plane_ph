@@ -9,7 +9,7 @@ type Props = {
 };
 
 export const KanbanIssueTitle = ({ name }: Props) => (
-  <div className="w-full min-w-0 text-body-sm-medium break-words whitespace-normal text-primary">
+  <div className="payholder-work-item-title w-full min-w-0 text-body-sm-medium break-words whitespace-normal text-primary">
     <span>{name}</span>
   </div>
 );

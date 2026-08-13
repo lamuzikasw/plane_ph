@@ -92,7 +92,7 @@ export const WorkspaceMenuRoot = observer(function WorkspaceMenuRoot(props: Work
           <>
             {variant === "sidebar" && (
               <Menu.Button
-                className={cn("flex size-8 w-full items-center justify-center rounded-md", {
+                className={cn("payholder-workspace-menu flex size-8 w-full items-center justify-center rounded-md", {
                   "bg-layer-1": open,
                 })}
               >
@@ -103,7 +103,7 @@ export const WorkspaceMenuRoot = observer(function WorkspaceMenuRoot(props: Work
                       <WorkspaceLogo
                         logo={activeWorkspace?.logo_url}
                         name={activeWorkspace?.name}
-                        classNames="size-8 rounded-md border border-subtle"
+                        classNames="payholder-workspace-logo size-8 rounded-md border border-subtle"
                       />
                     ),
                   }}
@@ -113,7 +113,7 @@ export const WorkspaceMenuRoot = observer(function WorkspaceMenuRoot(props: Work
             {variant === "top-navigation" && (
               <Menu.Button
                 className={cn(
-                  "group/menu-button flex flex-grow items-center justify-between gap-1 truncate rounded-sm p-1 text-13 font-medium text-secondary hover:bg-layer-1 focus:outline-none",
+                  "payholder-workspace-menu group/menu-button flex flex-grow items-center justify-between gap-1 truncate rounded-sm p-1 text-13 font-medium text-secondary hover:bg-layer-1 focus:outline-none",
                   {
                     "bg-layer-1": open,
                   }
@@ -124,9 +124,11 @@ export const WorkspaceMenuRoot = observer(function WorkspaceMenuRoot(props: Work
                   <WorkspaceLogo
                     logo={activeWorkspace?.logo_url}
                     name={activeWorkspace?.name}
-                    classNames="border border-subtle rounded-md size-7"
+                    classNames="payholder-workspace-logo border border-subtle rounded-md size-7"
                   />
-                  <h4 className="truncate text-14 font-medium text-primary">{activeWorkspace?.name ?? t("loading")}</h4>
+                  <h4 className="payholder-workspace-name truncate text-14 font-medium text-primary">
+                    {activeWorkspace?.name ?? t("loading")}
+                  </h4>
                 </div>
                 <ChevronDownIcon
                   className={cn("size-4 flex-shrink-0 text-placeholder duration-300", {

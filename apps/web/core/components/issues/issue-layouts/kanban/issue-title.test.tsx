@@ -16,6 +16,7 @@ describe("KanbanIssueTitle", () => {
     const markup = renderToStaticMarkup(<KanbanIssueTitle name={title} />);
 
     expect(markup).toContain(title);
+    expect(markup).toContain("payholder-work-item-title");
     expect(markup).toContain("whitespace-normal");
     expect(markup).toContain("break-words");
     expect(markup).not.toContain("line-clamp");

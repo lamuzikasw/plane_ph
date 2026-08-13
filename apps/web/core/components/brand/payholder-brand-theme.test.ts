@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { PAYHOLDER_BRAND_WORKSPACE_SLUG, isPayholderBrandedWorkspace } from "./payholder-brand-theme";
+import { PAYHOLDER_BRAND_PREVIEW_PROJECT_ID, isPayholderBrandPreviewProject } from "./payholder-brand-theme";
 
-describe("PayHolder brand workspace scope", () => {
-  it("enables the brand for every page in the PayHolder workspace", () => {
-    expect(isPayholderBrandedWorkspace(PAYHOLDER_BRAND_WORKSPACE_SLUG)).toBe(true);
-    expect(isPayholderBrandedWorkspace("PayHolder")).toBe(true);
+describe("PayHolder brand preview scope", () => {
+  it("enables the brand for the dedicated time testing project", () => {
+    expect(isPayholderBrandPreviewProject(PAYHOLDER_BRAND_PREVIEW_PROJECT_ID)).toBe(true);
   });
 
-  it("keeps other workspaces on their existing theme", () => {
-    expect(isPayholderBrandedWorkspace("another-workspace")).toBe(false);
-    expect(isPayholderBrandedWorkspace(undefined)).toBe(false);
+  it("keeps every other project on the standard Plane theme", () => {
+    expect(isPayholderBrandPreviewProject("2ff203d9-0e69-4cf7-8e15-077b99846127")).toBe(false);
+    expect(isPayholderBrandPreviewProject(undefined)).toBe(false);
   });
 });

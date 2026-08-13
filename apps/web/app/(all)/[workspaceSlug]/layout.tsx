@@ -5,7 +5,6 @@
  */
 
 import { Outlet } from "react-router";
-import { PayholderBrandTheme } from "@/components/brand/payholder-brand-theme";
 import { AuthenticationWrapper } from "@/lib/wrappers/authentication-wrapper";
 import { WorkspaceContentWrapper } from "@/plane-web/components/workspace/content-wrapper";
 import { AppRailVisibilityProvider } from "@/lib/app-rail";
@@ -19,7 +18,6 @@ export default function WorkspaceLayout(props: Route.ComponentProps) {
 
   return (
     <AuthenticationWrapper>
-      <PayholderBrandTheme workspaceSlug={workspaceSlug} />
       <WorkspaceAuthWrapper>
         <AppRailVisibilityProvider>
           <WorkspaceContentWrapper>

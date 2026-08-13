@@ -168,7 +168,7 @@ export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHea
         </ModalCore>
       )}
       <div
-        className={`relative flex flex-shrink-0 gap-1 py-1.5 ${
+        className={`payholder-kanban-group-header relative flex flex-shrink-0 gap-1 py-1.5 ${
           verticalAlignPosition ? `w-[44px] flex-col items-center` : `w-full flex-row items-center`
         }`}
       >
