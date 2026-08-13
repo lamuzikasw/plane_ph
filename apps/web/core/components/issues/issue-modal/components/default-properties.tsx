@@ -198,6 +198,7 @@ export const IssueDefaultProperties = observer(function IssueDefaultProperties(p
               placeholder={t("due_date")}
               tabIndex={getIndex("target_date")}
               includeTime
+              defaultTime="end-of-day"
             />
           </div>
         )}

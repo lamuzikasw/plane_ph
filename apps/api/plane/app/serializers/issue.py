@@ -111,12 +111,8 @@ class IssueCreateSerializer(BaseSerializer):
         if not hasattr(self, "initial_data"):
             return
 
-        project_id = self.context.get("project_id") or getattr(
-            self.instance, "project_id", None
-        )
-        apply_project_timezone_to_serializer_fields(
-            self, project_id, ("start_date", "target_date")
-        )
+        project_id = self.context.get("project_id") or getattr(self.instance, "project_id", None)
+        apply_project_timezone_to_serializer_fields(self, project_id, ("start_date", "target_date"))
 
     class Meta:
         model = Issue
@@ -143,10 +139,19 @@ class IssueCreateSerializer(BaseSerializer):
         allow_triage = self.context.get("allow_triage_state", False)
         state_manager = State.triage_objects if allow_triage else State.objects
 
+        effective_start_date = (
+            attrs["start_date"] if "start_date" in attrs else getattr(self.instance, "start_date", None)
+        )
+        effective_target_date = (
+            attrs["target_date"] if "target_date" in attrs else getattr(self.instance, "target_date", None)
+        )
+
+        should_validate_date_range = self.instance is None or "start_date" in attrs or "target_date" in attrs
         if (
-            attrs.get("start_date", None) is not None
-            and attrs.get("target_date", None) is not None
-            and attrs.get("start_date", None) > attrs.get("target_date", None)
+            should_validate_date_range
+            and effective_start_date is not None
+            and effective_target_date is not None
+            and effective_start_date > effective_target_date
         ):
             raise serializers.ValidationError("Start date cannot exceed target date")
 

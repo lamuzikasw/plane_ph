@@ -163,7 +163,10 @@ export const DateRangeDropdown = observer(function DateRangeDropdown(props: Prop
   const handleRangeSelect = (range: DateRange | undefined) => {
     const updatedRange = {
       from: range?.from ? mergeDateAndTime(range.from, dateRange.from) : undefined,
-      to: range?.to ? mergeDateAndTime(range.to, dateRange.to) : undefined,
+      // A newly selected due date represents the whole selected day. Default
+      // it to 23:59 instead of midnight so a same-day range cannot silently
+      // end before a manually entered start time.
+      to: range?.to ? mergeDateAndTime(range.to, dateRange.to, "end-of-day") : undefined,
     };
 
     setDateRange(updatedRange);

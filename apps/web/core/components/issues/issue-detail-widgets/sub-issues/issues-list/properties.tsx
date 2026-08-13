@@ -215,6 +215,7 @@ export const SubIssuesListItemProperties = observer(function SubIssuesListItemPr
             disabled={!canEdit}
             showTooltip
             includeTime
+            defaultTime="end-of-day"
           />
         </div>
       </WithDisplayPropertiesHOC>

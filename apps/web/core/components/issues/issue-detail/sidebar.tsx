@@ -185,6 +185,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
                   hideIcon
                   clearIconClassName="h-3 w-3 hidden group-hover:inline text-primary"
                   includeTime
+                  defaultTime="end-of-day"
                 />
                 {issue.target_date && <DateAlert date={issue.target_date} workItem={issue} projectId={projectId} />}
               </div>

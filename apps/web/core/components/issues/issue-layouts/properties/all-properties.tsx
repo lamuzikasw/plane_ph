@@ -348,6 +348,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
             showTooltip
             labelClassName="text-caption-sm-regular"
             includeTime
+            defaultTime="end-of-day"
           />
         </div>
       </WithDisplayPropertiesHOC>

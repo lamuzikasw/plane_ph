@@ -161,6 +161,7 @@ export const InboxIssueContentProperties = observer(function InboxIssueContentPr
                 hideIcon
                 clearIconClassName="h-3 w-3 hidden group-hover:inline"
                 includeTime
+                defaultTime="end-of-day"
               />
             </div>
             {/* Labels */}

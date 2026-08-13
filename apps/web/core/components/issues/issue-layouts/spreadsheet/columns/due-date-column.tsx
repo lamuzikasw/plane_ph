@@ -61,6 +61,7 @@ export const SpreadsheetDueDateColumn = observer(function SpreadsheetDueDateColu
         clearIconClassName="!text-primary"
         onClose={onClose}
         includeTime
+        defaultTime="end-of-day"
       />
     </div>
   );

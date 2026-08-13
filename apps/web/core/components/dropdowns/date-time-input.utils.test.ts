@@ -59,6 +59,31 @@ describe("date time input helpers", () => {
     expect(result).toEqual(new Date(2026, 6, 20, 18, 45, 0, 0));
   });
 
+  it("defaults a newly selected start date to the start of the day", () => {
+    expect(mergeDateAndTime(new Date(2026, 7, 13))).toEqual(new Date(2026, 7, 13, 0, 0, 0, 0));
+  });
+
+  it("defaults a newly selected due date to the end of the day", () => {
+    expect(mergeDateAndTime(new Date(2026, 7, 13), undefined, "end-of-day")).toEqual(
+      new Date(2026, 7, 13, 23, 59, 0, 0)
+    );
+  });
+
+  it("keeps an existing due time when its calendar date changes", () => {
+    expect(mergeDateAndTime(new Date(2026, 7, 14), new Date(2026, 7, 13, 17, 20), "end-of-day")).toEqual(
+      new Date(2026, 7, 14, 17, 20, 0, 0)
+    );
+  });
+
+  it("does not create a backwards same-day range when start time is 10:00", () => {
+    const start = mergeDateAndTime(new Date(2026, 7, 13), new Date(2026, 7, 13, 10, 0));
+    const due = mergeDateAndTime(new Date(2026, 7, 13), undefined, "end-of-day");
+
+    expect(start).toEqual(new Date(2026, 7, 13, 10, 0, 0, 0));
+    expect(due).toEqual(new Date(2026, 7, 13, 23, 59, 0, 0));
+    expect(due.getTime()).toBeGreaterThanOrEqual(start.getTime());
+  });
+
   it("does not overwrite a focused native time input during segmented typing", () => {
     expect(getSynchronizedTimeInputValue("18:00", "08:00", true)).toBe("18:00");
     expect(getSynchronizedTimeInputValue("18:00", "08:00", false)).toBe("08:00");

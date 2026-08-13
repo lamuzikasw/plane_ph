@@ -25,6 +25,7 @@ import { useDropdown } from "@/hooks/use-dropdown";
 // components
 import { DropdownButton } from "./buttons";
 import { applyTimeInputToDate, mergeDateAndTime } from "./date-time-input.utils";
+import type { TDefaultTime } from "./date-time-input.utils";
 import { TimeInput } from "./time-input";
 // constants
 import { BUTTON_VARIANTS_WITH_TEXT } from "./constants";
@@ -47,6 +48,7 @@ type Props = TDropdownProps & {
   renderByDefault?: boolean;
   labelClassName?: string;
   includeTime?: boolean;
+  defaultTime?: TDefaultTime;
 };
 
 export const DateDropdown = observer(function DateDropdown(props: Props) {
@@ -76,6 +78,7 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
     renderByDefault = true,
     labelClassName = "",
     includeTime = false,
+    defaultTime = "start-of-day",
   } = props;
   // states
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -224,7 +227,9 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
                 selected={selectedDate}
                 defaultMonth={selectedDate}
                 onSelect={(date: Date | undefined) => {
-                  dropdownOnChange(date ? (includeTime ? mergeDateAndTime(date, selectedDate) : date) : null);
+                  dropdownOnChange(
+                    date ? (includeTime ? mergeDateAndTime(date, selectedDate, defaultTime) : date) : null
+                  );
                 }}
                 showOutsideDays
                 initialFocus

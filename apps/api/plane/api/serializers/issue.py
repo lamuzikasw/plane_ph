@@ -78,12 +78,8 @@ class IssueSerializer(BaseSerializer):
         if not hasattr(self, "initial_data"):
             return
 
-        project_id = self.context.get("project_id") or getattr(
-            self.instance, "project_id", None
-        )
-        apply_project_timezone_to_serializer_fields(
-            self, project_id, ("start_date", "target_date")
-        )
+        project_id = self.context.get("project_id") or getattr(self.instance, "project_id", None)
+        apply_project_timezone_to_serializer_fields(self, project_id, ("start_date", "target_date"))
 
     class Meta:
         model = Issue
@@ -91,10 +87,19 @@ class IssueSerializer(BaseSerializer):
         exclude = ["description_json", "description_stripped"]
 
     def validate(self, data):
+        effective_start_date = (
+            data["start_date"] if "start_date" in data else getattr(self.instance, "start_date", None)
+        )
+        effective_target_date = (
+            data["target_date"] if "target_date" in data else getattr(self.instance, "target_date", None)
+        )
+
+        should_validate_date_range = self.instance is None or "start_date" in data or "target_date" in data
         if (
-            data.get("start_date", None) is not None
-            and data.get("target_date", None) is not None
-            and data.get("start_date", None) > data.get("target_date", None)
+            should_validate_date_range
+            and effective_start_date is not None
+            and effective_target_date is not None
+            and effective_start_date > effective_target_date
         ):
             raise serializers.ValidationError("Start date cannot exceed target date")
 

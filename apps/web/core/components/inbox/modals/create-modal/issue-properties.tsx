@@ -126,6 +126,7 @@ export const InboxIssueProperties = observer(function InboxIssueProperties(props
           placeholder="Due date"
           tabIndex={getIndex("target_date")}
           includeTime
+          defaultTime="end-of-day"
         />
       </div>
 

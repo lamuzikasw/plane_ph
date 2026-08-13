@@ -53,12 +53,8 @@ def test_issue_serializers_interpret_naive_datetimes_in_project_timezone(seriali
     )
 
     assert serializer.is_valid(), serializer.errors
-    assert serializer.validated_data["start_date"] == datetime(
-        2026, 8, 20, 6, 30, tzinfo=pytz.UTC
-    )
-    assert serializer.validated_data["target_date"] == datetime(
-        2026, 8, 20, 20, 59, tzinfo=pytz.UTC
-    )
+    assert serializer.validated_data["start_date"] == datetime(2026, 8, 20, 6, 30, tzinfo=pytz.UTC)
+    assert serializer.validated_data["target_date"] == datetime(2026, 8, 20, 20, 59, tzinfo=pytz.UTC)
 
 
 @pytest.mark.unit
@@ -76,9 +72,7 @@ def test_issue_serializers_interpret_date_only_as_project_midnight(serializer_cl
     )
 
     assert serializer.is_valid(), serializer.errors
-    assert serializer.validated_data["start_date"] == datetime(
-        2026, 8, 19, 21, 0, tzinfo=pytz.UTC
-    )
+    assert serializer.validated_data["start_date"] == datetime(2026, 8, 19, 21, 0, tzinfo=pytz.UTC)
 
 
 @pytest.mark.unit
@@ -96,9 +90,7 @@ def test_issue_serializers_preserve_explicit_timezone(serializer_class):
     )
 
     assert serializer.is_valid(), serializer.errors
-    assert serializer.validated_data["start_date"].astimezone(pytz.UTC) == datetime(
-        2026, 8, 20, 6, 30, tzinfo=pytz.UTC
-    )
+    assert serializer.validated_data["start_date"].astimezone(pytz.UTC) == datetime(2026, 8, 20, 6, 30, tzinfo=pytz.UTC)
 
 
 @pytest.mark.unit
@@ -118,6 +110,82 @@ def test_issue_update_uses_instance_project_timezone_without_context_project_id(
     )
 
     assert serializer.is_valid(), serializer.errors
-    assert serializer.validated_data["start_date"] == datetime(
-        2026, 8, 20, 6, 30, tzinfo=pytz.UTC
+    assert serializer.validated_data["start_date"] == datetime(2026, 8, 20, 6, 30, tzinfo=pytz.UTC)
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+@pytest.mark.parametrize("serializer_class", [PublicIssueSerializer, IssueCreateSerializer])
+@pytest.mark.parametrize(
+    ("field_name", "field_value"),
+    [
+        ("target_date", "2026-08-20T09:59:00"),
+        ("start_date", "2026-08-20T18:01:00"),
+    ],
+)
+def test_issue_partial_update_rejects_backwards_datetime_range(serializer_class, field_name, field_value):
+    workspace, project, state = _setup_project()
+    issue = Issue.objects.create(
+        workspace=workspace,
+        project=project,
+        state=state,
+        name="Existing valid range",
+        start_date=datetime(2026, 8, 20, 7, 0, tzinfo=pytz.UTC),
+        target_date=datetime(2026, 8, 20, 15, 0, tzinfo=pytz.UTC),
     )
+    serializer = serializer_class(
+        issue,
+        data={field_name: field_value},
+        partial=True,
+        context={"workspace_id": workspace.id, "project_id": project.id},
+    )
+
+    assert not serializer.is_valid()
+    assert "Start date cannot exceed target date" in str(serializer.errors)
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+@pytest.mark.parametrize("serializer_class", [PublicIssueSerializer, IssueCreateSerializer])
+def test_issue_partial_update_allows_clearing_one_side_of_range(serializer_class):
+    workspace, project, state = _setup_project()
+    issue = Issue.objects.create(
+        workspace=workspace,
+        project=project,
+        state=state,
+        name="Range that can be cleared",
+        start_date=datetime(2026, 8, 20, 7, 0, tzinfo=pytz.UTC),
+        target_date=datetime(2026, 8, 20, 15, 0, tzinfo=pytz.UTC),
+    )
+    serializer = serializer_class(
+        issue,
+        data={"target_date": None},
+        partial=True,
+        context={"workspace_id": workspace.id, "project_id": project.id},
+    )
+
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["target_date"] is None
+
+
+@pytest.mark.unit
+@pytest.mark.django_db
+@pytest.mark.parametrize("serializer_class", [PublicIssueSerializer, IssueCreateSerializer])
+def test_unrelated_partial_update_does_not_block_legacy_backwards_range(serializer_class):
+    workspace, project, state = _setup_project()
+    issue = Issue.objects.create(
+        workspace=workspace,
+        project=project,
+        state=state,
+        name="Legacy backwards range",
+        start_date=datetime(2026, 8, 20, 10, 0, tzinfo=pytz.UTC),
+        target_date=datetime(2026, 8, 20, 0, 0, tzinfo=pytz.UTC),
+    )
+    serializer = serializer_class(
+        issue,
+        data={"name": "Unrelated title update"},
+        partial=True,
+        context={"workspace_id": workspace.id, "project_id": project.id},
+    )
+
+    assert serializer.is_valid(), serializer.errors

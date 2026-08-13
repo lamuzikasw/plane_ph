@@ -6,6 +6,8 @@
 
 import { renderFormattedTime } from "@plane/utils";
 
+export type TDefaultTime = "start-of-day" | "end-of-day";
+
 export const getTimeInputValue = (date?: Date): string => (date ? renderFormattedTime(date) : "");
 
 export const getSynchronizedTimeInputValue = (
@@ -37,8 +39,10 @@ export const applyTimeInputToDate = (date: Date, time: string): Date | undefined
   return updatedDate;
 };
 
-export const mergeDateAndTime = (date: Date, timeSource?: Date): Date => {
+export const mergeDateAndTime = (date: Date, timeSource?: Date, defaultTime: TDefaultTime = "start-of-day"): Date => {
   const updatedDate = new Date(date);
-  updatedDate.setHours(timeSource?.getHours() ?? 0, timeSource?.getMinutes() ?? 0, 0, 0);
+  const defaultHours = defaultTime === "end-of-day" ? 23 : 0;
+  const defaultMinutes = defaultTime === "end-of-day" ? 59 : 0;
+  updatedDate.setHours(timeSource?.getHours() ?? defaultHours, timeSource?.getMinutes() ?? defaultMinutes, 0, 0);
   return updatedDate;
 };
