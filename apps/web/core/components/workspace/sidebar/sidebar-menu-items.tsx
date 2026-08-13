@@ -152,7 +152,7 @@ export const SidebarMenuItems = observer(function SidebarMenuItems() {
                 : "aria_labels.app_sidebar.open_workspace_menu"
             )}
           >
-            <span className="text-13 font-semibold">{t("common.workspace")}</span>
+            <span className="payholder-sidebar-section-title text-13 font-semibold">{t("common.workspace")}</span>
           </Disclosure.Button>
           <div className="pointer-events-none flex items-center opacity-0 group-hover:pointer-events-auto group-hover:opacity-100">
             <Disclosure.Button

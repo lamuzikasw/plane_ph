@@ -17,7 +17,7 @@ export function SidebarAddButton(props: Props) {
     <Button
       variant={"secondary"}
       size={"xl"}
-      className="w-full justify-start"
+      className="payholder-sidebar-primary-action w-full justify-start"
       onClick={onClick}
       disabled={disabled}
       {...rest}

@@ -314,6 +314,16 @@ export const KanbanGroup = observer(function KanbanGroup(props: IKanbanGroup) {
         isEpic={isEpic}
       />
 
+      {issueIds.length === 0 && groupIssueCount === 0 && !isPaginating && (
+        <div className="payholder-kanban-empty-state">
+          <span className="payholder-kanban-empty-state-mark" aria-hidden="true">
+            ✶
+          </span>
+          <p className="payholder-kanban-empty-state-title">Свободно</p>
+          <p className="payholder-kanban-empty-state-copy">Перетащите задачу сюда или создайте новую.</p>
+        </div>
+      )}
+
       {shouldLoadMore &&
         (isSubGroup ? (
           <>{loadMore}</>
@@ -329,7 +339,7 @@ export const KanbanGroup = observer(function KanbanGroup(props: IKanbanGroup) {
       {enableQuickIssueCreate &&
         !disableIssueCreation &&
         !getIsWorkflowWorkItemCreationDisabled(groupId, sub_group_id) && (
-          <div className="sticky bottom-0 w-full bg-surface-2 py-0.5">
+          <div className="payholder-kanban-quick-add-root sticky bottom-0 w-full bg-surface-2 py-0.5">
             <QuickAddIssueRoot
               layout={EIssueLayoutTypes.KANBAN}
               QuickAddButton={KanbanQuickAddIssueButton}

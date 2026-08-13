@@ -34,6 +34,8 @@ import type { TProject } from "@plane/types";
 // local imports
 import { SidebarProjectsListItem } from "./projects-list-item";
 
+const PROJECT_LOADER_KEYS = ["first", "second", "third", "fourth"] as const;
+
 export const SidebarProjectsList = observer(function SidebarProjectsList() {
   // states
   const [isAllProjectsListOpen, setIsAllProjectsListOpen] = useState(true);
@@ -69,13 +71,13 @@ export const SidebarProjectsList = observer(function SidebarProjectsList() {
     projectPreferences.showLimitedProjects && joinedProjects.length > projectPreferences.limitedProjectsCount;
 
   const handleCopyText = (projectId: string) => {
-    copyUrlToClipboard(`${workspaceSlug}/projects/${projectId}/issues`).then(() => {
+    copyUrlToClipboard(`${workspaceSlug}/projects/${projectId}/issues`).then(() =>
       setToast({
         type: TOAST_TYPE.SUCCESS,
         title: t("link_copied"),
         message: t("project_link_copied_to_clipboard"),
-      });
-    });
+      })
+    );
   };
 
   const handleOnProjectDrop = (
@@ -183,7 +185,7 @@ export const SidebarProjectsList = observer(function SidebarProjectsList() {
                     : "aria_labels.projects_sidebar.open_projects_menu"
                 )}
               >
-                <span className="text-13 font-semibold">{t("projects")}</span>
+                <span className="payholder-sidebar-section-title text-13 font-semibold">{t("projects")}</span>
               </Disclosure.Button>
               <div className="flex items-center gap-1">
                 {isAuthorizedUser && (
@@ -229,8 +231,8 @@ export const SidebarProjectsList = observer(function SidebarProjectsList() {
             >
               {loader === "init-loader" && (
                 <Loader className="w-full space-y-1.5">
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <Loader.Item key={index} height="28px" />
+                  {PROJECT_LOADER_KEYS.map((loaderKey) => (
+                    <Loader.Item key={loaderKey} height="28px" />
                   ))}
                 </Loader>
               )}

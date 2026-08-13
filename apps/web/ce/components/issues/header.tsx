@@ -118,6 +118,7 @@ export const IssuesHeader = observer(function IssuesHeader() {
         </div>
         {canUserCreateIssue && (
           <Button
+            className="payholder-header-primary-action"
             variant="primary"
             size="lg"
             onClick={() => {

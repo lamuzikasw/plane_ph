@@ -94,47 +94,58 @@ export const HeaderFilters = observer(function HeaderFilters(props: Props) {
         projectDetails={currentProjectDetails ?? undefined}
         isEpic={storeType === EIssuesStoreType.EPIC}
       />
-      <div className="hidden @4xl:flex">
-        <LayoutSelection
-          layouts={LAYOUTS}
-          onChange={(layout) => handleLayoutChange(layout)}
-          selectedLayout={activeLayout}
-        />
+      <div className="payholder-header-controls flex items-center gap-2">
+        <div className="payholder-header-layout-control hidden @4xl:flex">
+          <LayoutSelection
+            layouts={LAYOUTS}
+            onChange={(layout) => handleLayoutChange(layout)}
+            selectedLayout={activeLayout}
+          />
+        </div>
+        <div className="payholder-header-secondary-control flex @4xl:hidden">
+          <MobileLayoutSelection
+            layouts={LAYOUTS}
+            onChange={(layout) => handleLayoutChange(layout)}
+            activeLayout={activeLayout}
+          />
+        </div>
+        <div className="payholder-header-secondary-control flex">
+          <WorkItemFiltersToggle entityType={storeType} entityId={projectId} />
+        </div>
+        <div className="payholder-header-secondary-control flex">
+          <FiltersDropdown
+            miniIcon={<SlidersHorizontal className="size-3.5" />}
+            title={t("common.display")}
+            placement="bottom-end"
+          >
+            <DisplayFiltersSelection
+              layoutDisplayFiltersOptions={layoutDisplayFiltersOptions}
+              displayFilters={issueFilters?.displayFilters ?? {}}
+              handleDisplayFiltersUpdate={handleDisplayFilters}
+              displayProperties={issueFilters?.displayProperties ?? {}}
+              handleDisplayPropertiesUpdate={handleDisplayProperties}
+              cycleViewDisabled={!currentProjectDetails?.cycle_view}
+              moduleViewDisabled={!currentProjectDetails?.module_view}
+              isEpic={storeType === EIssuesStoreType.EPIC}
+            />
+          </FiltersDropdown>
+        </div>
+        {canUserCreateIssue ? (
+          <Button
+            className="payholder-header-secondary-action hidden px-2 md:block"
+            onClick={() => setAnalyticsModal(true)}
+            variant="secondary"
+            size="lg"
+          >
+            <div className="hidden @4xl:flex">{t("common.analytics")}</div>
+            <div className="flex @4xl:hidden">
+              <ChartNoAxesColumn className="size-3.5" />
+            </div>
+          </Button>
+        ) : (
+          <></>
+        )}
       </div>
-      <div className="flex @4xl:hidden">
-        <MobileLayoutSelection
-          layouts={LAYOUTS}
-          onChange={(layout) => handleLayoutChange(layout)}
-          activeLayout={activeLayout}
-        />
-      </div>
-      <WorkItemFiltersToggle entityType={storeType} entityId={projectId} />
-      <FiltersDropdown
-        miniIcon={<SlidersHorizontal className="size-3.5" />}
-        title={t("common.display")}
-        placement="bottom-end"
-      >
-        <DisplayFiltersSelection
-          layoutDisplayFiltersOptions={layoutDisplayFiltersOptions}
-          displayFilters={issueFilters?.displayFilters ?? {}}
-          handleDisplayFiltersUpdate={handleDisplayFilters}
-          displayProperties={issueFilters?.displayProperties ?? {}}
-          handleDisplayPropertiesUpdate={handleDisplayProperties}
-          cycleViewDisabled={!currentProjectDetails?.cycle_view}
-          moduleViewDisabled={!currentProjectDetails?.module_view}
-          isEpic={storeType === EIssuesStoreType.EPIC}
-        />
-      </FiltersDropdown>
-      {canUserCreateIssue ? (
-        <Button className="hidden px-2 md:block" onClick={() => setAnalyticsModal(true)} variant="secondary" size="lg">
-          <div className="hidden @4xl:flex">{t("common.analytics")}</div>
-          <div className="flex @4xl:hidden">
-            <ChartNoAxesColumn className="size-3.5" />
-          </div>
-        </Button>
-      ) : (
-        <></>
-      )}
     </>
   );
 });
