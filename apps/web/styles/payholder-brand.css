@@ -423,11 +423,11 @@ html[data-brand-theme="payholder"] .payholder-kanban-quick-add:hover {
 html[data-brand-theme="payholder"] .payholder-work-item-card {
   position: relative;
   overflow: hidden;
-  padding-left: 1rem;
+  padding-left: 0.75rem;
   border-color: var(--ph-color-border);
   border-radius: var(--ph-card-radius);
   background: var(--ph-color-surface);
-  box-shadow: var(--ph-card-shadow);
+  box-shadow: 0 2px 9px rgb(38 38 38 / 6%);
 }
 
 html[data-brand-theme="payholder"] .payholder-work-item-card::before {
@@ -435,27 +435,51 @@ html[data-brand-theme="payholder"] .payholder-work-item-card::before {
   top: 0;
   bottom: 0;
   left: 0;
-  width: 0.22rem;
+  width: 0.2rem;
   background: linear-gradient(180deg, var(--ph-blue-700), var(--ph-blue-500));
   content: "";
+  opacity: 0;
+  transform: scaleY(0.65);
+  transform-origin: center;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
 }
 
 html[data-brand-theme="payholder"] .payholder-work-item-card::after {
-  position: absolute;
-  top: 0.7rem;
-  left: -0.2rem;
-  width: 0.65rem;
-  height: 0.65rem;
-  border: 2px solid var(--ph-blue-600);
-  border-radius: 50%;
-  background: var(--ph-color-surface);
-  content: "";
+  display: none;
 }
 
 html[data-brand-theme="payholder"] .payholder-work-item-card:hover {
-  border-color: var(--ph-blue-400);
-  box-shadow: var(--ph-card-shadow-hover);
+  border-color: var(--ph-blue-300);
+  background: color-mix(in srgb, var(--ph-color-surface) 94%, var(--ph-color-action));
+  box-shadow:
+    0 0 0 1px var(--ph-blue-a50),
+    0 8px 20px rgb(15 74 190 / 9%);
   transform: translateY(-1px);
+}
+
+html[data-brand-theme="payholder"] .payholder-work-item-card[data-selected="true"] {
+  padding-left: 1rem;
+  border-color: var(--ph-blue-500);
+  background: var(--ph-color-surface);
+  box-shadow:
+    0 0 0 2px var(--ph-blue-a50),
+    0 8px 22px rgb(15 74 190 / 11%);
+}
+
+html[data-brand-theme="payholder"] .payholder-work-item-card[data-selected="true"]::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+html[data-brand-theme="payholder"] .payholder-work-item-card:is([data-dragging="true"], [data-drop-target="true"]) {
+  border-color: var(--ph-blue-600);
+  background: color-mix(in srgb, var(--ph-color-surface) 88%, var(--ph-color-action));
+  box-shadow:
+    0 0 0 2px var(--ph-blue-200),
+    0 14px 30px rgb(15 74 190 / 20%);
+  transform: translateY(-1px) scale(1.01);
 }
 
 html[data-brand-theme="payholder"] .payholder-work-item-meta {
