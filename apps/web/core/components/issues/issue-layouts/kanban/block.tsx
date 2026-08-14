@@ -21,6 +21,7 @@ import { EIssueServiceType } from "@plane/types";
 // ui
 import { ControlLink, DropIndicator } from "@plane/ui";
 import { cn, generateWorkItemLink } from "@plane/utils";
+import { isPayholderBrandPreviewProject } from "@/components/brand/payholder-brand-theme";
 // components
 import RenderIfVisible from "@/components/core/render-if-visible-HOC";
 import { HIGHLIGHT_CLASS, getIssueBlockId } from "@/components/issues/issue-layouts/utils";
@@ -129,6 +130,10 @@ const KanbanIssueDetailsBlock = observer(function KanbanIssueDetailsBlock(props:
             issue,
             parentRef: cardRef,
             customActionButton,
+            portalElement:
+              isPayholderBrandPreviewProject(issue.project_id ?? undefined) && typeof document !== "undefined"
+                ? document.body
+                : undefined,
           })}
         </div>
       </div>

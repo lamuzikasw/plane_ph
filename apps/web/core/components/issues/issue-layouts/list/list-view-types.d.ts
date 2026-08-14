@@ -11,7 +11,7 @@ export interface IQuickActionProps {
   handleRestore?: () => Promise<void>;
   handleMoveToIssues?: () => Promise<void>;
   customActionButton?: React.ReactElement;
-  portalElement?: HTMLDivElement | null;
+  portalElement?: Element | null;
   readOnly?: boolean;
   placements?: TPlacement;
 }
@@ -27,5 +27,5 @@ export type TRenderQuickActions = ({
   parentRef: React.RefObject<HTMLElement>;
   customActionButton?: React.ReactElement;
   placement?: TPlacement;
-  portalElement?: HTMLDivElement | null;
+  portalElement?: Element | null;
 }) => React.ReactNode;

@@ -422,12 +422,38 @@ html[data-brand-theme="payholder"] .payholder-kanban-quick-add:hover {
 
 html[data-brand-theme="payholder"] .payholder-work-item-card {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   padding-left: 0.75rem;
   border-color: var(--ph-color-border);
   border-radius: var(--ph-card-radius);
   background: var(--ph-color-surface);
   box-shadow: 0 2px 9px rgb(38 38 38 / 6%);
+}
+
+html[data-brand-theme="payholder"] .payholder-work-item-action-menu {
+  margin-block: 0.4rem;
+  min-width: 13rem;
+  overflow: hidden auto;
+  padding: 0.4rem;
+  border-color: var(--ph-neutral-300);
+  border-radius: 0.7rem;
+  background: var(--ph-color-surface);
+  box-shadow:
+    0 1px 2px rgb(38 38 38 / 8%),
+    0 14px 34px rgb(38 38 38 / 16%);
+}
+
+html[data-brand-theme="payholder"] .payholder-work-item-action-menu [role="menuitem"] > button {
+  min-height: 2rem;
+  border-radius: 0.45rem;
+}
+
+html[data-brand-theme="payholder"]
+  .payholder-work-item-action-menu
+  [role="menuitem"]
+  > button:where(:hover, :focus-visible) {
+  color: var(--ph-color-text-primary);
+  background: var(--ph-blue-50);
 }
 
 html[data-brand-theme="payholder"] .payholder-work-item-card::before {

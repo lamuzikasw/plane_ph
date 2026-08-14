@@ -167,7 +167,8 @@ export const ProjectIssueQuickActions = observer(function ProjectIssueQuickActio
         placement={placements}
         customButton={customActionButton}
         portalElement={portalElement}
-        menuItemsClassName="z-[14]"
+        menuItemsClassName="payholder-work-item-action-menu-layer z-[80]"
+        optionsClassName="payholder-work-item-action-menu"
         maxHeight="lg"
         closeOnSelect
       >
