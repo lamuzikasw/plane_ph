@@ -409,7 +409,14 @@ html[data-brand-theme="payholder"] .payholder-work-item-card {
   box-shadow: 0 2px 9px rgb(38 38 38 / 6%);
 }
 
+html[data-brand-theme="payholder"] .payholder-work-item-action-menu-layer {
+  z-index: 10000 !important;
+  isolation: isolate;
+}
+
 html[data-brand-theme="payholder"] .payholder-work-item-action-menu {
+  position: relative;
+  z-index: 1;
   margin-block: 0.55rem;
   min-width: 14.5rem;
   overflow: hidden auto;
