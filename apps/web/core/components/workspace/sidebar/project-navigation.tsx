@@ -9,18 +9,20 @@ import { observer } from "mobx-react";
 import { CalendarDays } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useSearchParams } from "next/navigation";
-import { EUserPermissionsLevel, EUserPermissions } from "@plane/constants";
+import { EIssueFilterType, EUserPermissionsLevel, EUserPermissions } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { CycleIcon, IntakeIcon, ModuleIcon, PageIcon, ViewsIcon, WorkItemsIcon } from "@plane/propel/icons";
-import type { EUserProjectRoles } from "@plane/types";
+import { EIssuesStoreType, type EUserProjectRoles } from "@plane/types";
 // plane ui
 // components
 import { SidebarNavItem } from "@/components/sidebar/sidebar-navigation";
 // hooks
 import { useAppTheme } from "@/hooks/store/use-app-theme";
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
+import { useIssues } from "@/hooks/store/use-issues";
 import { useProject } from "@/hooks/store/use-project";
 import { useUserPermissions } from "@/hooks/store/user";
+import { parseRememberedProjectLayout, resolveProjectNavigationLayoutTransition } from "./project-navigation.utils";
 
 export type TNavigationItem = {
   name: string;
@@ -45,6 +47,7 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
   // store hooks
   const { t } = useTranslation();
   const { isExtendedProjectSidebarOpened, toggleExtendedProjectSidebar, toggleSidebar } = useAppTheme();
+  const { issuesFilter } = useIssues(EIssuesStoreType.PROJECT);
   const { getPartialProjectById } = useProject();
   const { allowPermissions } = useUserPermissions();
   const {
@@ -60,7 +63,23 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
   const workItem = workItemId ? getIssueById(workItemId) : undefined;
   const project = getPartialProjectById(projectId);
   // handlers
-  const handleProjectClick = () => {
+  const handleProjectClick = (item: TNavigationItem) => {
+    const currentLayout = issuesFilter.getIssueFilters(projectId)?.displayFilters?.layout;
+    const layoutStorageKey = `project-navigation-layout:${workspaceSlug}:${projectId}`;
+    const rememberedLayout = parseRememberedProjectLayout(window.sessionStorage.getItem(layoutStorageKey));
+    const { layoutToApply, layoutToRemember } = resolveProjectNavigationLayoutTransition(
+      item.key,
+      currentLayout,
+      rememberedLayout
+    );
+
+    if (layoutToRemember) window.sessionStorage.setItem(layoutStorageKey, layoutToRemember);
+    if (layoutToApply && layoutToApply !== currentLayout) {
+      void issuesFilter
+        .updateFilters(workspaceSlug, projectId, EIssueFilterType.DISPLAY_FILTERS, { layout: layoutToApply })
+        .catch((error: unknown) => console.error("Failed to switch the project layout:", error));
+    }
+
     if (window.innerWidth < 768) {
       toggleSidebar();
     }
@@ -204,7 +223,7 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
         const shouldShowCount = item.key === "intake" && (project.intake_count ?? 0) > 0;
 
         return (
-          <Link key={item.key} href={item.href} onClick={handleProjectClick}>
+          <Link key={item.key} href={item.href} onClick={() => handleProjectClick(item)}>
             <SidebarNavItem isActive={!!isActive(item)}>
               <div className="flex w-full items-center justify-between gap-1.5 py-[1px]">
                 <div className="flex items-center gap-1.5">
