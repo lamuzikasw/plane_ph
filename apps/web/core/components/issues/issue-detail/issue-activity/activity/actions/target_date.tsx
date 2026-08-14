@@ -5,10 +5,8 @@
  */
 
 import { observer } from "mobx-react";
-import { ru } from "date-fns/locale";
 import { CalendarDays } from "lucide-react";
 // hooks
-import { useTranslation } from "@plane/i18n";
 import { renderFormattedDate } from "@plane/utils";
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 // components
@@ -25,7 +23,6 @@ export const IssueTargetDateActivity = observer(function IssueTargetDateActivity
   } = useIssueDetail();
 
   const activity = getActivityById(activityId);
-  const { currentLocale } = useTranslation();
 
   if (!activity) return <></>;
   return (
@@ -38,13 +35,7 @@ export const IssueTargetDateActivity = observer(function IssueTargetDateActivity
         {activity.new_value ? `set the due date to ` : `removed the due date `}
         {activity.new_value && (
           <>
-            <span className="font-medium text-primary">
-              {renderFormattedDate(
-                activity.new_value,
-                currentLocale === "ru" ? "dd MMM yyyy" : "MMM dd, yyyy",
-                currentLocale === "ru" ? ru : undefined
-              )}
-            </span>
+            <span className="font-medium text-primary">{renderFormattedDate(activity.new_value)}</span>
           </>
         )}
         {showIssue && (activity.new_value ? ` for ` : ` from `)}

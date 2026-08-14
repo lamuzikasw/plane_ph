@@ -20,7 +20,6 @@
     },
     "members": {
       "label": "Участники",
-      "guest_access": "Доступ для гостей",
       "project_lead": "Руководитель проекта",
       "project_lead_description": "Выберите руководителя проекта.",
       "default_assignee": "Ответственный по умолчанию",

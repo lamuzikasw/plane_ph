@@ -59,26 +59,26 @@ export const GeneralProjectSettingsControlSection = observer(function GeneralPro
         {/* Project Selector */}
         <SettingsBoxedControlItem
           className="rounded-b-none border-0 border-b"
-          title={t("project_settings.general.archive_project.title")}
-          description={t("project_settings.general.archive_project.description")}
+          title={t("archive")}
+          description="Archiving a project will unlist your project from your side navigation although you will still be able to access it from your projects page. You can restore the project or delete it whenever you want."
           control={
             <Button variant="secondary" onClick={() => setArchiveProject(true)}>
-              {t("project_settings.general.archive_project.button")}
+              {t("archive")}
             </Button>
           }
         />
         {/* Format Selector */}
         <SettingsBoxedControlItem
           className="rounded-t-none border-0"
-          title={t("project_settings.general.delete_project.title")}
-          description={t("project_settings.general.delete_project.description")}
+          title={t("delete")}
+          description="When deleting a project, all of the data and resources within that project will be permanently removed and cannot be recovered."
           control={
             <Button
               variant="error-outline"
               onClick={() => setSelectedProject(currentProjectDetails.id ?? null)}
               data-ph-element={PROJECT_TRACKER_ELEMENTS.DELETE_PROJECT_BUTTON}
             >
-              {t("project_settings.general.delete_project.button")}
+              {t("delete")}
             </Button>
           }
         />

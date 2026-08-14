@@ -5,7 +5,6 @@
  */
 
 import { observer } from "mobx-react";
-import { ru } from "date-fns/locale";
 // plane imports
 import { useTranslation } from "@plane/i18n";
 import type { TDescriptionVersion } from "@plane/types";
@@ -26,8 +25,7 @@ export const DescriptionVersionsDropdownItem = observer(function DescriptionVers
   // derived values
   const versionCreator = version.owned_by ? getUserDetails(version.owned_by) : null;
   // translation
-  const { currentLocale, t } = useTranslation();
-  const dateLocale = currentLocale === "ru" ? ru : undefined;
+  const { t } = useTranslation();
 
   return (
     <CustomMenu.MenuItem key={version.id} className="flex items-center gap-1" onClick={() => onClick(version.id)}>
@@ -40,7 +38,7 @@ export const DescriptionVersionsDropdownItem = observer(function DescriptionVers
       </span>
       <p className="flex items-center gap-1.5 text-11 text-secondary">
         <span className="font-medium">{versionCreator?.display_name ?? t("common.deactivated_user")}</span>
-        <span>{calculateTimeAgo(version.last_saved_at, dateLocale)}</span>
+        <span>{calculateTimeAgo(version.last_saved_at)}</span>
       </p>
     </CustomMenu.MenuItem>
   );

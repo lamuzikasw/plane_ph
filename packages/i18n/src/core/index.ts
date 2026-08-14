@@ -5,5 +5,4 @@
  */
 
 export { i18nInstance, initPromise } from "./instance";
-export { restoreTemporaryLanguage, setLanguage, setTemporaryLanguage } from "./set-language";
-export type { TTemporaryLanguageSnapshot } from "./set-language";
+export { setLanguage } from "./set-language";

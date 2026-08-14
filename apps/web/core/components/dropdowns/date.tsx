@@ -9,7 +9,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { createPortal } from "react-dom";
-import { ru } from "date-fns/locale";
 import { usePopper } from "react-popper";
 import { CalendarDays, Clock } from "lucide-react";
 import { Combobox } from "@headlessui/react";
@@ -56,8 +55,7 @@ type Props = TDropdownProps & {
 };
 
 export const DateDropdown = observer(function DateDropdown(props: Props) {
-  const { currentLocale, t } = useTranslation();
-  const dateLocale = currentLocale === "ru" ? ru : undefined;
+  const { t } = useTranslation();
   const {
     buttonClassName = "",
     buttonContainerClassName,
@@ -146,16 +144,10 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
 
     if (includeTime) {
       const parsedDate = getDateTime(date);
-      return parsedDate
-        ? renderFormattedDate(
-            parsedDate,
-            formatToken ?? (currentLocale === "ru" ? "dd MMM yyyy HH:mm" : "MMM dd, yyyy HH:mm"),
-            dateLocale
-          )
-        : undefined;
+      return parsedDate ? renderFormattedDate(parsedDate, formatToken ?? "MMM dd, yyyy HH:mm") : undefined;
     }
 
-    return renderFormattedDate(date, formatToken ?? (currentLocale === "ru" ? "dd MMM yyyy" : undefined), dateLocale);
+    return renderFormattedDate(date, formatToken);
   };
 
   const dropdownOnChange = (val: Date | null, shouldClose: boolean = closeOnSelect && !includeTime) => {
@@ -257,7 +249,6 @@ export const DateDropdown = observer(function DateDropdown(props: Props) {
               {...attributes.popper}
             >
               <Calendar
-                locale={dateLocale}
                 className="rounded-md border border-subtle p-3"
                 captionLayout="dropdown"
                 selected={includeTime ? draftDate : selectedDate}

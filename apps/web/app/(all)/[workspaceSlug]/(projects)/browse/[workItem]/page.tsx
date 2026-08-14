@@ -17,7 +17,6 @@ import { Loader } from "@plane/ui";
 import emptyIssueDark from "@/app/assets/empty-state/search/issues-dark.webp?url";
 import emptyIssueLight from "@/app/assets/empty-state/search/issues-light.webp?url";
 // components
-import { PayholderBrandTheme } from "@/components/brand/payholder-brand-theme";
 import { EmptyState } from "@/components/common/empty-state";
 import { PageHead } from "@/components/core/page-title";
 // hooks
@@ -127,7 +126,6 @@ export const IssueDetailsPage = observer(function IssueDetailsPage({ params }: R
 
   return (
     <>
-      <PayholderBrandTheme projectId={projectId} />
       <PageHead title={pageTitle} />
       {workspaceSlug && projectId && issueId && (
         <ProjectAuthWrapper workspaceSlug={workspaceSlug} projectId={projectId}>

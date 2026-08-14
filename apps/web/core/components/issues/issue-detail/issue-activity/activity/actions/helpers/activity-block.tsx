@@ -5,10 +5,8 @@
  */
 
 import type { ReactNode } from "react";
-import { ru } from "date-fns/locale";
 import { Network } from "lucide-react";
 // plane imports
-import { useTranslation } from "@plane/i18n";
 import { Tooltip } from "@plane/propel/tooltip";
 import { renderFormattedTime, renderFormattedDate, calculateTimeAgo } from "@plane/utils";
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
@@ -17,7 +15,6 @@ import { usePlatformOS } from "@/hooks/use-platform-os";
 import { IssueCreatorDisplay } from "@/plane-web/components/issues/issue-details/issue-creator";
 // local imports
 import { IssueUser } from "../";
-import { localizeActivityNode } from "./localize-activity-node";
 
 type TIssueActivityBlockComponent = {
   icon?: ReactNode;
@@ -36,10 +33,7 @@ export function IssueActivityBlockComponent(props: TIssueActivityBlockComponent)
 
   const activity = getActivityById(activityId);
   const { isMobile } = usePlatformOS();
-  const { currentLocale, t } = useTranslation();
   if (!activity) return <></>;
-  const dateLocale = currentLocale === "ru" ? ru : undefined;
-  const localizedChildren = localizeActivityNode(children, currentLocale, t);
   return (
     <div
       className={`relative flex items-center gap-3 text-caption-sm-regular ${
@@ -56,20 +50,13 @@ export function IssueActivityBlockComponent(props: TIssueActivityBlockComponent)
         ) : (
           <IssueUser activityId={activityId} customUserName={customUserName} />
         )}
-        <span> {localizedChildren} </span>
+        <span> {children} </span>
         <span>
           <Tooltip
             isMobile={isMobile}
-            tooltipContent={`${renderFormattedDate(
-              activity.created_at,
-              currentLocale === "ru" ? "dd MMM yyyy" : "MMM dd, yyyy",
-              dateLocale
-            )}, ${renderFormattedTime(activity.created_at)}`}
+            tooltipContent={`${renderFormattedDate(activity.created_at)}, ${renderFormattedTime(activity.created_at)}`}
           >
-            <span className="whitespace-nowrap text-tertiary">
-              {" "}
-              {calculateTimeAgo(activity.created_at, dateLocale)}
-            </span>
+            <span className="whitespace-nowrap text-tertiary"> {calculateTimeAgo(activity.created_at)}</span>
           </Tooltip>
         </span>
       </div>

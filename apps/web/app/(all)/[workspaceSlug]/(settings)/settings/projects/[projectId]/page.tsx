@@ -7,7 +7,6 @@
 import { observer } from "mobx-react";
 // plane imports
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
-import { useTranslation } from "@plane/i18n";
 // components
 import { PageHead } from "@/components/core/page-title";
 import { ProjectDetailsForm } from "@/components/project/form";
@@ -24,16 +23,13 @@ import { GeneralProjectSettingsControlSection } from "@/components/project/setti
 function ProjectSettingsPage({ params }: Route.ComponentProps) {
   // router
   const { workspaceSlug, projectId } = params;
-  const { t } = useTranslation();
   // store hooks
   const { currentProjectDetails } = useProject();
   const { allowPermissions } = useUserPermissions();
   // derived values
   const isAdmin = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.PROJECT, workspaceSlug, projectId);
 
-  const pageTitle = currentProjectDetails?.name
-    ? `${currentProjectDetails.name} - ${t("general_settings")}`
-    : undefined;
+  const pageTitle = currentProjectDetails?.name ? `${currentProjectDetails?.name} - General Settings` : undefined;
 
   return (
     <SettingsContentWrapper header={<GeneralProjectSettingsHeader />}>

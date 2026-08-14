@@ -8,7 +8,6 @@ import { observer } from "mobx-react";
 import { usePathname } from "next/navigation";
 import { Outlet } from "react-router";
 // components
-import { PayholderBrandTheme } from "@/components/brand/payholder-brand-theme";
 import { getProjectActivePath } from "@/components/settings/helper";
 import { SettingsMobileNav } from "@/components/settings/mobile/nav";
 // layouts
@@ -24,7 +23,6 @@ function ProjectDetailSettingsLayout({ params }: Route.ComponentProps) {
 
   return (
     <>
-      <PayholderBrandTheme projectId={projectId} />
       <SettingsMobileNav
         hamburgerContent={(props) => <ProjectSettingsSidebarRoot {...props} projectId={projectId} />}
         activePath={getProjectActivePath(pathname) || ""}

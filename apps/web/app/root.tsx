@@ -4,7 +4,6 @@
  * See the LICENSE file for details.
  */
 
-import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import Script from "next/script";
 import { Links, Meta, Outlet, Scripts } from "react-router";
@@ -135,12 +134,9 @@ export default function Root() {
 
 export function HydrateFallback() {
   const { resolvedTheme } = useTheme();
-  const [isMounted, setIsMounted] = useState(false);
 
-  useEffect(() => setIsMounted(true), []);
-
-  // Keep the server and the browser's first render identical to avoid hydration errors.
-  if (!isMounted || resolvedTheme === undefined) return <div />;
+  // if we are on the server or the theme is not resolved, return an empty div
+  if (typeof window === "undefined" || resolvedTheme === undefined) return <div />;
 
   return (
     <div className="relative flex h-screen w-full items-center justify-center bg-canvas">
