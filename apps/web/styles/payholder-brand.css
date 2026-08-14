@@ -315,35 +315,14 @@ html[data-brand-theme="payholder"] .payholder-project-header::after {
 
 html[data-brand-theme="payholder"] .payholder-navigation-item[data-active="true"] {
   position: relative;
-  padding-left: 1.5rem;
+  padding-left: 0.5rem;
   color: var(--ph-color-action);
   background: var(--ph-blue-50) !important;
 }
 
 html[data-brand-theme="payholder"] .payholder-navigation-item[data-active="true"]::before,
 html[data-brand-theme="payholder"] .payholder-navigation-item[data-active="true"]::after {
-  position: absolute;
-  top: 50%;
-  content: "";
-  pointer-events: none;
-}
-
-html[data-brand-theme="payholder"] .payholder-navigation-item[data-active="true"]::before {
-  left: 0.45rem;
-  width: 0.85rem;
-  color: var(--ph-color-action);
-  content: "✦";
-  font-family: var(--ph-font-display);
-  font-size: 0.7rem;
-  line-height: 1;
-  transform: translateY(-50%);
-}
-
-html[data-brand-theme="payholder"] .payholder-navigation-item[data-active="true"]::after {
-  left: 1.05rem;
-  width: 0.3rem;
-  height: 1px;
-  background: var(--ph-color-action);
+  display: none;
 }
 
 html[data-brand-theme="payholder"] .payholder-kanban-board {
