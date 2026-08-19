@@ -42,11 +42,11 @@ export const ProjectSettingsLabelList = observer(function ProjectSettingsLabelLi
   const { projectLabels, updateLabelPosition, projectLabelsTree, createLabel, updateLabel } = useLabel();
   const { allowPermissions } = useUserPermissions();
   // derived values
-  const isEditable = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.PROJECT);
-  const canCreateLabel = allowPermissions(
+  const canEditLabel = allowPermissions(
     [EUserPermissions.ADMIN, EUserPermissions.MEMBER, EUserPermissions.GUEST],
     EUserPermissionsLevel.PROJECT
   );
+  const canDeleteLabel = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.PROJECT);
   const labelOperationsCallbacks: TLabelOperationsCallbacks = {
     createLabel: (data: Partial<IIssueLabel>) => createLabel(workspaceSlug?.toString(), projectId?.toString(), data),
     updateLabel: (labelId: string, data: Partial<IIssueLabel>) =>
@@ -88,7 +88,7 @@ export const ProjectSettingsLabelList = observer(function ProjectSettingsLabelLi
         title={t("project_settings.labels.heading")}
         description={t("project_settings.labels.description")}
         control={
-          canCreateLabel && (
+          canEditLabel && (
             <Button variant="primary" size="lg" onClick={newLabel}>
               {t("common.add_label")}
             </Button>
@@ -119,7 +119,7 @@ export const ProjectSettingsLabelList = observer(function ProjectSettingsLabelLi
               title={t("settings_empty_state.labels.title")}
               description={t("settings_empty_state.labels.description")}
               actions={
-                canCreateLabel
+                canEditLabel
                   ? [
                       {
                         label: t("settings_empty_state.labels.cta_primary"),
@@ -141,12 +141,13 @@ export const ProjectSettingsLabelList = observer(function ProjectSettingsLabelLi
                     key={label.id}
                     label={label}
                     labelChildren={label.children || []}
-                    handleLabelDelete={(label: IIssueLabel) => setSelectDeleteLabel(label)}
+                    handleLabelDelete={(labelToDelete: IIssueLabel) => setSelectDeleteLabel(labelToDelete)}
                     isUpdating={isUpdating}
                     setIsUpdating={setIsUpdating}
                     isLastChild={index === projectLabelsTree.length - 1}
                     onDrop={onDrop}
-                    isEditable={isEditable}
+                    isEditable={canEditLabel}
+                    canDeleteLabel={canDeleteLabel}
                     labelOperationsCallbacks={labelOperationsCallbacks}
                   />
                 );
@@ -156,11 +157,12 @@ export const ProjectSettingsLabelList = observer(function ProjectSettingsLabelLi
                   label={label}
                   key={label.id}
                   setIsUpdating={setIsUpdating}
-                  handleLabelDelete={(label) => setSelectDeleteLabel(label)}
+                  handleLabelDelete={(labelToDelete) => setSelectDeleteLabel(labelToDelete)}
                   isChild={false}
                   isLastChild={index === projectLabelsTree.length - 1}
                   onDrop={onDrop}
-                  isEditable={isEditable}
+                  isEditable={canEditLabel}
+                  canDeleteLabel={canDeleteLabel}
                   labelOperationsCallbacks={labelOperationsCallbacks}
                 />
               );

@@ -34,6 +34,7 @@ type Props = {
   ) => void;
   labelOperationsCallbacks: TLabelOperationsCallbacks;
   isEditable?: boolean;
+  canDeleteLabel?: boolean;
 };
 
 export const ProjectSettingLabelGroup = observer(function ProjectSettingLabelGroup(props: Props) {
@@ -46,6 +47,7 @@ export const ProjectSettingLabelGroup = observer(function ProjectSettingLabelGro
     isLastChild,
     onDrop,
     isEditable = false,
+    canDeleteLabel = false,
     labelOperationsCallbacks,
   } = props;
 
@@ -68,7 +70,7 @@ export const ProjectSettingLabelGroup = observer(function ProjectSettingLabelGro
       onClick: () => {
         handleLabelDelete(label);
       },
-      isVisible: true,
+      isVisible: canDeleteLabel,
       text: "Delete label",
       key: "delete_label",
     },
@@ -112,6 +114,8 @@ export const ProjectSettingLabelGroup = observer(function ProjectSettingLabelGro
                           handleLabelDelete={handleLabelDelete}
                           isLabelGroup
                           dragHandleRef={dragHandleRef}
+                          disabled={!isEditable}
+                          canDelete={canDeleteLabel}
                         />
                       )}
 
@@ -146,6 +150,7 @@ export const ProjectSettingLabelGroup = observer(function ProjectSettingLabelGro
                                   isLastChild={index === labelChildren.length - 1}
                                   onDrop={onDrop}
                                   isEditable={isEditable}
+                                  canDeleteLabel={canDeleteLabel}
                                   labelOperationsCallbacks={labelOperationsCallbacks}
                                 />
                               </div>

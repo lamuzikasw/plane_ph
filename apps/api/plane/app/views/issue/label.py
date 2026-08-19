@@ -55,7 +55,7 @@ class LabelViewSet(BaseViewSet):
             )
 
     @invalidate_cache(path="/api/workspaces/:slug/labels/", url_params=True, user=False)
-    @allow_permission([ROLE.ADMIN])
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def partial_update(self, request, *args, **kwargs):
         # Check if the label name is unique within the project
         if (
