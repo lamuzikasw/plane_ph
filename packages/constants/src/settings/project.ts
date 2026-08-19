@@ -90,7 +90,7 @@ export const PROJECT_SETTINGS: Record<TProjectSettingsTabs, TProjectSettingsItem
     key: "labels",
     i18n_label: "common.labels",
     href: `/labels`,
-    access: [EUserProjectRoles.ADMIN, EUserProjectRoles.MEMBER],
+    access: [EUserProjectRoles.ADMIN, EUserProjectRoles.MEMBER, EUserProjectRoles.GUEST],
     highlight: (pathname: string, baseUrl: string) => pathname === `${baseUrl}/labels/`,
   },
   estimates: {

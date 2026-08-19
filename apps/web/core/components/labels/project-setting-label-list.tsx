@@ -43,6 +43,10 @@ export const ProjectSettingsLabelList = observer(function ProjectSettingsLabelLi
   const { allowPermissions } = useUserPermissions();
   // derived values
   const isEditable = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.PROJECT);
+  const canCreateLabel = allowPermissions(
+    [EUserPermissions.ADMIN, EUserPermissions.MEMBER, EUserPermissions.GUEST],
+    EUserPermissionsLevel.PROJECT
+  );
   const labelOperationsCallbacks: TLabelOperationsCallbacks = {
     createLabel: (data: Partial<IIssueLabel>) => createLabel(workspaceSlug?.toString(), projectId?.toString(), data),
     updateLabel: (labelId: string, data: Partial<IIssueLabel>) =>
@@ -84,7 +88,7 @@ export const ProjectSettingsLabelList = observer(function ProjectSettingsLabelLi
         title={t("project_settings.labels.heading")}
         description={t("project_settings.labels.description")}
         control={
-          isEditable && (
+          canCreateLabel && (
             <Button variant="primary" size="lg" onClick={newLabel}>
               {t("common.add_label")}
             </Button>
@@ -114,14 +118,18 @@ export const ProjectSettingsLabelList = observer(function ProjectSettingsLabelLi
               assetClassName="size-20"
               title={t("settings_empty_state.labels.title")}
               description={t("settings_empty_state.labels.description")}
-              actions={[
-                {
-                  label: t("settings_empty_state.labels.cta_primary"),
-                  onClick: () => {
-                    newLabel();
-                  },
-                },
-              ]}
+              actions={
+                canCreateLabel
+                  ? [
+                      {
+                        label: t("settings_empty_state.labels.cta_primary"),
+                        onClick: () => {
+                          newLabel();
+                        },
+                      },
+                    ]
+                  : undefined
+              }
               align="start"
               rootClassName="py-20"
             />
