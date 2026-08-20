@@ -47,7 +47,13 @@ export const IssueLabelSelect = observer(function IssueLabelSelect(props: IIssue
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   const canCreateLabel =
-    projectId && allowPermissions([EUserProjectRoles.ADMIN], EUserPermissionsLevel.PROJECT, workspaceSlug, projectId);
+    projectId &&
+    allowPermissions(
+      [EUserProjectRoles.ADMIN, EUserProjectRoles.MEMBER, EUserProjectRoles.GUEST],
+      EUserPermissionsLevel.PROJECT,
+      workspaceSlug,
+      projectId
+    );
 
   const projectLabels = getProjectLabels(projectId);
 

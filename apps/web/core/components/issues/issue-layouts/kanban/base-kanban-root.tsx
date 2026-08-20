@@ -10,8 +10,9 @@ import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
 import { dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
 import { observer } from "mobx-react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { EIssueFilterType, EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
+import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import { EIssueServiceType, EIssueLayoutTypes, EIssuesStoreType } from "@plane/types";
 //hooks
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
@@ -63,8 +64,11 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
   } = props;
   // router
   const { workspaceSlug, projectId } = useParams();
+  const searchParams = useSearchParams();
   // store hooks
   const storeType = useIssueStoreType() as KanbanStoreType;
+  const focusIssueId =
+    storeType === EIssuesStoreType.PROJECT ? (searchParams.get("focusIssue") ?? undefined) : undefined;
   const issueService = useMemo(() => new IssueService(), []);
   const { allowPermissions } = useUserPermissions();
   const { issueMap, issuesFilter, issues } = useIssues(storeType);
@@ -118,6 +122,7 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
   const { enableInlineEditing, enableQuickAdd, enableIssueCreation } = issues?.viewFlags || {};
 
   const scrollableContainerRef = useRef<HTMLDivElement | null>(null);
+  const focusedIssueRef = useRef<string | undefined>(undefined);
 
   // states
   const [draggedIssueId, setDraggedIssueId] = useState<string | undefined>(undefined);
@@ -129,6 +134,47 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
   );
 
   const handleOnDrop = useGroupIssuesDragNDrop(storeType, orderBy, group_by, sub_group_by);
+
+  useEffect(() => {
+    if (!focusIssueId) {
+      focusedIssueRef.current = undefined;
+      return;
+    }
+    if (focusedIssueRef.current === focusIssueId) return;
+
+    let attempts = 0;
+    let focusTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const focusIssueCard = () => {
+      const issueCard = document.querySelector<HTMLElement>(`[id^="issue_${focusIssueId}_"]`);
+
+      if (issueCard) {
+        focusedIssueRef.current = focusIssueId;
+        issueCard.classList.add("today-board-focus");
+        issueCard.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+        window.setTimeout(() => issueCard.classList.remove("today-board-focus"), 5000);
+        return;
+      }
+
+      attempts += 1;
+      if (attempts < 40) {
+        focusTimer = setTimeout(focusIssueCard, 150);
+        return;
+      }
+
+      focusedIssueRef.current = focusIssueId;
+      setToast({
+        type: TOAST_TYPE.WARNING,
+        title: "Задача открыта на доске",
+        message: "Карточка скрыта текущими фильтрами или находится дальше в списке.",
+      });
+    };
+
+    focusTimer = setTimeout(focusIssueCard, 250);
+    return () => {
+      if (focusTimer) clearTimeout(focusTimer);
+    };
+  }, [focusIssueId, groupedIssueIds]);
 
   const canEditProperties = useCallback(
     (targetProjectId: string | undefined) => {
@@ -318,6 +364,7 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
                 }
                 loadMoreIssues={fetchMoreIssues}
                 isEpic={isEpic}
+                focusIssueId={focusIssueId}
               />
             </div>
           </div>

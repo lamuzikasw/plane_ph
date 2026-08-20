@@ -33,7 +33,12 @@ export const IssueLabelSelect = observer(function IssueLabelSelect(props: TWorkI
 
   const canCreateLabel =
     projectId &&
-    allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.PROJECT, workspaceSlug?.toString(), projectId);
+    allowPermissions(
+      [EUserPermissions.ADMIN, EUserPermissions.MEMBER, EUserPermissions.GUEST],
+      EUserPermissionsLevel.PROJECT,
+      workspaceSlug?.toString(),
+      projectId
+    );
 
   const onDropdownOpen = () => {
     if (projectLabelIds === undefined && workspaceSlug && projectId)

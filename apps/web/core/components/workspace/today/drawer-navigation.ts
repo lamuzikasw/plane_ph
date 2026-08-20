@@ -8,3 +8,12 @@ export function openIssueAfterClosingDrawer<T>(issue: T, closeDrawer: () => void
   closeDrawer();
   openIssue(issue);
 }
+
+export function buildIssueBoardPath(workspaceSlug: string, projectId: string, issueId: string) {
+  const searchParams = new URLSearchParams({
+    layout: "kanban",
+    focusIssue: issueId,
+  });
+
+  return `/${encodeURIComponent(workspaceSlug)}/projects/${encodeURIComponent(projectId)}/issues?${searchParams.toString()}`;
+}
