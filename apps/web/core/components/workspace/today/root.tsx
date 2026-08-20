@@ -6,7 +6,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { observer } from "mobx-react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { AlertTriangle, ArrowUpRight, CalendarCheck, Clock3, Copy, Search, Sparkles, UserRound, X } from "lucide-react";
 import useSWR from "swr";
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
@@ -19,7 +19,7 @@ import { useUser, useUserPermissions } from "@/hooks/store/user";
 import useIssuePeekOverviewRedirection from "@/hooks/use-issue-peek-overview-redirection";
 import { usePlatformOS } from "@/hooks/use-platform-os";
 import { AnalyticsService } from "@/services/analytics.service";
-import { openIssueAfterClosingDrawer } from "./drawer-navigation";
+import { buildIssueBoardPath, openIssueAfterClosingDrawer } from "./drawer-navigation";
 
 const analyticsService = new AnalyticsService();
 
@@ -73,6 +73,7 @@ const OPEN_GROUPS = new Set(["backlog", "unstarted", "started"]);
 
 export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
   const { workspaceSlug } = useParams();
+  const router = useRouter();
   const workspaceSlugString = workspaceSlug?.toString() ?? "";
   const { data: currentUser } = useUser();
   const { allowPermissions } = useUserPermissions();
@@ -172,6 +173,19 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
     handleRedirection(workspaceSlugString, issue as TIssue, isMobile);
   };
 
+  const openIssueOnBoard = (issue: TIssueRow | undefined | null) => {
+    if (!issue?.project_id) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Не удалось открыть доску",
+        message: "У задачи не указан проект.",
+      });
+      return;
+    }
+
+    router.push(buildIssueBoardPath(workspaceSlugString, issue.project_id, issue.id));
+  };
+
   const copyDigest = async () => {
     try {
       await navigator.clipboard.writeText(digestText);
@@ -253,6 +267,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
                       rows={todayBuckets.dueToday}
                       icon={<CalendarCheck className="h-4 w-4" />}
                       onOpenIssue={openIssue}
+                      onOpenIssueOnBoard={openIssueOnBoard}
                     />
                     <IssuePanel
                       title="Риски и блокеры"
@@ -261,6 +276,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
                       rows={[...todayBuckets.overdue, ...todayBuckets.blocked].slice(0, 8)}
                       icon={<AlertTriangle className="h-4 w-4" />}
                       onOpenIssue={openIssue}
+                      onOpenIssueOnBoard={openIssueOnBoard}
                     />
                     <IssuePanel
                       title="Ближайшее"
@@ -269,6 +285,7 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
                       rows={todayBuckets.upcoming.slice(0, 6)}
                       icon={<Clock3 className="h-4 w-4" />}
                       onOpenIssue={openIssue}
+                      onOpenIssueOnBoard={openIssueOnBoard}
                     />
                     <EmployeeCard member={currentMember} activeRows={activeRows} blockedRows={blockedRows} />
                   </div>
@@ -349,11 +366,13 @@ export const WorkspaceTodayRoot = observer(function WorkspaceTodayRoot() {
         member={canViewManagementAnalytics ? selectedMember : undefined}
         onClose={() => setSelectedMember(undefined)}
         onOpenIssue={openIssue}
+        onOpenIssueOnBoard={openIssueOnBoard}
       />
       <TodayIssuesDrawer
         detail={selectedTodayStat ? todayStatDetails[selectedTodayStat] : undefined}
         onClose={() => setSelectedTodayStat(undefined)}
         onOpenIssue={openIssue}
+        onOpenIssueOnBoard={openIssueOnBoard}
       />
       <IssuePeekOverview />
     </>
@@ -408,6 +427,7 @@ function IssuePanel({
   rows,
   icon,
   onOpenIssue,
+  onOpenIssueOnBoard,
 }: {
   title: string;
   description: string;
@@ -415,6 +435,7 @@ function IssuePanel({
   rows: TIssueRow[];
   icon: ReactNode;
   onOpenIssue: (issue: TIssueRow) => void;
+  onOpenIssueOnBoard: (issue: TIssueRow) => void;
 }) {
   return (
     <div className="rounded border border-subtle bg-surface-1">
@@ -429,38 +450,75 @@ function IssuePanel({
         {rows.length === 0 ? (
           <div className="px-4 py-8 text-center text-13 text-tertiary">{emptyText}</div>
         ) : (
-          rows.map((issue) => <IssueListItem key={issue.id} issue={issue} onOpenIssue={onOpenIssue} />)
+          rows.map((issue) => (
+            <IssueListItem
+              key={issue.id}
+              issue={issue}
+              onOpenIssue={onOpenIssue}
+              onOpenIssueOnBoard={onOpenIssueOnBoard}
+            />
+          ))
         )}
       </div>
     </div>
   );
 }
 
-function IssueListItem({ issue, onOpenIssue }: { issue: TIssueRow; onOpenIssue: (issue: TIssueRow) => void }) {
+function IssueListItem({
+  issue,
+  onOpenIssue,
+  onOpenIssueOnBoard,
+}: {
+  issue: TIssueRow;
+  onOpenIssue: (issue: TIssueRow) => void;
+  onOpenIssueOnBoard: (issue: TIssueRow) => void;
+}) {
+  return (
+    <div className="group flex w-full items-center gap-2 px-2 py-1.5 transition-colors hover:bg-surface-2">
+      <button
+        type="button"
+        className="focus-visible:ring-custom-primary-100/30 min-w-0 flex-1 rounded px-2 py-1.5 text-left focus-visible:ring-2 focus-visible:outline-none"
+        onClick={() => onOpenIssue(issue)}
+      >
+        <div className="min-w-0">
+          <div className="text-11 font-medium text-tertiary">
+            {issue.project_identifier}-{issue.sequence_id}
+          </div>
+          <div className="truncate text-13 font-medium text-primary">{issue.name}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-11 text-tertiary">
+            <span>{issue.project_name}</span>
+            <span>·</span>
+            <span>{issue.state_name ?? "Без статуса"}</span>
+            {issue.target_date && (
+              <>
+                <span>·</span>
+                <span>{formatDate(issue.target_date)}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </button>
+      <BoardJumpButton issue={issue} onOpenIssueOnBoard={onOpenIssueOnBoard} />
+    </div>
+  );
+}
+
+function BoardJumpButton({
+  issue,
+  onOpenIssueOnBoard,
+}: {
+  issue: TIssueRow;
+  onOpenIssueOnBoard: (issue: TIssueRow) => void;
+}) {
   return (
     <button
       type="button"
-      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2"
-      onClick={() => onOpenIssue(issue)}
+      onClick={() => onOpenIssueOnBoard(issue)}
+      className="hover:bg-custom-primary-100/10 hover:text-custom-primary-100 focus-visible:ring-custom-primary-100/30 flex size-8 flex-shrink-0 items-center justify-center rounded-md border border-strong bg-surface-1 text-secondary shadow-raised-100 transition-all hover:border-accent-strong focus-visible:ring-2 focus-visible:outline-none active:scale-95"
+      aria-label={`Показать задачу ${issue.project_identifier}-${issue.sequence_id} на доске`}
+      title="Показать на доске"
     >
-      <div className="min-w-0">
-        <div className="text-11 font-medium text-tertiary">
-          {issue.project_identifier}-{issue.sequence_id}
-        </div>
-        <div className="truncate text-13 font-medium text-primary">{issue.name}</div>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-11 text-tertiary">
-          <span>{issue.project_name}</span>
-          <span>·</span>
-          <span>{issue.state_name ?? "Без статуса"}</span>
-          {issue.target_date && (
-            <>
-              <span>·</span>
-              <span>{formatDate(issue.target_date)}</span>
-            </>
-          )}
-        </div>
-      </div>
-      <ArrowUpRight className="h-4 w-4 flex-shrink-0 text-tertiary" />
+      <ArrowUpRight className="h-4 w-4" />
     </button>
   );
 }
@@ -469,10 +527,12 @@ function TodayIssuesDrawer({
   detail,
   onClose,
   onOpenIssue,
+  onOpenIssueOnBoard,
 }: {
   detail?: TTodayStatDetail;
   onClose: () => void;
   onOpenIssue: (issue: TIssueRow) => void;
+  onOpenIssueOnBoard: (issue: TIssueRow) => void;
 }) {
   const [query, setQuery] = useState("");
   const rows = useMemo(() => {
@@ -491,6 +551,7 @@ function TodayIssuesDrawer({
   if (!detail) return null;
 
   const handleOpenIssue = (issue: TIssueRow) => openIssueAfterClosingDrawer(issue, onClose, onOpenIssue);
+  const handleOpenIssueOnBoard = (issue: TIssueRow) => openIssueAfterClosingDrawer(issue, onClose, onOpenIssueOnBoard);
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/20">
@@ -532,7 +593,12 @@ function TodayIssuesDrawer({
           ) : (
             <div className="divide-y divide-subtle">
               {rows.map((issue) => (
-                <IssueListItem key={issue.id} issue={issue} onOpenIssue={handleOpenIssue} />
+                <IssueListItem
+                  key={issue.id}
+                  issue={issue}
+                  onOpenIssue={handleOpenIssue}
+                  onOpenIssueOnBoard={handleOpenIssueOnBoard}
+                />
               ))}
             </div>
           )}
@@ -602,11 +668,13 @@ function EmployeeDrawer({
   member,
   onClose,
   onOpenIssue,
+  onOpenIssueOnBoard,
 }: {
   workspaceSlug: string;
   member?: TMemberRow;
   onClose: () => void;
   onOpenIssue: (issue: TIssueRow) => void;
+  onOpenIssueOnBoard: (issue: TIssueRow) => void;
 }) {
   const [query, setQuery] = useState("");
   const isOpen = !!member;
@@ -634,6 +702,7 @@ function EmployeeDrawer({
 
   const focusIssue = rows[0] ?? member.main_work_item;
   const handleOpenIssue = (issue: TIssueRow) => openIssueAfterClosingDrawer(issue, onClose, onOpenIssue);
+  const handleOpenIssueOnBoard = (issue: TIssueRow) => openIssueAfterClosingDrawer(issue, onClose, onOpenIssueOnBoard);
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/20">
@@ -663,20 +732,22 @@ function EmployeeDrawer({
         <div className="border-b border-subtle p-5">
           <div className="text-12 font-medium text-secondary">Основной фокус</div>
           {focusIssue ? (
-            <button
-              type="button"
-              className="mt-2 flex w-full items-center justify-between gap-3 rounded border border-subtle p-3 text-left transition-colors hover:bg-surface-2"
-              onClick={() => handleOpenIssue(focusIssue)}
-            >
-              <div className="min-w-0">
-                <div className="text-11 font-medium text-tertiary">
-                  {focusIssue.project_identifier}-{focusIssue.sequence_id}
+            <div className="mt-2 flex w-full items-center gap-2 rounded border border-subtle bg-surface-1 p-1.5 transition-colors hover:bg-surface-2">
+              <button
+                type="button"
+                className="focus-visible:ring-custom-primary-100/30 min-w-0 flex-1 rounded p-1.5 text-left focus-visible:ring-2 focus-visible:outline-none"
+                onClick={() => handleOpenIssue(focusIssue)}
+              >
+                <div className="min-w-0">
+                  <div className="text-11 font-medium text-tertiary">
+                    {focusIssue.project_identifier}-{focusIssue.sequence_id}
+                  </div>
+                  <div className="truncate text-14 font-medium text-primary">{focusIssue.name}</div>
+                  <div className="mt-1 text-12 text-secondary">{focusIssue.project_name ?? "Проект не указан"}</div>
                 </div>
-                <div className="truncate text-14 font-medium text-primary">{focusIssue.name}</div>
-                <div className="mt-1 text-12 text-secondary">{focusIssue.project_name ?? "Проект не указан"}</div>
-              </div>
-              <ArrowUpRight className="h-4 w-4 text-tertiary" />
-            </button>
+              </button>
+              <BoardJumpButton issue={focusIssue} onOpenIssueOnBoard={handleOpenIssueOnBoard} />
+            </div>
           ) : (
             <div className="mt-2 rounded border border-subtle bg-surface-2 p-3 text-13 text-tertiary">
               Активных задач нет.
@@ -704,7 +775,12 @@ function EmployeeDrawer({
           ) : (
             <div className="divide-y divide-subtle">
               {rows.map((issue) => (
-                <IssueListItem key={issue.id} issue={issue} onOpenIssue={handleOpenIssue} />
+                <IssueListItem
+                  key={issue.id}
+                  issue={issue}
+                  onOpenIssue={handleOpenIssue}
+                  onOpenIssueOnBoard={handleOpenIssueOnBoard}
+                />
               ))}
             </div>
           )}

@@ -173,6 +173,30 @@
   }
 }
 
+@keyframes todayBoardFocusPulse {
+  0%,
+  100% {
+    outline-offset: 2px;
+  }
+  50% {
+    outline-offset: 5px;
+  }
+}
+
+.today-board-focus {
+  border-color: var(--border-color-accent-strong) !important;
+  outline: 3px solid color-mix(in srgb, var(--border-color-accent-strong) 28%, transparent);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-raised-200);
+  animation: todayBoardFocusPulse 900ms ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .today-board-focus {
+    animation: none;
+  }
+}
+
 /* Progress Bar Styles */
 :root {
   --bprogress-color: var(--background-color-accent-primary);

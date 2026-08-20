@@ -47,7 +47,7 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
   // router
   const { workspaceSlug: routerWorkspaceSlug, projectId: routerProjectId } = useParams();
   const searchParams = useSearchParams();
-  const [hasAppliedRouteLayout, setHasAppliedRouteLayout] = useState(false);
+  const [appliedRouteLayout, setAppliedRouteLayout] = useState<EIssueLayoutTypes>();
   const workspaceSlug = routerWorkspaceSlug ? routerWorkspaceSlug.toString() : undefined;
   const projectId = routerProjectId ? routerProjectId.toString() : undefined;
   // hooks
@@ -55,20 +55,24 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
   // derived values
   const workItemFilters = projectId ? issuesFilter?.getIssueFilters(projectId) : undefined;
   const activeLayout = workItemFilters?.displayFilters?.layout;
+  const routeLayoutValue = searchParams.get("layout");
+  const routeLayout =
+    routeLayoutValue === EIssueLayoutTypes.GANTT || routeLayoutValue === EIssueLayoutTypes.KANBAN
+      ? routeLayoutValue
+      : undefined;
 
   useEffect(() => {
-    if (hasAppliedRouteLayout || !workspaceSlug || !projectId || searchParams.get("layout") !== EIssueLayoutTypes.GANTT)
-      return;
-    if (activeLayout === EIssueLayoutTypes.GANTT) {
-      setHasAppliedRouteLayout(true);
+    if (!routeLayout || appliedRouteLayout === routeLayout || !workspaceSlug || !projectId) return;
+    if (activeLayout === routeLayout) {
+      setAppliedRouteLayout(routeLayout);
       return;
     }
 
     issuesFilter?.updateFilters(workspaceSlug, projectId, EIssueFilterType.DISPLAY_FILTERS, {
-      layout: EIssueLayoutTypes.GANTT,
+      layout: routeLayout,
     });
-    setHasAppliedRouteLayout(true);
-  }, [activeLayout, hasAppliedRouteLayout, issuesFilter, projectId, searchParams, workspaceSlug]);
+    setAppliedRouteLayout(routeLayout);
+  }, [activeLayout, appliedRouteLayout, issuesFilter, projectId, routeLayout, workspaceSlug]);
 
   useSWR(
     workspaceSlug && projectId ? `PROJECT_ISSUES_${workspaceSlug}_${projectId}` : null,
