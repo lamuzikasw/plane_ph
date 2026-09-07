@@ -12,7 +12,6 @@ import { handleGroupDragDrop } from "@/components/issues/issue-layouts/utils";
 import { ISSUE_FILTER_DEFAULT_DATA } from "@/store/issue/helpers/base-issues.store";
 import { useIssueDetail } from "./store/use-issue-detail";
 import { useIssues } from "./store/use-issues";
-import { getIssueUpdateError } from "./issue-completion-error";
 import { useIssuesActions } from "./use-issues-actions";
 
 type DNDStoreType =
@@ -110,11 +109,10 @@ export const useGroupIssuesDragNDrop = (
       subGroupBy,
       orderBy !== "sort_order"
     ).catch((err) => {
-      const error = getIssueUpdateError(err);
       setToast({
-        title: error.title,
+        title: "Не удалось обновить задачу",
         type: TOAST_TYPE.ERROR,
-        message: error.message,
+        message: err?.detail ?? "Повторите попытку или обновите страницу.",
       });
     });
   };
