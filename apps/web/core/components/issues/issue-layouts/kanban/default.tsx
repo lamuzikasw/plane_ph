@@ -76,6 +76,7 @@ export interface IKanBan {
   showEmptyGroup?: boolean;
   subGroupIndex?: number;
   isEpic?: boolean;
+  focusIssueId?: string;
 }
 
 export const KanBan = observer(function KanBan(props: IKanBan) {
@@ -106,6 +107,7 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
     dropErrorMessage,
     subGroupIndex = 0,
     isEpic = false,
+    focusIssueId,
   } = props;
   // i18n
   // store hooks
@@ -158,13 +160,18 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
       {list &&
         list.length > 0 &&
         list.map((subList: IGroupByColumn, groupIndex) => {
-          const groupByVisibilityToggle = visibilityGroupBy(subList);
-
-          if (groupByVisibilityToggle.showGroup === false) return <></>;
-
           const issueIds = isSubGroup
             ? ((groupedIssueIds as TSubGroupedIssues)?.[subList.id]?.[sub_group_id] ?? [])
             : ((groupedIssueIds as TGroupedIssues)?.[subList.id] ?? []);
+          const isFocusedGroup = !!focusIssueId && issueIds.includes(focusIssueId);
+          const groupByVisibilityToggle = visibilityGroupBy(subList);
+          if (isFocusedGroup) {
+            groupByVisibilityToggle.showGroup = true;
+            groupByVisibilityToggle.showIssues = true;
+          }
+
+          if (groupByVisibilityToggle.showGroup === false) return <></>;
+
           const issueLength = issueIds?.length;
           const totalIssueCount = getGroupIssueCount(subList.id, undefined, false) ?? 0;
           const groupHeight = issueLength * approximateCardHeight;
@@ -234,6 +241,7 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
                     />
                   }
                   defaultValue={groupIndex < 5 && subGroupIndex < 2}
+                  forceRender={isFocusedGroup}
                   useIdleTime
                 >
                   <KanbanGroup

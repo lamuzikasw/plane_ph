@@ -134,6 +134,7 @@ interface ISubGroupSwimlane extends ISubGroupSwimlaneHeader {
   scrollableContainerRef?: MutableRefObject<HTMLDivElement | null>;
   showEmptyGroup: boolean;
   updateIssue: ((projectId: string | null, issueId: string, data: Partial<TIssue>) => Promise<void>) | undefined;
+  focusIssueId?: string;
 }
 
 const SubGroupSwimlane = observer(function SubGroupSwimlane(props: ISubGroupSwimlane) {
@@ -160,6 +161,7 @@ const SubGroupSwimlane = observer(function SubGroupSwimlane(props: ISubGroupSwim
     showEmptyGroup,
     sub_group_by,
     updateIssue,
+    focusIssueId,
   } = props;
 
   const visibilitySubGroupBy = (
@@ -186,6 +188,15 @@ const SubGroupSwimlane = observer(function SubGroupSwimlane(props: ISubGroupSwim
         list.map((_list: IGroupByColumn, subGroupIndex) => {
           const issueCount = getGroupIssueCount(undefined, _list.id, true) ?? 0;
           const subGroupByVisibilityToggle = visibilitySubGroupBy(_list, issueCount);
+          const isFocusedSubGroup =
+            !!focusIssueId &&
+            Object.values(groupedIssueIds as TSubGroupedIssues).some((subGroups) =>
+              subGroups?.[_list.id]?.includes(focusIssueId)
+            );
+          if (isFocusedSubGroup) {
+            subGroupByVisibilityToggle.showGroup = true;
+            subGroupByVisibilityToggle.showIssues = true;
+          }
           if (subGroupByVisibilityToggle.showGroup === false) return <></>;
           return (
             <div key={_list.id} className="flex flex-shrink-0 flex-col">
@@ -231,6 +242,7 @@ const SubGroupSwimlane = observer(function SubGroupSwimlane(props: ISubGroupSwim
                     isDropDisabled={_list.isDropDisabled}
                     dropErrorMessage={_list.dropErrorMessage}
                     isEpic={isEpic}
+                    focusIssueId={focusIssueId}
                   />
                 </div>
               )}
@@ -267,6 +279,7 @@ export interface IKanBanSwimLanes {
   showEmptyGroup: boolean;
   sub_group_by: TIssueGroupByOptions | undefined;
   updateIssue: ((projectId: string | null, issueId: string, data: Partial<TIssue>) => Promise<void>) | undefined;
+  focusIssueId?: string;
 }
 
 export const KanBanSwimLanes = observer(function KanBanSwimLanes(props: IKanBanSwimLanes) {
@@ -292,6 +305,7 @@ export const KanBanSwimLanes = observer(function KanBanSwimLanes(props: IKanBanS
     quickAddCallback,
     scrollableContainerRef,
     isEpic = false,
+    focusIssueId,
   } = props;
   // store hooks
   const storeType = useIssueStoreType();
@@ -350,6 +364,7 @@ export const KanBanSwimLanes = observer(function KanBanSwimLanes(props: IKanBanS
           quickAddCallback={quickAddCallback}
           scrollableContainerRef={scrollableContainerRef}
           isEpic={isEpic}
+          focusIssueId={focusIssueId}
         />
       )}
     </div>

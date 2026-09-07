@@ -77,7 +77,13 @@ export const IssueDefaultProperties = observer(function IssueDefaultProperties(p
   const { getIndex } = getTabIndex(ETabIndices.ISSUE_FORM, isMobile);
 
   const canCreateLabel =
-    projectId && allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.PROJECT, workspaceSlug, projectId);
+    projectId &&
+    allowPermissions(
+      [EUserPermissions.ADMIN, EUserPermissions.MEMBER, EUserPermissions.GUEST],
+      EUserPermissionsLevel.PROJECT,
+      workspaceSlug,
+      projectId
+    );
 
   const minDate = getDate(startDate);
   minDate?.setDate(minDate.getDate());

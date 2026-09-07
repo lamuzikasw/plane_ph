@@ -38,6 +38,7 @@ interface ILabelItemBlock {
   dragHandleRef: MutableRefObject<HTMLButtonElement | null>;
   disabled?: boolean;
   draggable?: boolean;
+  canDelete?: boolean;
 }
 
 export function LabelItemBlock(props: ILabelItemBlock) {
@@ -50,6 +51,7 @@ export function LabelItemBlock(props: ILabelItemBlock) {
     dragHandleRef,
     disabled = false,
     draggable = true,
+    canDelete = false,
   } = props;
   // states
   const [isMenuActive, setIsMenuActive] = useState(true);
@@ -94,7 +96,7 @@ export function LabelItemBlock(props: ILabelItemBlock) {
                 )
             )}
           </CustomMenu>
-          {!isLabelGroup && (
+          {!isLabelGroup && canDelete && (
             <div className="py-0.5">
               <button
                 className="flex size-5 items-center justify-center rounded-sm hover:bg-layer-1"

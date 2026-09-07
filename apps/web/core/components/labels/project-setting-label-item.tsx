@@ -34,6 +34,7 @@ type Props = {
   ) => void;
   labelOperationsCallbacks: TLabelOperationsCallbacks;
   isEditable?: boolean;
+  canDeleteLabel?: boolean;
 };
 
 export function ProjectSettingLabelItem(props: Props) {
@@ -47,6 +48,7 @@ export function ProjectSettingLabelItem(props: Props) {
     onDrop,
     labelOperationsCallbacks,
     isEditable = false,
+    canDeleteLabel = false,
   } = props;
   // states
   const [isEditLabelForm, setEditLabelForm] = useState(false);
@@ -55,10 +57,10 @@ export function ProjectSettingLabelItem(props: Props) {
   // store hooks
   const { updateLabel } = useLabel();
 
-  const removeFromGroup = (label: IIssueLabel) => {
+  const removeFromGroup = (labelToRemove: IIssueLabel) => {
     if (!workspaceSlug || !projectId) return;
 
-    updateLabel(workspaceSlug.toString(), projectId.toString(), label.id, {
+    updateLabel(workspaceSlug.toString(), projectId.toString(), labelToRemove.id, {
       parent: null,
     });
   };
@@ -114,6 +116,7 @@ export function ProjectSettingLabelItem(props: Props) {
                 handleLabelDelete={handleLabelDelete}
                 dragHandleRef={dragHandleRef}
                 disabled={!isEditable}
+                canDelete={canDeleteLabel}
               />
             )}
           </div>

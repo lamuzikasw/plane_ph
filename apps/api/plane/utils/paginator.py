@@ -6,10 +6,12 @@
 import math
 from collections import defaultdict
 from collections.abc import Sequence
+from datetime import date, datetime
 
 # Django imports
 from django.db.models import Count, F, Window
-from django.db.models.functions import RowNumber
+from django.db.models.functions import RowNumber, TruncDate
+from django.utils import timezone
 
 # Third party imports
 from rest_framework.exceptions import ParseError
@@ -191,7 +193,37 @@ class OffsetPaginator:
         raise NotImplementedError
 
 
-class GroupedOffsetPaginator(OffsetPaginator):
+class DateGroupByMixin:
+    """Group date-time issue properties by their calendar day."""
+
+    DATE_GROUP_BY_FIELDS = frozenset({"start_date", "target_date"})
+
+    def _group_lookup_name(self, field_name, prefix):
+        return f"_plane_{prefix}_date" if field_name in self.DATE_GROUP_BY_FIELDS else field_name
+
+    def _prepare_grouping_queryset(self, queryset):
+        annotations = {}
+        if self.group_by_field_name in self.DATE_GROUP_BY_FIELDS:
+            annotations[self.group_by_lookup_name] = TruncDate(self.group_by_field_name)
+        if (
+            getattr(self, "sub_group_by_field_name", None) in self.DATE_GROUP_BY_FIELDS
+            and self.sub_group_by_lookup_name not in annotations
+        ):
+            annotations[self.sub_group_by_lookup_name] = TruncDate(self.sub_group_by_field_name)
+
+        return queryset.annotate(**annotations) if annotations else queryset
+
+    def _serialize_group_value(self, field_name, value):
+        if field_name not in self.DATE_GROUP_BY_FIELDS or value is None:
+            return str(value)
+
+        if isinstance(value, datetime):
+            value = timezone.localtime(value).date() if timezone.is_aware(value) else value.date()
+
+        return value.isoformat() if isinstance(value, date) else str(value)
+
+
+class GroupedOffsetPaginator(DateGroupByMixin, OffsetPaginator):
     # Field mappers - list m2m fields here
     FIELD_MAPPER = {
         "labels__id": "label_ids",
@@ -214,6 +246,7 @@ class GroupedOffsetPaginator(OffsetPaginator):
 
         # Set the group by field name
         self.group_by_field_name = group_by_field_name
+        self.group_by_lookup_name = self._group_lookup_name(group_by_field_name, "group")
         # Set the group by fields
         self.group_by_fields = group_by_fields
         # Set the count filter - this are extra filters that need to be passed
@@ -229,7 +262,7 @@ class GroupedOffsetPaginator(OffsetPaginator):
         limit = min(limit, self.max_limit)
 
         # Adjust the initial offset and stop based on the cursor and limit
-        queryset = self.queryset
+        queryset = self._prepare_grouping_queryset(self.queryset)
 
         page = cursor.offset
         offset = cursor.offset * cursor.value
@@ -249,7 +282,7 @@ class GroupedOffsetPaginator(OffsetPaginator):
         queryset = queryset.annotate(
             row_number=Window(
                 expression=RowNumber(),
-                partition_by=[F(self.group_by_field_name)],
+                partition_by=[F(self.group_by_lookup_name)],
                 order_by=(
                     (
                         F(*self.key).desc(nulls_last=True)  # order by desc if desc is set
@@ -279,7 +312,7 @@ class GroupedOffsetPaginator(OffsetPaginator):
         # This might require adjustments based on specific use cases
         if results:
             max_hits = math.ceil(
-                queryset.values(self.group_by_field_name)
+                queryset.values(self.group_by_lookup_name)
                 .annotate(count=Count("id", filter=self.count_filter, distinct=True))
                 .order_by("-count")[0]["count"]
                 / limit
@@ -297,7 +330,8 @@ class GroupedOffsetPaginator(OffsetPaginator):
     def __get_total_queryset(self):
         # Get total items for each group
         return (
-            self.queryset.values(self.group_by_field_name)
+            self._prepare_grouping_queryset(self.queryset)
+            .values(self.group_by_lookup_name)
             .annotate(count=Count("id", filter=self.count_filter, distinct=True))
             .order_by()
         )
@@ -306,18 +340,19 @@ class GroupedOffsetPaginator(OffsetPaginator):
         # Convert the total into dictionary of keys as group name and value as the total
         total_group_dict = {}
         for group in self.__get_total_queryset():
-            total_group_dict[str(group.get(self.group_by_field_name))] = total_group_dict.get(
-                str(group.get(self.group_by_field_name)), 0
-            ) + (1 if group.get("count") == 0 else group.get("count"))
+            group_key = self._serialize_group_value(self.group_by_field_name, group.get(self.group_by_lookup_name))
+            total_group_dict[group_key] = total_group_dict.get(group_key, 0) + (
+                1 if group.get("count") == 0 else group.get("count")
+            )
         return total_group_dict
 
     def __get_field_dict(self):
         # Create a field dictionary
         total_group_dict = self.__get_total_dict()
         return {
-            str(field): {
+            self._serialize_group_value(self.group_by_field_name, field): {
                 "results": [],
-                "total_results": total_group_dict.get(str(field), 0),
+                "total_results": total_group_dict.get(self._serialize_group_value(self.group_by_field_name, field), 0),
             }
             for field in self.group_by_fields
         }
@@ -369,7 +404,7 @@ class GroupedOffsetPaginator(OffsetPaginator):
         # Grouping for values that are not m2m
         processed_results = self.__get_field_dict()
         for result in results:
-            group_value = str(result.get(self.group_by_field_name))
+            group_value = self._serialize_group_value(self.group_by_field_name, result.get(self.group_by_field_name))
             if group_value in processed_results:
                 processed_results[str(group_value)]["results"].append(result)
         return processed_results
@@ -386,7 +421,7 @@ class GroupedOffsetPaginator(OffsetPaginator):
         return processed_results
 
 
-class SubGroupedOffsetPaginator(OffsetPaginator):
+class SubGroupedOffsetPaginator(DateGroupByMixin, OffsetPaginator):
     # Field mappers this are the fields that are m2m
     FIELD_MAPPER = {
         "labels__id": "label_ids",
@@ -411,10 +446,12 @@ class SubGroupedOffsetPaginator(OffsetPaginator):
 
         # Set the group by field name
         self.group_by_field_name = group_by_field_name
+        self.group_by_lookup_name = self._group_lookup_name(group_by_field_name, "group")
         self.group_by_fields = group_by_fields
 
         # Set the sub group by field name
         self.sub_group_by_field_name = sub_group_by_field_name
+        self.sub_group_by_lookup_name = self._group_lookup_name(sub_group_by_field_name, "sub_group")
         self.sub_group_by_fields = sub_group_by_fields
 
         # Set the count filter - this are extra filters that need
@@ -431,7 +468,7 @@ class SubGroupedOffsetPaginator(OffsetPaginator):
         limit = min(limit, self.max_limit)
 
         # Adjust the initial offset and stop based on the cursor and limit
-        queryset = self.queryset
+        queryset = self._prepare_grouping_queryset(self.queryset)
 
         # the current page
         page = cursor.offset
@@ -455,8 +492,8 @@ class SubGroupedOffsetPaginator(OffsetPaginator):
             row_number=Window(
                 expression=RowNumber(),
                 partition_by=[
-                    F(self.group_by_field_name),
-                    F(self.sub_group_by_field_name),
+                    F(self.group_by_lookup_name),
+                    F(self.sub_group_by_lookup_name),
                 ],
                 order_by=(
                     (F(*self.key).desc(nulls_last=True) if self.desc else F(*self.key).asc(nulls_last=True)),
@@ -484,7 +521,7 @@ class SubGroupedOffsetPaginator(OffsetPaginator):
         # This might require adjustments based on specific use cases
         if results:
             max_hits = math.ceil(
-                queryset.values(self.group_by_field_name)
+                queryset.values(self.group_by_lookup_name)
                 .annotate(count=Count("id", filter=self.count_filter, distinct=True))
                 .order_by("-count")[0]["count"]
                 / limit
@@ -502,8 +539,9 @@ class SubGroupedOffsetPaginator(OffsetPaginator):
     def __get_group_total_queryset(self):
         # Get group totals
         return (
-            self.queryset.order_by(self.group_by_field_name)
-            .values(self.group_by_field_name)
+            self._prepare_grouping_queryset(self.queryset)
+            .order_by(self.group_by_lookup_name)
+            .values(self.group_by_lookup_name)
             .annotate(count=Count("id", filter=self.count_filter, distinct=True))
             .distinct()
         )
@@ -511,10 +549,11 @@ class SubGroupedOffsetPaginator(OffsetPaginator):
     def __get_subgroup_total_queryset(self):
         # Get subgroup totals
         return (
-            self.queryset.values(self.group_by_field_name, self.sub_group_by_field_name)
+            self._prepare_grouping_queryset(self.queryset)
+            .values(self.group_by_lookup_name, self.sub_group_by_lookup_name)
             .annotate(count=Count("id", filter=self.count_filter, distinct=True))
             .order_by()
-            .values(self.group_by_field_name, self.sub_group_by_field_name, "count")
+            .values(self.group_by_lookup_name, self.sub_group_by_lookup_name, "count")
         )
 
     def __get_total_dict(self):
@@ -522,14 +561,15 @@ class SubGroupedOffsetPaginator(OffsetPaginator):
         total_group_dict = {}
         total_sub_group_dict = {}
         for group in self.__get_group_total_queryset():
-            total_group_dict[str(group.get(self.group_by_field_name))] = total_group_dict.get(
-                str(group.get(self.group_by_field_name)), 0
-            ) + (1 if group.get("count") == 0 else group.get("count"))
+            group_key = self._serialize_group_value(self.group_by_field_name, group.get(self.group_by_lookup_name))
+            total_group_dict[group_key] = total_group_dict.get(group_key, 0) + (
+                1 if group.get("count") == 0 else group.get("count")
+            )
 
         # Sub group total values
         for item in self.__get_subgroup_total_queryset():
-            group = str(item[self.group_by_field_name])
-            subgroup = str(item[self.sub_group_by_field_name])
+            group = self._serialize_group_value(self.group_by_field_name, item[self.group_by_lookup_name])
+            subgroup = self._serialize_group_value(self.sub_group_by_field_name, item[self.sub_group_by_lookup_name])
             count = item["count"]
 
             # Create a dictionary of group and sub group
@@ -551,15 +591,19 @@ class SubGroupedOffsetPaginator(OffsetPaginator):
 
         # Create a dictionary of group and sub group
         return {
-            str(group): {
+            self._serialize_group_value(self.group_by_field_name, group): {
                 "results": {
                     str(sub_group): {
                         "results": [],
-                        "total_results": total_sub_group_dict.get(str(group)).get(str(sub_group), 0),
+                        "total_results": total_sub_group_dict.get(
+                            self._serialize_group_value(self.group_by_field_name, group), {}
+                        ).get(str(sub_group), 0),
                     }
-                    for sub_group in total_sub_group_dict.get(str(group), [])
+                    for sub_group in total_sub_group_dict.get(
+                        self._serialize_group_value(self.group_by_field_name, group), []
+                    )
                 },
-                "total_results": total_group_dict.get(str(group), 0),
+                "total_results": total_group_dict.get(self._serialize_group_value(self.group_by_field_name, group), 0),
             }
             for group in self.group_by_fields
         }
@@ -587,9 +631,11 @@ class SubGroupedOffsetPaginator(OffsetPaginator):
         # Iterate over results
         for result in results:
             # Get the group value
-            group_value = str(result.get(self.group_by_field_name))
+            group_value = self._serialize_group_value(self.group_by_field_name, result.get(self.group_by_field_name))
             # Get the sub group value
-            sub_group_value = str(result.get(self.sub_group_by_field_name))
+            sub_group_value = self._serialize_group_value(
+                self.sub_group_by_field_name, result.get(self.sub_group_by_field_name)
+            )
             # Check if the group value is in the processed results
             result_id = result["id"]
 
@@ -613,8 +659,10 @@ class SubGroupedOffsetPaginator(OffsetPaginator):
         # Single grouper
         processed_results = self.__get_field_dict()
         for result in results:
-            group_value = str(result.get(self.group_by_field_name))
-            sub_group_value = str(result.get(self.sub_group_by_field_name))
+            group_value = self._serialize_group_value(self.group_by_field_name, result.get(self.group_by_field_name))
+            sub_group_value = self._serialize_group_value(
+                self.sub_group_by_field_name, result.get(self.sub_group_by_field_name)
+            )
             processed_results[group_value]["results"][sub_group_value]["results"].append(result)
 
         return processed_results
