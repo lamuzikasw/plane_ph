@@ -505,12 +505,18 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
     // Process the Issue Response to get the following data from it
     const { issueList, groupedIssues, groupedIssueCount } = this.processIssueResponse(issuesResponse);
 
-    // The Issue list is added to the main Issue Map
-    this.rootIssueStore.issues.addIssue(issueList);
-
     // Update all the GroupIds to this Store's groupedIssueIds and update Individual group issue counts
     runInAction(() => {
+      // An in-flight page must not overwrite a more recent local edit.
+      const currentIssues = issueList.map((issue) => {
+        const current = this.rootIssueStore.issues.getIssueById(issue.id);
+        return current && Date.parse(current.updated_at) > Date.parse(issue.updated_at) ? current : issue;
+      });
+      this.rootIssueStore.issues.addIssue(currentIssues);
       this.updateGroupedIssueIds(groupedIssues, groupedIssueCount, groupId, subGroupId);
+      // Pagination appends IDs, including tasks that may have moved since the
+      // previous page. Reconcile their loaded columns with the accepted data.
+      currentIssues.forEach((issue) => this.updateIssueList(issue, issue));
       this.loader[getGroupKey(groupId, subGroupId)] = undefined;
     });
 
@@ -1251,6 +1257,7 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
     // get Issue ID from one of the issue objects
     const issueId = issue?.id ?? issueBeforeUpdate?.id;
     if (!issueId) return;
+    const previousPaths = this.getLoadedIssuePaths(issueId);
 
     // Get display filters to check if 'Show sub Work items' is enabled - Donot add Work item to main list if disabled.
     const isShowWorkItemsEnabled = this.issueFilterStore.issueFilters?.displayFilters?.sub_issue ?? false;
@@ -1258,7 +1265,7 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
     // get issueUpdates from another method by passing down the three arguments
     // issueUpdates is nothing but an array of objects that contain the path of the issueId list that need updating and also the action that needs to be performed at the path
     const issueUpdates = this.getUpdateDetails(issue, issueBeforeUpdate, action);
-    const accumulatedUpdatesForCount = {};
+    let accumulatedUpdatesForCount: Record<string, EIssueGroupedAction> = {};
     runInAction(() => {
       // The issueUpdates
       for (const issueUpdate of issueUpdates) {
@@ -1290,9 +1297,60 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
         }
       }
 
+      if (previousPaths.length > 0 && issue && issueBeforeUpdate && !action) {
+        // Count task membership once per column and once overall, including
+        // when removing an already duplicated card or updating swimlanes.
+        const previousKeys = this.getIssueCountKeys(this.getIssuePathsBeforeUpdate(issueBeforeUpdate, previousPaths));
+        const currentPaths =
+          issue.parent_id && !isShowWorkItemsEnabled
+            ? this.getLoadedIssuePaths(issueId)
+            : this.getUpdateDetails(issue, undefined, EIssueGroupedAction.ADD).map(({ path }) => path);
+        const currentKeys = this.getIssueCountKeys(currentPaths);
+        accumulatedUpdatesForCount = {};
+        previousKeys.forEach((key) => {
+          if (!currentKeys.has(key)) accumulatedUpdatesForCount[key] = EIssueGroupedAction.DELETE;
+        });
+        currentKeys.forEach((key) => {
+          if (!previousKeys.has(key)) accumulatedUpdatesForCount[key] = EIssueGroupedAction.ADD;
+        });
+      }
+
       // update the respective counts from the accumulation object
       this.updateIssueCount(accumulatedUpdatesForCount);
     });
+  }
+
+  private getLoadedIssuePaths(issueId: string): string[][] {
+    const paths: string[][] = [];
+    Object.entries(this.groupedIssueIds ?? {}).forEach(([groupId, group]) => {
+      if (Array.isArray(group)) {
+        if (group.includes(issueId)) paths.push([groupId]);
+      } else {
+        Object.entries(group).forEach(([subGroupId, ids]) => {
+          if (Array.isArray(ids) && ids.includes(issueId)) paths.push([groupId, subGroupId]);
+        });
+      }
+    });
+    return paths;
+  }
+
+  private getIssueCountKeys(paths: string[][]): Set<string> {
+    const keys = new Set<string>();
+    paths.forEach(([groupId, subGroupId]) => {
+      keys.add(ALL_ISSUES);
+      keys.add(groupId);
+      keys.add(getGroupKey(groupId, subGroupId));
+    });
+    return keys;
+  }
+
+  private getIssuePathsBeforeUpdate(issue: Partial<TIssue>, loadedPaths: string[][]): string[][] {
+    const previousPaths = this.getUpdateDetails(issue, undefined, EIssueGroupedAction.ADD).map(({ path }) => path);
+    // Retain memberships in unloaded pages (e.g. a second assignee swimlane)
+    // when the task data agrees with the board. Otherwise trust the board.
+    return loadedPaths.every((loaded) => previousPaths.some((path) => isEqual(path, loaded)))
+      ? previousPaths
+      : loadedPaths;
   }
 
   /**
@@ -1567,6 +1625,23 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
   ): { path: string[]; action: EIssueGroupedAction }[] => {
     // check the before and after states to return if there needs to be a re-sorting of issueId list if the issue property that orderBy  depends on has changed
     const orderByUpdates = this.getOrderByUpdateDetails(issue, issueBeforeUpdate);
+    if (issue?.id && issueBeforeUpdate && !action) {
+      const loadedPaths = this.getLoadedIssuePaths(issue.id);
+      if (loadedPaths.length > 0) {
+        // Detail reads can change the task before its board lists are updated.
+        // The actual loaded paths, rather than the old status field, determine
+        // which cards must be removed.
+        const expected = this.getUpdateDetails(issue, undefined, EIssueGroupedAction.ADD);
+        const previousPaths = this.getIssuePathsBeforeUpdate(issueBeforeUpdate, loadedPaths);
+        return [
+          ...expected.filter(({ path }) => !previousPaths.some((previous) => isEqual(previous, path))),
+          ...previousPaths
+            .filter((path) => !expected.some((entry) => isEqual(entry.path, path)))
+            .map((path) => ({ path, action: EIssueGroupedAction.DELETE })),
+          ...orderByUpdates,
+        ];
+      }
+    }
     // if unGrouped, then return the path as ALL_ISSUES along with orderByUpdates
     if (!this.issueGroupKey) return action ? [{ path: [ALL_ISSUES], action }, ...orderByUpdates] : orderByUpdates;
 

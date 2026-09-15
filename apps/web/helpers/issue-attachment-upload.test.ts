@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getFileMetaDataForUpload } from "../../../packages/services/src/file/helper";
+import { getFileMetaDataForUpload } from "@plane/services";
 
 describe("Markdown attachment uploads", () => {
   it.each(["0011.md", "README.MD", "notes.markdown"])(
