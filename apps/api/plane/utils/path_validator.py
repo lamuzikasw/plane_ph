@@ -54,7 +54,7 @@ def sanitize_filename(filename):
 def resolve_issue_attachment_content_type(filename, content_type):
     """Resolve MIME types that browsers cannot reliably detect.
 
-    HTML has no binary signature, so older or cached clients can submit an
+    HTML and Markdown have no binary signature, so older or cached clients can submit an
     empty MIME type. Work item attachments are downloaded with
     ``Content-Disposition: attachment``, making an extension-based fallback
     appropriate for this specific upload flow.
@@ -62,6 +62,15 @@ def resolve_issue_attachment_content_type(filename, content_type):
     extension = os.path.splitext(filename or "")[1].lower()
     if extension in {".html", ".htm"}:
         return "text/html"
+    if extension in {".md", ".markdown"} and content_type in (
+        None,
+        False,
+        "",
+        "text/plain",
+        "text/x-markdown",
+        "application/octet-stream",
+    ):
+        return "text/markdown"
     return content_type
 
 

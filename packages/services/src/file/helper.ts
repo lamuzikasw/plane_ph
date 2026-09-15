@@ -82,7 +82,7 @@ const detectMimeTypeFromSignature = async (file: File): Promise<string> => {
 };
 
 /**
- * Text formats such as HTML do not have a binary signature that `file-type`
+ * Text formats such as HTML and Markdown do not have a binary signature that `file-type`
  * can detect. Keep the fallback deliberately narrow instead of trusting the
  * browser-provided MIME type for every unknown file.
  */
@@ -90,6 +90,7 @@ const detectMimeTypeFromExtension = (filename: string): string => {
   const extension = filename.split(".").pop()?.toLowerCase();
 
   if (extension === "html" || extension === "htm") return "text/html";
+  if (extension === "md" || extension === "markdown") return "text/markdown";
 
   return "";
 };
