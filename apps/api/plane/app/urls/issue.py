@@ -34,7 +34,12 @@ from plane.app.views import (
     WorkItemMoveToProjectEndpoint,
 )
 
+from plane.app.views.issue.placement import IssuePlacementsEndpoint, ProjectSharedIssuesEndpoint
+
 urlpatterns = [
+    path("workspaces/<str:slug>/projects/<uuid:project_id>/shared-issues/", ProjectSharedIssuesEndpoint.as_view(), name="project-shared-issues"),
+    path("workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/placements/", IssuePlacementsEndpoint.as_view(), name="issue-placements"),
+    path("workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/placements/<uuid:placement_id>/", IssuePlacementsEndpoint.as_view(), name="issue-placement"),
     path(
         "workspaces/<str:slug>/projects/<uuid:project_id>/issues/list/",
         IssueListEndpoint.as_view(),

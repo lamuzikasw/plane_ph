@@ -106,6 +106,9 @@ def order_issue_queryset(issue_queryset, order_by_param="-created_at"):
     # An unrecognised value is silently replaced with the safe default so callers
     # receive consistent output rather than an ORM error or data leak.
     order_by_param = sanitize_order_by(order_by_param, ISSUE_ORDER_BY_ALLOWLIST, default="-created_at")
+    if "placement_id" in issue_queryset.query.annotations and order_by_param.lstrip("-") in {"sequence_id", "sort_order"}:
+        local_order = ("-" if order_by_param.startswith("-") else "") + "placement_" + order_by_param.lstrip("-")
+        return issue_queryset.order_by(local_order), local_order
     # Priority Ordering
     if order_by_param == "priority" or order_by_param == "-priority":
         issue_queryset = issue_queryset.annotate(

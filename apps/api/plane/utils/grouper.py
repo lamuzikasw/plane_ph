@@ -23,6 +23,7 @@ from plane.db.models import (
     IssueLabel,
 )
 from typing import Optional, Dict, Tuple, Any, Union, List
+from plane.utils.issue_placements import project_issue_values
 
 
 def issue_queryset_grouper(
@@ -138,9 +139,7 @@ def issue_on_results(
         original_list.append(sub_group_by)
 
     required_fields.extend(original_list)
-    from plane.utils.issue_comment_counts import with_comment_count
-
-    return list(with_comment_count(issues).values(*required_fields, "comment_count"))
+    return project_issue_values(issues, required_fields)
 
 
 def issue_group_values(
@@ -150,6 +149,8 @@ def issue_group_values(
     filters: Dict[str, Any] = {},
     queryset: Optional[QuerySet] = None,
 ) -> List[Union[str, Any]]:
+    if field and field.startswith("placement_"):
+        field = field.removeprefix("placement_")
     if field == "state_id":
         queryset = State.objects.filter(is_triage=False, workspace__slug=slug).values_list("id", flat=True)
         if project_id:

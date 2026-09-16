@@ -44,6 +44,9 @@ export enum EIssuesStoreType {
 
 export type TBaseIssue = {
   id: string;
+  canonical_issue_id?: string;
+  canonical_project_id?: string;
+  canonical_sequence_id?: number;
   sequence_id: number;
   name: string;
   sort_order: number;
@@ -89,6 +92,7 @@ type IssueRelation = {
 };
 
 export type TIssue = TBaseIssue & {
+  additional_project_ids?: string[];
   description_html?: string;
   is_subscribed?: boolean;
   parent?: Partial<TBaseIssue>;

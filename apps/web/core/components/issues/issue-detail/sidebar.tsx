@@ -46,6 +46,7 @@ import { SidebarPropertyListItem } from "@/components/common/layout/sidebar/prop
 import { IssueCycleSelect } from "./cycle-select";
 import { IssueLabel } from "./label";
 import { IssueModuleSelect } from "./module-select";
+import { IssueProjectsProperty } from "./projects-property";
 import type { TIssueOperations } from "./root";
 
 type Props = {
@@ -75,6 +76,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
   // derived values
   const projectDetails = getProjectById(issue.project_id);
   const stateDetails = getStateById(issue.state_id);
+  const isPlacement = !!issue.canonical_issue_id && issue.canonical_issue_id !== issue.id;
 
   const minDate = issue.start_date ? getDate(issue.start_date) : null;
   minDate?.setDate(minDate.getDate());
@@ -88,6 +90,12 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
         <div className="h-full w-full overflow-y-auto px-6">
           <h5 className="mt-5 text-body-xs-medium">{t("common.properties")}</h5>
           <div className={`mt-4 mb-2 space-y-2.5 truncate ${!isEditable ? "opacity-60" : ""}`}>
+            <IssueProjectsProperty
+              workspaceSlug={workspaceSlug}
+              projectId={projectId}
+              issueId={issueId}
+              disabled={!isEditable}
+            />
             <SidebarPropertyListItem icon={StatePropertyIcon} label={t("common.state")}>
               <StateDropdown
                 value={issue?.state_id}
@@ -191,7 +199,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
               </div>
             </SidebarPropertyListItem>
 
-            {projectId && areEstimateEnabledByProjectId(projectId) && (
+            {projectId && !isPlacement && areEstimateEnabledByProjectId(projectId) && (
               <SidebarPropertyListItem icon={EstimatePropertyIcon} label={t("common.estimate")}>
                 <EstimateDropdown
                   value={issue?.estimate_point ?? undefined}
@@ -212,7 +220,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
               </SidebarPropertyListItem>
             )}
 
-            {projectDetails?.module_view && (
+            {projectDetails?.module_view && !isPlacement && (
               <SidebarPropertyListItem icon={ModuleIcon} label={t("common.modules")}>
                 <IssueModuleSelect
                   className="w-full grow"
@@ -225,7 +233,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
               </SidebarPropertyListItem>
             )}
 
-            {projectDetails?.cycle_view && (
+            {projectDetails?.cycle_view && !isPlacement && (
               <SidebarPropertyListItem
                 icon={CycleIcon}
                 label={t("common.cycle")}
@@ -242,40 +250,48 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
               </SidebarPropertyListItem>
             )}
 
-            <SidebarPropertyListItem icon={ParentPropertyIcon} label={t("common.parent")}>
-              <IssueParentSelectRoot
-                className="h-7.5 w-full grow"
+            {!isPlacement && (
+              <SidebarPropertyListItem icon={ParentPropertyIcon} label={t("common.parent")}>
+                <IssueParentSelectRoot
+                  className="h-7.5 w-full grow"
+                  workspaceSlug={workspaceSlug}
+                  projectId={projectId}
+                  issueId={issueId}
+                  issueOperations={issueOperations}
+                  disabled={!isEditable}
+                />
+              </SidebarPropertyListItem>
+            )}
+
+            {!isPlacement && (
+              <SidebarPropertyListItem icon={LabelPropertyIcon} label={t("common.labels")}>
+                <IssueLabel
+                  workspaceSlug={workspaceSlug}
+                  projectId={projectId}
+                  issueId={issueId}
+                  disabled={!isEditable}
+                />
+              </SidebarPropertyListItem>
+            )}
+
+            {!isPlacement && (
+              <IssueWorklogProperty
                 workspaceSlug={workspaceSlug}
                 projectId={projectId}
                 issueId={issueId}
-                issueOperations={issueOperations}
                 disabled={!isEditable}
               />
-            </SidebarPropertyListItem>
+            )}
 
-            <SidebarPropertyListItem icon={LabelPropertyIcon} label={t("common.labels")}>
-              <IssueLabel
-                workspaceSlug={workspaceSlug}
+            {!isPlacement && (
+              <WorkItemAdditionalSidebarProperties
+                workItemId={issue.id}
+                workItemTypeId={issue.type_id}
                 projectId={projectId}
-                issueId={issueId}
-                disabled={!isEditable}
+                workspaceSlug={workspaceSlug}
+                isEditable={isEditable}
               />
-            </SidebarPropertyListItem>
-
-            <IssueWorklogProperty
-              workspaceSlug={workspaceSlug}
-              projectId={projectId}
-              issueId={issueId}
-              disabled={!isEditable}
-            />
-
-            <WorkItemAdditionalSidebarProperties
-              workItemId={issue.id}
-              workItemTypeId={issue.type_id}
-              projectId={projectId}
-              workspaceSlug={workspaceSlug}
-              isEditable={isEditable}
-            />
+            )}
           </div>
         </div>
       </div>

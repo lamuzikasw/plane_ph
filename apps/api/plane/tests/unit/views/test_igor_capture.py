@@ -1523,6 +1523,131 @@ def test_large_spec_fallback_preserves_explicit_author_parts_as_tasks():
     assert endpoint._spec_semantic_coverage_errors(plan, semantic_map) == []
 
 
+def test_spec_reduce_contract_targets_at_most_five_work_packages():
+    endpoint = IgorChatEndpoint()
+
+    task_schema = endpoint._spec_reduce_json_schema()["properties"]["tasks"]
+
+    assert task_schema["minItems"] == 1
+    assert task_schema["maxItems"] == 5
+
+
+def test_spec_contract_requires_four_or_five_packages_for_substantial_spec():
+    endpoint = IgorChatEndpoint()
+    plan = _valid_spec_decomposition()
+    units = [{"id": f"S{index}", "text": f"Требование {index}"} for index in range(1, 10)]
+    plan["document"]["source_ids"] = [unit["id"] for unit in units]
+    plan["work_package"]["source_ids"] = [unit["id"] for unit in units]
+    plan["facts"] = [
+        {
+            "id": f"F{index}",
+            "kind": "functional_requirement",
+            "text": unit["text"],
+            "source_ids": [unit["id"]],
+        }
+        for index, unit in enumerate(units[1:], start=1)
+    ]
+    plan["tasks"][0]["fact_ids"] = [fact["id"] for fact in plan["facts"]]
+    plan["tasks"][0]["source_ids"] = [unit["id"] for unit in units]
+
+    with pytest.raises(ValueError) as exception:
+        endpoint._validate_spec_decomposition_contract(plan, units)
+
+    assert "task_count_below_target" in str(exception.value)
+
+
+def test_numbered_spec_fallback_builds_five_outcome_packages_instead_of_technical_buckets():
+    endpoint = IgorChatEndpoint()
+    source = """
+## Партнёрская программа
+### 1. Партнёрский модуль в Hub
+- Создать заявки партнёров, статусы и индивидуальную ставку.
+- Добавить настройки программы и аудит администратора.
+### 2. Фиксация реферального перехода
+- Зарегистрировать visitor_token для партнёрского кода.
+- Установить cookie visitor_token и выполнить redirect.
+### 3. Привязка клиента к партнёру
+- Связать visitor_token с client_user_id и партнёром.
+- Повторная привязка visitor_token должна быть идемпотентной.
+### 4. Учёт покупок и начислений
+- Создать начисление после первого SUCCESS платежа.
+- Обработать холд, подтверждение и возвраты.
+### 5. Кабинет партнёра
+- Показать партнёру статус, ссылку и историю начислений.
+- Запретить доступ к чужим партнёрским данным.
+### 6. Выплаты партнёрам
+- Создать выплату с фиксацией курса и кошелька.
+- Перевести выплаченные начисления в paid.
+"""
+    units = endpoint._capture_spec_units(source)
+    semantic_map = {
+        "document_candidates": [
+            {
+                "type": "technical_spec",
+                "title": "Партнёрская программа",
+                "goal": "Запустить партнёрскую программу",
+                "source_ids": ["S1"],
+            }
+        ],
+        "facts": [
+            {
+                "id": f"F{index}",
+                "kind": "metadata" if unit["kind"] == "heading" else "functional_requirement",
+                "text": unit["text"],
+                "source_ids": [unit["id"]],
+            }
+            for index, unit in enumerate(units, start=1)
+        ],
+        "constraints": [],
+        "open_questions": [],
+        "contradictions": [],
+    }
+
+    plan = endpoint._fallback_spec_decomposition(units, semantic_map)
+    titles = [task["title"] for task in plan["tasks"]]
+    actionable_source_ids = {unit["id"] for unit in units if unit["kind"] != "heading"}
+
+    assert len(plan["tasks"]) == 5
+    assert not any("основную логику" in title.lower() for title in titles)
+    assert not any("настроить внешние интеграции" in title.lower() for title in titles)
+    assert any("Фиксация реферального перехода" in title and "Привязка клиента" in title for title in titles)
+    assert actionable_source_ids <= {
+        source_id for task in plan["tasks"] for source_id in task["source_ids"]
+    }
+
+
+def test_spec_quality_rejects_generic_catch_all_next_to_micro_tasks():
+    endpoint = IgorChatEndpoint()
+    tasks = [
+        {
+            "id": "T1",
+            "title": "Реализовать основную логику",
+            "goal": "Доставить весь основной пользовательский сценарий целиком.",
+            "description": "Собрать в одной задаче почти все требования исходного технического задания.",
+            "acceptance_criteria": [{"text": "Все требования реализованы.", "source_ids": ["S1"]}],
+            "source_ids": [f"S{index}" for index in range(1, 31)],
+        },
+        *[
+            {
+                "id": f"T{index}",
+                "title": f"Настроить отдельный результат {index}",
+                "goal": "Доставить небольшой самостоятельный результат системы.",
+                "description": "Реализовать один из оставшихся пунктов технического задания.",
+                "acceptance_criteria": [
+                    {"text": "Результат можно проверить отдельно.", "source_ids": [f"S{29 + index}"]}
+                ],
+                "source_ids": [f"S{29 + index}"],
+            }
+            for index in range(2, 5)
+        ],
+    ]
+
+    errors = endpoint._spec_deterministic_quality_errors(tasks)
+
+    assert "T1:generic_outcome_title" in errors
+    assert "T1:catch_all_task" in errors
+
+
 def test_spec_quality_allows_numbered_fallback_blocks_with_shared_traceability_sources():
     endpoint = IgorChatEndpoint()
     tasks = [

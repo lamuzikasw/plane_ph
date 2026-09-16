@@ -263,16 +263,44 @@ export const IgorChat = observer(function IgorChat({ workspaceSlug }: Props) {
   );
 
   useEffect(() => {
+    let cancelled = false;
     activeWorkspaceRef.current = workspaceSlug;
     setMessages(initialMessages());
     setInput("");
     setIsSubmitting(false);
     setIsOpen(false);
+    let savedJobId: string | null = null;
     try {
-      setActiveCaptureJobId(window.localStorage.getItem(getIgorCaptureJobStorageKey(workspaceSlug)));
+      savedJobId = window.localStorage.getItem(getIgorCaptureJobStorageKey(workspaceSlug));
     } catch {
-      setActiveCaptureJobId(null);
+      // The active server-side job can still be recovered when browser storage is unavailable.
     }
+    setActiveCaptureJobId(savedJobId);
+    if (!savedJobId) {
+      const recoverActiveCaptureJob = async () => {
+        try {
+          const response = await aiService.getIgorCaptureJob(workspaceSlug);
+          if (cancelled || activeWorkspaceRef.current !== workspaceSlug || !response.capture_job_id) return;
+          setMessages((currentMessages) =>
+            upsertIgorCaptureJobMessage(currentMessages, response.capture_job_id as string, response)
+          );
+          const processingWidget = getIgorCaptureProcessingWidget(response);
+          if (!processingWidget) return;
+          setActiveCaptureJobId(processingWidget.job_id);
+          try {
+            window.localStorage.setItem(getIgorCaptureJobStorageKey(workspaceSlug), processingWidget.job_id);
+          } catch {
+            // Polling remains active in the current tab.
+          }
+        } catch {
+          // A missing previous job is the normal first-use state.
+        }
+      };
+      void recoverActiveCaptureJob();
+    }
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceSlug]);
 
   useEffect(() => {
@@ -741,7 +769,7 @@ export const IgorChat = observer(function IgorChat({ workspaceSlug }: Props) {
             type="button"
             onClick={() => setIsOpen(true)}
             className={cn(
-              "text-sm shadow-md fixed bottom-5 z-40 h-12 items-center gap-2.5 rounded-full border border-subtle bg-surface-1 py-1.5 pr-4 pl-1.5 font-semibold text-primary transition-[right,transform,background-color,border-color] hover:-translate-y-0.5 hover:border-[#0b6ea8]/40 hover:bg-surface-2 focus:ring-2 focus:ring-[#0b6ea8]/30 focus:ring-offset-2 focus:outline-none motion-reduce:transform-none",
+              "text-sm shadow-md fixed bottom-5 z-20 h-12 items-center gap-2.5 rounded-full border border-subtle bg-surface-1 py-1.5 pr-4 pl-1.5 font-semibold text-primary transition-[right,transform,background-color,border-color] hover:-translate-y-0.5 hover:border-[#0b6ea8]/40 hover:bg-surface-2 focus:ring-2 focus:ring-[#0b6ea8]/30 focus:ring-offset-2 focus:outline-none motion-reduce:transform-none",
               getIgorLauncherPositionClassName(isAnyPeekOpen)
             )}
             data-prevent-outside-click

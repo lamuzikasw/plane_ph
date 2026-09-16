@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+from .placement import IssuePlacementContextMixin, content_membership_filters
+
 # Python imports
 import json
 
@@ -25,7 +27,7 @@ from plane.utils.host import base_host
 from plane.bgtasks.webhook_task import model_activity
 
 
-class IssueCommentViewSet(BaseViewSet):
+class IssueCommentViewSet(IssuePlacementContextMixin, BaseViewSet):
     serializer_class = IssueCommentSerializer
     model = IssueComment
     webhook_event = "issue_comment"
@@ -40,9 +42,7 @@ class IssueCommentViewSet(BaseViewSet):
             .filter(project_id=self.kwargs.get("project_id"))
             .filter(issue_id=self.kwargs.get("issue_id"))
             .filter(
-                project__project_projectmember__member=self.request.user,
-                project__project_projectmember__is_active=True,
-                project__archived_at__isnull=True,
+                **content_membership_filters(self),
             )
             .select_related("project")
             .select_related("workspace")
@@ -160,7 +160,7 @@ class IssueCommentViewSet(BaseViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class CommentReactionViewSet(BaseViewSet):
+class CommentReactionViewSet(IssuePlacementContextMixin, BaseViewSet):
     serializer_class = CommentReactionSerializer
     model = CommentReaction
 
@@ -172,9 +172,7 @@ class CommentReactionViewSet(BaseViewSet):
             .filter(project_id=self.kwargs.get("project_id"))
             .filter(comment_id=self.kwargs.get("comment_id"))
             .filter(
-                project__project_projectmember__member=self.request.user,
-                project__project_projectmember__is_active=True,
-                project__archived_at__isnull=True,
+                **content_membership_filters(self),
             )
             .order_by("-created_at")
             .distinct()

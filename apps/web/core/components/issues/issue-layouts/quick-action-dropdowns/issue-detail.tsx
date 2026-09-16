@@ -86,11 +86,12 @@ export const WorkItemDetailQuickActions = observer(function WorkItemDetailQuickA
       issue.project_id ?? undefined
     ) && !readOnly;
 
-  const isArchivingAllowed = !issue.archived_at && isEditingAllowed;
+  const isArchivingAllowed =
+    !issue.archived_at && isEditingAllowed && (!issue.canonical_issue_id || issue.canonical_issue_id === issue.id);
   const isInArchivableGroup = !!stateDetails && ARCHIVABLE_STATE_GROUPS.includes(stateDetails?.group);
   const isRestoringAllowed = !!issue.archived_at && isEditingAllowed;
 
-  const isDeletingAllowed = isEditingAllowed;
+  const isDeletingAllowed = isEditingAllowed && (!issue.canonical_issue_id || issue.canonical_issue_id === issue.id);
 
   const duplicateIssuePayload = omit(
     {
@@ -160,7 +161,7 @@ export const WorkItemDetailQuickActions = observer(function WorkItemDetailQuickA
       if (item.key === "edit") {
         return {
           ...item,
-          shouldRender: isEditingAllowed && !isPeekMode,
+          shouldRender: item.shouldRender !== false && isEditingAllowed && !isPeekMode,
         };
       }
       // Customize delete action for work item

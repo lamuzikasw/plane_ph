@@ -170,7 +170,7 @@ export const useMenuItemFactory = (props: MenuItemFactoryProps) => {
         setIssueToEdit(issue);
         setCreateUpdateIssueModal(true);
       }),
-    shouldRender: isEditingAllowed,
+    shouldRender: isEditingAllowed && (!issue.canonical_issue_id || issue.canonical_issue_id === issue.id),
   });
 
   const createCopyMenuItem = (workspaceSlug?: string): TContextMenuItem => {
@@ -212,7 +212,7 @@ export const useMenuItemFactory = (props: MenuItemFactoryProps) => {
     title: t("move_to_project"),
     icon: MoveRight,
     action: () => handleOptionalAction(setMoveToProjectModal, "Move to project", true),
-    shouldRender: isEditingAllowed,
+    shouldRender: isEditingAllowed && (!issue.canonical_issue_id || issue.canonical_issue_id === issue.id),
   });
 
   const createRemoveFromCycleMenuItem = (): TContextMenuItem => ({

@@ -86,6 +86,7 @@ export interface IIssueDetail
   lastWidgetAction: TWorkItemWidgets | null;
   isCreateIssueModalOpen: boolean;
   isIssueLinkModalOpen: boolean;
+  isIssueProjectsModalOpen: boolean;
   isParentIssueModalOpen: string | null;
   isDeleteIssueModalOpen: string | null;
   isArchiveIssueModalOpen: string | null;
@@ -102,6 +103,7 @@ export interface IIssueDetail
   setIssueLinkData: (issueLinkData: TIssueLink | null) => void;
   toggleCreateIssueModal: (value: boolean) => void;
   toggleIssueLinkModal: (value: boolean) => void;
+  toggleIssueProjectsModal: (value: boolean) => void;
   toggleParentIssueModal: (issueId: string | null) => void;
   toggleDeleteIssueModal: (issueId: string | null) => void;
   toggleArchiveIssueModal: (value: string | null) => void;
@@ -148,6 +150,7 @@ export abstract class IssueDetail implements IIssueDetail {
   lastWidgetAction: TWorkItemWidgets | null = null;
   isCreateIssueModalOpen: boolean = false;
   isIssueLinkModalOpen: boolean = false;
+  isIssueProjectsModalOpen: boolean = false;
   isParentIssueModalOpen: string | null = null;
   isDeleteIssueModalOpen: string | null = null;
   isArchiveIssueModalOpen: string | null = null;
@@ -178,6 +181,7 @@ export abstract class IssueDetail implements IIssueDetail {
       issueCrudOperationState: observable,
       isCreateIssueModalOpen: observable,
       isIssueLinkModalOpen: observable.ref,
+      isIssueProjectsModalOpen: observable.ref,
       isParentIssueModalOpen: observable.ref,
       isDeleteIssueModalOpen: observable.ref,
       isArchiveIssueModalOpen: observable.ref,
@@ -194,6 +198,7 @@ export abstract class IssueDetail implements IIssueDetail {
       setIssueLinkData: action,
       toggleCreateIssueModal: action,
       toggleIssueLinkModal: action,
+      toggleIssueProjectsModal: action,
       toggleParentIssueModal: action,
       toggleDeleteIssueModal: action,
       toggleArchiveIssueModal: action,
@@ -227,6 +232,7 @@ export abstract class IssueDetail implements IIssueDetail {
     return (
       this.isCreateIssueModalOpen ||
       this.isIssueLinkModalOpen ||
+      this.isIssueProjectsModalOpen ||
       !!this.isParentIssueModalOpen ||
       !!this.isDeleteIssueModalOpen ||
       !!this.isArchiveIssueModalOpen ||
@@ -248,6 +254,10 @@ export abstract class IssueDetail implements IIssueDetail {
   setIssueCrudOperationState = (state: TIssueCrudOperationState) => (this.issueCrudOperationState = state);
   setPeekIssue = (peekIssue: TPeekIssue | undefined) => (this.peekIssue = peekIssue);
   toggleCreateIssueModal = (value: boolean) => (this.isCreateIssueModalOpen = value);
+  toggleIssueProjectsModal = (value: boolean) => {
+    this.isIssueProjectsModalOpen = value;
+  };
+
   toggleIssueLinkModal = (value: boolean) => (this.isIssueLinkModalOpen = value);
   toggleParentIssueModal = (issueId: string | null) => (this.isParentIssueModalOpen = issueId);
   toggleDeleteIssueModal = (issueId: string | null) => (this.isDeleteIssueModalOpen = issueId);

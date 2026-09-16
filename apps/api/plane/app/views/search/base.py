@@ -104,14 +104,28 @@ class GlobalSearchEndpoint(BaseAPIView):
         if workspace_search == "false" and project_id:
             issues = issues.filter(project_id=project_id)
 
-        return issues.distinct().values(
+        native_results = list(issues.distinct().values(
             "name",
             "id",
             "sequence_id",
             "project__identifier",
             "project_id",
             "workspace__slug",
-        )[:100]
+        )[:100])
+        from plane.utils.issue_placements import search_placements
+
+        shared_results = search_placements(
+            user=self.request.user, slug=slug, query=query,
+            project_id=project_id if workspace_search == "false" else None,
+        )
+        # Prefer the searched alias and return one hit per underlying work item.
+        results, seen = [], set()
+        for row in [*shared_results, *native_results]:
+            canonical_id = row.get("canonical_issue_id", row["id"])
+            if canonical_id not in seen:
+                seen.add(canonical_id)
+                results.append(row)
+        return results[:100]
 
     def filter_cycles(self, query, slug, project_id, workspace_search):
         fields = ["name"]
@@ -418,7 +432,16 @@ class SearchEndpoint(BaseAPIView):
                             "type_id",
                         )[:count]
                     )
-                    response_data["issue"] = list(issues)
+                    from plane.utils.issue_placements import search_placements
+
+                    shared = search_placements(user=request.user, slug=slug, query=query, project_id=project_id or None)
+                    seen, hits = set(), []
+                    for row in [*shared, *list(issues)]:
+                        canonical_id = row.get("canonical_issue_id", row["id"])
+                        if canonical_id not in seen:
+                            seen.add(canonical_id)
+                            hits.append(row)
+                    response_data["issue"] = hits[:count]
 
                 elif query_type == "cycle":
                     fields = ["name"]
@@ -622,7 +645,16 @@ class SearchEndpoint(BaseAPIView):
                             "type_id",
                         )[:count]
                     )
-                    response_data["issue"] = list(issues)
+                    from plane.utils.issue_placements import search_placements
+
+                    shared = search_placements(user=request.user, slug=slug, query=query, project_id=project_id or None)
+                    seen, hits = set(), []
+                    for row in [*shared, *list(issues)]:
+                        canonical_id = row.get("canonical_issue_id", row["id"])
+                        if canonical_id not in seen:
+                            seen.add(canonical_id)
+                            hits.append(row)
+                    response_data["issue"] = hits[:count]
 
                 elif query_type == "cycle":
                     fields = ["name"]

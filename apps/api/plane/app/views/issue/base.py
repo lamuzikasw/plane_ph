@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+from .placement import IssuePlacementContextMixin
+
 # Python imports
 import copy
 import json
@@ -77,6 +79,7 @@ from plane.utils.host import base_host
 from plane.utils.issue_filters import issue_filters
 from plane.utils.issue_comment_counts import with_comment_count
 from plane.utils.issue_move import IssueMoveConflict, move_issue_to_project
+from plane.utils.issue_placements import placement_queryset, placement_filter_key, project_issue_values
 from plane.utils.exception_logger import log_exception
 from plane.utils.order_queryset import order_issue_queryset
 from plane.utils.paginator import GroupedOffsetPaginator, SubGroupedOffsetPaginator
@@ -99,7 +102,10 @@ class IssueListEndpoint(BaseAPIView):
         issue_ids = [issue_id for issue_id in issue_ids.split(",") if issue_id != ""]
 
         # Base queryset with basic filters
-        queryset = Issue.issue_objects.filter(workspace__slug=slug, project_id=project_id, pk__in=issue_ids)
+        queryset = placement_queryset(Issue.issue_objects.filter(workspace__slug=slug), project_id)
+        queryset = queryset.filter(
+            **{"placement_id__in" if "placement_id" in queryset.query.annotations else "id__in": issue_ids}
+        )
 
         # Apply filtering from filterset
         queryset = self.filter_queryset(queryset)
@@ -168,40 +174,43 @@ class IssueListEndpoint(BaseAPIView):
         if self.fields or self.expand:
             issues = IssueSerializer(issue_queryset, many=True, fields=self.fields, expand=self.expand).data
         else:
-            issues = issue_queryset.values(
-                "id",
-                "name",
-                "state_id",
-                "sort_order",
-                "completed_at",
-                "estimate_point",
-                "priority",
-                "start_date",
-                "target_date",
-                "sequence_id",
-                "project_id",
-                "parent_id",
-                "cycle_id",
-                "module_ids",
-                "label_ids",
-                "assignee_ids",
-                "sub_issues_count",
-                "created_at",
-                "updated_at",
-                "created_by",
-                "updated_by",
-                "attachment_count",
-                "link_count",
-                "is_draft",
-                "archived_at",
-                "deleted_at",
+            issues = project_issue_values(
+                issue_queryset,
+                [
+                    "id",
+                    "name",
+                    "state_id",
+                    "sort_order",
+                    "completed_at",
+                    "estimate_point",
+                    "priority",
+                    "start_date",
+                    "target_date",
+                    "sequence_id",
+                    "project_id",
+                    "parent_id",
+                    "cycle_id",
+                    "module_ids",
+                    "label_ids",
+                    "assignee_ids",
+                    "sub_issues_count",
+                    "created_at",
+                    "updated_at",
+                    "created_by",
+                    "updated_by",
+                    "attachment_count",
+                    "link_count",
+                    "is_draft",
+                    "archived_at",
+                    "deleted_at",
+                ],
             )
             datetime_fields = ["created_at", "updated_at"]
             issues = user_timezone_converter(issues, datetime_fields, request.user.user_timezone)
         return Response(issues, status=status.HTTP_200_OK)
 
 
-class IssueViewSet(BaseViewSet):
+class IssueViewSet(IssuePlacementContextMixin, BaseViewSet):
     model = Issue
     webhook_event = "issue"
     search_fields = ["name"]
@@ -212,12 +221,11 @@ class IssueViewSet(BaseViewSet):
         return IssueCreateSerializer if self.action in ["create", "update", "partial_update"] else IssueSerializer
 
     def get_queryset(self):
-        issues = Issue.issue_objects.filter(
-            project_id=self.kwargs.get("project_id"),
-            workspace__slug=self.kwargs.get("slug"),
-        ).distinct()
-
-        return issues
+        issues = Issue.issue_objects.filter(workspace__slug=self.kwargs.get("slug"))
+        project_id = self.kwargs.get("project_id")
+        if self.action == "list":
+            return placement_queryset(issues, project_id).distinct()
+        return issues.filter(project_id=project_id).distinct()
 
     def apply_annotations(self, issues):
         issues = with_comment_count(issues)
@@ -273,6 +281,9 @@ class IssueViewSet(BaseViewSet):
 
         issue_queryset = self.get_queryset()
 
+        if "placement_id" in issue_queryset.query.annotations:
+            filters = {placement_filter_key(key): value for key, value in filters.items()}
+
         # Apply rich filters
         issue_queryset = self.filter_queryset(issue_queryset)
 
@@ -293,6 +304,9 @@ class IssueViewSet(BaseViewSet):
         # Group by
         group_by = request.GET.get("group_by", False)
         sub_group_by = request.GET.get("sub_group_by", False)
+        if "placement_id" in issue_queryset.query.annotations:
+            group_by = placement_filter_key(group_by) if group_by else group_by
+            sub_group_by = placement_filter_key(sub_group_by) if sub_group_by else sub_group_by
 
         # issue queryset
         issue_queryset = issue_queryset_grouper(queryset=issue_queryset, group_by=group_by, sub_group_by=sub_group_by)
@@ -760,6 +774,11 @@ class WorkItemMoveToProjectEndpoint(BaseAPIView):
             return Response({"error": "Target project must be different"}, status=status.HTTP_400_BAD_REQUEST)
 
         issue = Issue.objects.get(workspace__slug=slug, project_id=project_id, pk=issue_id)
+        if issue.placements.exists():
+            return Response(
+                {"error": "Use Projects to manage this shared work item. Its original project cannot be moved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         target_project = Project.objects.filter(workspace__slug=slug, pk=target_project_id).first()
 
         if not target_project:
@@ -849,21 +868,11 @@ class ProjectUserDisplayPropertyEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def patch(self, request, slug, project_id):
         try:
-            issue_property = ProjectUserProperty.objects.get(
-                user=request.user, 
-                project_id=project_id
-            )
+            issue_property = ProjectUserProperty.objects.get(user=request.user, project_id=project_id)
         except ProjectUserProperty.DoesNotExist:
-            issue_property = ProjectUserProperty.objects.create(
-                user=request.user, 
-                project_id=project_id
-            )
+            issue_property = ProjectUserProperty.objects.create(user=request.user, project_id=project_id)
 
-        serializer = ProjectUserPropertySerializer(
-            issue_property, 
-            data=request.data,
-            partial=True
-        )
+        serializer = ProjectUserPropertySerializer(issue_property, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -884,6 +893,11 @@ class BulkDeleteIssuesEndpoint(BaseAPIView):
             return Response({"error": "Issue IDs are required"}, status=status.HTTP_400_BAD_REQUEST)
 
         issues = Issue.issue_objects.filter(workspace__slug=slug, project_id=project_id, pk__in=issue_ids)
+
+        if issues.count() != len(set(issue_ids)):
+            return Response(
+                {"error": "Use Projects to remove shared placements. No work items were deleted."}, status=400
+            )
 
         total_issues = len(issues)
 
@@ -923,7 +937,7 @@ class IssuePaginatedViewSet(BaseViewSet):
         workspace_slug = self.kwargs.get("slug")
         project_id = self.kwargs.get("project_id")
 
-        issue_queryset = Issue.issue_objects.filter(workspace__slug=workspace_slug, project_id=project_id)
+        issue_queryset = placement_queryset(Issue.issue_objects.filter(workspace__slug=workspace_slug), project_id)
 
         return (
             issue_queryset.select_related("state")
@@ -958,7 +972,7 @@ class IssuePaginatedViewSet(BaseViewSet):
         )
 
     def process_paginated_result(self, fields, results, timezone):
-        paginated_data = results.values(*fields)
+        paginated_data = project_issue_values(results, fields)
 
         # converting the datetime fields in paginated data
         datetime_fields = ["created_at", "updated_at"]
@@ -1006,7 +1020,7 @@ class IssuePaginatedViewSet(BaseViewSet):
             required_fields.append("description_html")
 
         # querying issues
-        base_queryset = Issue.issue_objects.filter(workspace__slug=slug, project_id=project_id)
+        base_queryset = placement_queryset(Issue.issue_objects.filter(workspace__slug=slug), project_id)
 
         base_queryset = base_queryset.order_by("updated_at")
         queryset = self.get_queryset().order_by("updated_at")
@@ -1133,36 +1147,15 @@ class IssueDetailEndpoint(BaseAPIView):
     def get(self, request, slug, project_id):
         filters = issue_filters(request.query_params, "GET")
 
-        # check for the project member role, if the role is 5 then check for the guest_view_all_features
-        #  if it is true then show all the issues else show only the issues created by the user
-        permission_subquery = (
-            Issue.issue_objects.filter(workspace__slug=slug, project_id=project_id, id=OuterRef("id"))
-            .filter(
-                Q(
-                    project__project_projectmember__member=self.request.user,
-                    project__project_projectmember__is_active=True,
-                    project__project_projectmember__role__gt=ROLE.GUEST.value,
-                )
-                | Q(
-                    project__project_projectmember__member=self.request.user,
-                    project__project_projectmember__is_active=True,
-                    project__project_projectmember__role=ROLE.GUEST.value,
-                    project__guest_view_all_features=True,
-                )
-                | Q(
-                    project__project_projectmember__member=self.request.user,
-                    project__project_projectmember__is_active=True,
-                    project__project_projectmember__role=ROLE.GUEST.value,
-                    project__guest_view_all_features=False,
-                    created_by=self.request.user,
-                )
-            )
-            .values("id")
-        )
-        # Main issue query
-        issue = Issue.issue_objects.filter(workspace__slug=slug, project_id=project_id).filter(
-            Exists(permission_subquery)
-        )
+        from plane.utils.issue_placements import require_project_access
+
+        project = Project.objects.get(pk=project_id, workspace__slug=slug)
+        role = require_project_access(request.user, project)
+        issue = placement_queryset(Issue.issue_objects.filter(workspace__slug=slug), project_id)
+        if role == ROLE.GUEST.value and not project.guest_view_all_features:
+            issue = issue.filter(created_by=request.user)
+        if "placement_id" in issue.query.annotations:
+            filters = {placement_filter_key(key): value for key, value in filters.items()}
 
         # Add additional prefetch based on expand parameter
         if self.expand:
@@ -1313,7 +1306,7 @@ class IssueBulkUpdateDateEndpoint(BaseAPIView):
         return Response({"message": "Issues updated successfully"}, status=status.HTTP_200_OK)
 
 
-class IssueMetaEndpoint(BaseAPIView):
+class IssueMetaEndpoint(IssuePlacementContextMixin, BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="PROJECT")
     def get(self, request, slug, project_id, issue_id):
         issue = Issue.issue_objects.only("sequence_id", "project__identifier").get(
@@ -1321,8 +1314,12 @@ class IssueMetaEndpoint(BaseAPIView):
         )
         return Response(
             {
-                "sequence_id": issue.sequence_id,
-                "project_identifier": issue.project.identifier,
+                "sequence_id": self.placement_context.sequence_id
+                if getattr(self, "placement_context", None)
+                else issue.sequence_id,
+                "project_identifier": self.placement_context.project.identifier
+                if getattr(self, "placement_context", None)
+                else issue.project.identifier,
             },
             status=status.HTTP_200_OK,
         )
@@ -1346,6 +1343,23 @@ class IssueDetailIdentifierEndpoint(BaseAPIView):
 
         # Fetch the project
         project = Project.objects.get(identifier__iexact=project_identifier, workspace__slug=slug)
+
+        from plane.db.models import IssuePlacement
+        from plane.utils.issue_placements import require_project_access
+
+        entry = (
+            IssuePlacement.objects.select_related("issue")
+            .filter(project=project, sequence_id=issue_identifier, is_active=True, issue__deleted_at__isnull=True)
+            .first()
+        )
+        if entry:
+            require_project_access(request.user, project, issue=entry.issue)
+            return Response(
+                status=307,
+                headers={
+                    "Location": f"/api/workspaces/{slug}/projects/{project.id}/issues/{entry.id}/?{request.query_params.urlencode()}"
+                },
+            )
 
         # Check if the user is a member of the project
         if not ProjectMember.objects.filter(

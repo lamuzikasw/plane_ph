@@ -25,6 +25,7 @@ import { BaseGanttRoot } from "../gantt";
 import { KanBanLayout } from "../kanban/roots/project-root";
 import { ListLayout } from "../list/roots/project-root";
 import { ProjectSpreadsheetLayout } from "../spreadsheet/roots/project-root";
+import { AddExistingIssue } from "../add-existing-issue";
 
 function ProjectIssueLayout(props: { activeLayout: EIssueLayoutTypes | undefined }) {
   switch (props.activeLayout) {
@@ -99,6 +100,11 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
       >
         {({ filter: projectWorkItemsFilter }) => (
           <div className="relative flex h-full w-full flex-col overflow-hidden">
+            <AddExistingIssue
+              workspaceSlug={workspaceSlug}
+              projectId={projectId}
+              onAdded={() => issues.fetchIssuesWithExistingPagination(workspaceSlug, projectId, "mutation")}
+            />
             {projectWorkItemsFilter && (
               <WorkItemFiltersRow
                 filter={projectWorkItemsFilter}

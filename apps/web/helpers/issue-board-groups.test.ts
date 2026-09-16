@@ -1,15 +1,22 @@
 import { observable } from "mobx";
 import { describe, expect, it, vi } from "vitest";
 import { ALL_ISSUES } from "@plane/constants";
+import { EIssueServiceType } from "@plane/types";
 import type { TIssue, TIssuesResponse } from "@plane/types";
 import type { IIssueRootStore } from "@/store/issue/root.store";
 import type { IBaseIssueFilterStore } from "@/store/issue/helpers/issue-filter-helper.store";
+import type { IIssueDetail } from "@/store/issue/issue-details/root.store";
 
 vi.mock("@/lib/store-context", () => ({ rootStore: {} }));
 vi.mock("@/services/cycle.service", () => ({ CycleService: vi.fn() }));
 vi.mock("@/services/module.service", () => ({ ModuleService: vi.fn() }));
-vi.mock("@/services/issue", () => ({ IssueService: vi.fn(), IssueArchiveService: vi.fn() }));
+vi.mock("@/services/issue", () => ({
+  IssueService: vi.fn(),
+  IssueArchiveService: vi.fn(),
+  WorkspaceDraftService: vi.fn(),
+}));
 import { BaseIssuesStore } from "@/store/issue/helpers/base-issues.store";
+import { IssueStore as IssueDetailStore } from "@/store/issue/issue-details/issue.store";
 
 class BoardStore extends BaseIssuesStore {
   fetchParentStats = vi.fn();
@@ -39,7 +46,9 @@ function setup(subGroupBy?: "assignees") {
   store.groupedIssueIds = { todo: ["task"], done: [], started: [] };
   store.groupedIssueCount = { [ALL_ISSUES]: 1, todo: 1, done: 0, started: 0 };
   Object.assign(store.issueService, { patchIssue: vi.fn().mockResolvedValue(undefined) });
-  return { store, rows };
+  root.projectIssues = store as unknown as IIssueRootStore["projectIssues"];
+  const detail = new IssueDetailStore({ rootIssueStore: root } as IIssueDetail, EIssueServiceType.ISSUES);
+  return { store, rows, detail };
 }
 
 function expectDone(store: BoardStore) {
@@ -48,6 +57,26 @@ function expectDone(store: BoardStore) {
 }
 
 describe("board group consistency", () => {
+  it.each([undefined, "original"])(
+    "moves a card and its count when opening details returns a newer status (canonical: %s)",
+    (canonicalId) => {
+      const { store, rows, detail } = setup();
+      rows.task.canonical_issue_id = canonicalId;
+      detail.addIssueToStore({ ...rows.task, state_id: "done" });
+      expect(rows.task.state_id).toBe("done");
+      expectDone(store);
+      detail.addIssueToStore({ ...rows.task });
+      expectDone(store);
+    }
+  );
+
+  it("does not add a task outside the loaded board when opening its details", () => {
+    const { store, rows, detail } = setup();
+    detail.addIssueToStore({ ...rows.task, id: "other", state_id: "done" });
+    expect(store.groupedIssueIds).toEqual({ todo: ["task"], done: [], started: [] });
+    expect(store.groupedIssueCount).toEqual({ [ALL_ISSUES]: 1, todo: 1, done: 0, started: 0 });
+  });
+
   it("moves an observable task from Todo to Done", async () => {
     const { store } = setup();
     await store.issueUpdate("payholder", "sprint", "task", { state_id: "done" });
@@ -103,8 +132,13 @@ describe("board group consistency", () => {
     expect(store.groupedIssueCount).toEqual({ [ALL_ISSUES]: 30, todo: 29, done: 1, started: 0 });
   });
 
-  it.each([true, false])("moves every assignee swimlane, including unloaded cards (%s)", async (bothLoaded) => {
-    const { store, rows } = setup("assignees");
+  it.each([
+    [true, false],
+    [false, false],
+    [true, true],
+    [false, true],
+  ])("moves every assignee swimlane (both loaded: %s, detail read: %s)", async (bothLoaded, detailRead) => {
+    const { store, rows, detail } = setup("assignees");
     rows.task.assignee_ids = ["alice", "bob"];
     store.groupedIssueIds = {
       todo: { alice: ["task"], bob: bothLoaded ? ["task"] : [] },
@@ -119,7 +153,8 @@ describe("board group consistency", () => {
       done_alice: 0,
       done_bob: 0,
     };
-    await store.issueUpdate("payholder", "sprint", "task", { state_id: "done" });
+    if (detailRead) detail.addIssueToStore({ ...rows.task, state_id: "done" });
+    else await store.issueUpdate("payholder", "sprint", "task", { state_id: "done" });
     expect(store.groupedIssueIds).toEqual({ todo: { alice: [], bob: [] }, done: { alice: ["task"], bob: ["task"] } });
     expect(store.groupedIssueCount).toEqual({
       [ALL_ISSUES]: 1,

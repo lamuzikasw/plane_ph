@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+from .placement import IssuePlacementContextMixin
+
 # Python imports
 import json
 import uuid
@@ -29,7 +31,7 @@ from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
 from plane.utils.host import base_host
 
 
-class IssueAttachmentEndpoint(BaseAPIView):
+class IssueAttachmentEndpoint(IssuePlacementContextMixin, BaseAPIView):
     serializer_class = IssueAttachmentSerializer
     model = FileAsset
     parser_classes = (MultiPartParser, FormParser)
@@ -92,7 +94,7 @@ class IssueAttachmentEndpoint(BaseAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class IssueAttachmentV2Endpoint(BaseAPIView):
+class IssueAttachmentV2Endpoint(IssuePlacementContextMixin, BaseAPIView):
     serializer_class = IssueAttachmentSerializer
     model = FileAsset
 

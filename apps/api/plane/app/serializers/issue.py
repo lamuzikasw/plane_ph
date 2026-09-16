@@ -6,7 +6,7 @@
 from django.utils import timezone
 from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 # Third Party imports
 from rest_framework import serializers
@@ -81,6 +81,7 @@ class IssueProjectLiteSerializer(BaseSerializer):
 ##TODO: Find a better way to write this serializer
 ## Find a better approach to save manytomany?
 class IssueCreateSerializer(BaseSerializer):
+    additional_project_ids = serializers.ListField(child=serializers.UUIDField(), write_only=True, required=False)
     # ids
     state_id = serializers.PrimaryKeyRelatedField(
         source="state", queryset=State.all_state_objects.all(), required=False, allow_null=True
@@ -131,6 +132,8 @@ class IssueCreateSerializer(BaseSerializer):
         return data
 
     def validate(self, attrs):
+        if self.instance and attrs.get("additional_project_ids"):
+            raise serializers.ValidationError("Manage project placements using the Projects field.")
         allow_triage = self.context.get("allow_triage_state", False)
         state_manager = State.triage_objects if allow_triage else State.objects
 
@@ -214,7 +217,9 @@ class IssueCreateSerializer(BaseSerializer):
 
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
+        additional_projects = validated_data.pop("additional_project_ids", [])
         assignees = validated_data.pop("assignee_ids", None)
         labels = validated_data.pop("label_ids", None)
 
@@ -231,20 +236,21 @@ class IssueCreateSerializer(BaseSerializer):
 
         if assignees is not None and len(assignees):
             try:
-                IssueAssignee.objects.bulk_create(
-                    [
-                        IssueAssignee(
-                            assignee_id=assignee_id,
-                            issue=issue,
-                            project_id=project_id,
-                            workspace_id=workspace_id,
-                            created_by_id=created_by_id,
-                            updated_by_id=updated_by_id,
-                        )
-                        for assignee_id in assignees
-                    ],
-                    batch_size=10,
-                )
+                with transaction.atomic():
+                    IssueAssignee.objects.bulk_create(
+                        [
+                            IssueAssignee(
+                                assignee_id=assignee_id,
+                                issue=issue,
+                                project_id=project_id,
+                                workspace_id=workspace_id,
+                                created_by_id=created_by_id,
+                                updated_by_id=updated_by_id,
+                            )
+                            for assignee_id in assignees
+                        ],
+                        batch_size=10,
+                    )
             except IntegrityError:
                 pass
         else:
@@ -259,39 +265,53 @@ class IssueCreateSerializer(BaseSerializer):
                 ).exists()
             ):
                 try:
-                    IssueAssignee.objects.create(
-                        assignee_id=default_assignee_id,
-                        issue=issue,
-                        project_id=project_id,
-                        workspace_id=workspace_id,
-                        created_by_id=created_by_id,
-                        updated_by_id=updated_by_id,
-                    )
-                except IntegrityError:
-                    pass
-
-        if labels is not None and len(labels):
-            try:
-                IssueLabel.objects.bulk_create(
-                    [
-                        IssueLabel(
-                            label_id=label_id,
+                    with transaction.atomic():
+                        IssueAssignee.objects.create(
+                            assignee_id=default_assignee_id,
                             issue=issue,
                             project_id=project_id,
                             workspace_id=workspace_id,
                             created_by_id=created_by_id,
                             updated_by_id=updated_by_id,
                         )
-                        for label_id in labels
-                    ],
-                    batch_size=10,
-                )
+                except IntegrityError:
+                    pass
+
+        if labels is not None and len(labels):
+            try:
+                with transaction.atomic():
+                    IssueLabel.objects.bulk_create(
+                        [
+                            IssueLabel(
+                                label_id=label_id,
+                                issue=issue,
+                                project_id=project_id,
+                                workspace_id=workspace_id,
+                                created_by_id=created_by_id,
+                                updated_by_id=updated_by_id,
+                            )
+                            for label_id in labels
+                        ],
+                        batch_size=10,
+                    )
             except IntegrityError:
                 pass
 
+        if additional_projects:
+            from plane.db.models import Project
+            from plane.utils.issue_placements import attach_issue
+
+            for target_id in dict.fromkeys(additional_projects):
+                if str(target_id) == str(project_id):
+                    continue
+                target = Project.objects.filter(pk=target_id, workspace_id=workspace_id).first()
+                if not target:
+                    raise serializers.ValidationError("A selected project is not available in this workspace.")
+                attach_issue(issue=issue, project=target, actor=self.context["actor"])
         return issue
 
     def update(self, instance, validated_data):
+        validated_data.pop("additional_project_ids", None)
         assignees = validated_data.pop("assignee_ids", None)
         labels = validated_data.pop("label_ids", None)
 
@@ -787,6 +807,11 @@ class IssueIntakeSerializer(DynamicBaseSerializer):
 
 
 class IssueSerializer(DynamicBaseSerializer):
+    def to_representation(self, instance):
+        from plane.utils.issue_placements import project_issue_representation
+
+        return project_issue_representation(super().to_representation(instance), instance)
+
     # ids
     cycle_id = serializers.PrimaryKeyRelatedField(read_only=True)
     module_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
@@ -942,7 +967,9 @@ class IssueListDetailSerializer(serializers.Serializer):
                     )
                 data["issue_related"] = related
 
-        return data
+        from plane.utils.issue_placements import project_issue_representation
+
+        return project_issue_representation(data, instance)
 
 
 class IssueLiteSerializer(DynamicBaseSerializer):

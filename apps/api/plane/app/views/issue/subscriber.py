@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+from .placement import IssuePlacementContextMixin, content_membership_filters
+
 # Third Party imports
 from rest_framework.response import Response
 from rest_framework import status
@@ -13,7 +15,7 @@ from plane.app.permissions import ProjectEntityPermission, ProjectLitePermission
 from plane.db.models import IssueSubscriber, ProjectMember
 
 
-class IssueSubscriberViewSet(BaseViewSet):
+class IssueSubscriberViewSet(IssuePlacementContextMixin, BaseViewSet):
     serializer_class = IssueSubscriberSerializer
     model = IssueSubscriber
 
@@ -41,9 +43,7 @@ class IssueSubscriberViewSet(BaseViewSet):
             .filter(project_id=self.kwargs.get("project_id"))
             .filter(issue_id=self.kwargs.get("issue_id"))
             .filter(
-                project__project_projectmember__member=self.request.user,
-                project__project_projectmember__is_active=True,
-                project__archived_at__isnull=True,
+                **content_membership_filters(self),
             )
             .order_by("-created_at")
             .distinct()
@@ -51,7 +51,7 @@ class IssueSubscriberViewSet(BaseViewSet):
 
     def list(self, request, slug, project_id, issue_id):
         members = ProjectMember.objects.filter(
-            workspace__slug=slug, project_id=project_id, is_active=True
+            workspace__slug=slug, project_id=self.project_id, is_active=True
         ).select_related("member")
         serializer = ProjectMemberLiteSerializer(members, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)

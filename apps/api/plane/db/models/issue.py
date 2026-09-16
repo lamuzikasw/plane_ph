@@ -181,8 +181,10 @@ class Issue(ChangeTrackerMixin, ProjectBaseModel):
             models.Index(fields=["workspace", "completed_at"], name="issue_ws_completed_idx"),
         ]
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
         self._ensure_default_state()
+        sync_placements = not self._state.adding and self.has_changed("state_id")
         kwargs = self._sync_completed_at(kwargs)
 
         if self._state.adding:
@@ -224,6 +226,11 @@ class Issue(ChangeTrackerMixin, ProjectBaseModel):
                 else strip_tags(self.description_html)
             )
             super(Issue, self).save(*args, **kwargs)
+
+        if sync_placements:
+            from plane.utils.issue_placements import sync_placement_states
+
+            sync_placement_states(self)
 
     def __str__(self):
         """Return name of the issue"""

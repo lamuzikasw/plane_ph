@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+from .placement import IssuePlacementContextMixin, content_membership_filters
+
 # Python imports
 import json
 
@@ -23,7 +25,7 @@ from plane.bgtasks.work_item_link_task import crawl_work_item_link_title
 from plane.utils.host import base_host
 
 
-class IssueLinkViewSet(BaseViewSet):
+class IssueLinkViewSet(IssuePlacementContextMixin, BaseViewSet):
     permission_classes = [ProjectEntityPermission]
 
     model = IssueLink
@@ -37,9 +39,7 @@ class IssueLinkViewSet(BaseViewSet):
             .filter(project_id=self.kwargs.get("project_id"))
             .filter(issue_id=self.kwargs.get("issue_id"))
             .filter(
-                project__project_projectmember__member=self.request.user,
-                project__project_projectmember__is_active=True,
-                project__archived_at__isnull=True,
+                **content_membership_filters(self),
             )
             .order_by("-created_at")
             .distinct()

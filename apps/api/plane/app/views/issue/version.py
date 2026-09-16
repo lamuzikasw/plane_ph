@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+from .placement import IssuePlacementContextMixin
+
 # Third party imports
 from rest_framework import status
 from rest_framework.response import Response
@@ -24,7 +26,7 @@ from plane.utils.global_paginator import paginate
 from plane.utils.timezone_converter import user_timezone_converter
 
 
-class IssueVersionEndpoint(BaseAPIView):
+class IssueVersionEndpoint(IssuePlacementContextMixin, BaseAPIView):
     def process_paginated_result(self, fields, results, timezone):
         paginated_data = results.values(*fields)
 
@@ -74,7 +76,7 @@ class IssueVersionEndpoint(BaseAPIView):
         return Response(paginated_data, status=status.HTTP_200_OK)
 
 
-class WorkItemDescriptionVersionEndpoint(BaseAPIView):
+class WorkItemDescriptionVersionEndpoint(IssuePlacementContextMixin, BaseAPIView):
     def process_paginated_result(self, fields, results, timezone):
         paginated_data = results.values(*fields)
 

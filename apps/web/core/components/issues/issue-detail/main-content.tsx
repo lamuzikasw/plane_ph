@@ -194,6 +194,11 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
         projectId={projectId}
         issueId={issueId}
         disabled={!isEditable || isArchived}
+        hideWidgets={
+          issue.canonical_issue_id && issue.canonical_issue_id !== issue.id
+            ? ["sub-work-items", "relations"]
+            : undefined
+        }
         renderWidgetModals={!isPeekModeActive}
         issueServiceType={EIssueServiceType.ISSUES}
       />

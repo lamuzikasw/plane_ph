@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { makeObservable, observable } from "mobx";
+import { makeObservable, observable, runInAction } from "mobx";
 import { computedFn } from "mobx-utils";
 // types
 import type { TIssue, TIssueServiceType } from "@plane/types";
@@ -94,9 +94,7 @@ export class IssueStore implements IIssueStore {
 
     if (!issue) throw new Error("Work item not found");
 
-    const issuePayload = this.addIssueToStore(issue);
-
-    this.rootIssueDetailStore.rootIssueStore.issues.addIssue([issuePayload]);
+    this.addIssueToStore(issue);
 
     // store handlers from issue detail
     // parent
@@ -127,10 +125,12 @@ export class IssueStore implements IIssueStore {
     this.rootIssueDetailStore.comment.fetchComments(workspaceSlug, projectId, issueId);
 
     // fetch sub issues
-    this.rootIssueDetailStore.subIssues.fetchSubIssues(workspaceSlug, projectId, issueId);
+    if (!issue.canonical_issue_id || issue.canonical_issue_id === issue.id)
+      this.rootIssueDetailStore.subIssues.fetchSubIssues(workspaceSlug, projectId, issueId);
 
     // fetch issue relations
-    this.rootIssueDetailStore.relation.fetchRelations(workspaceSlug, projectId, issueId);
+    if (!issue.canonical_issue_id || issue.canonical_issue_id === issue.id)
+      this.rootIssueDetailStore.relation.fetchRelations(workspaceSlug, projectId, issueId);
 
     // fetching states
     // TODO: check if this function is required
@@ -142,6 +142,9 @@ export class IssueStore implements IIssueStore {
   addIssueToStore = (issue: TIssue) => {
     const issuePayload: TIssue = {
       id: issue?.id,
+      canonical_issue_id: issue.canonical_issue_id,
+      canonical_project_id: issue.canonical_project_id,
+      canonical_sequence_id: issue.canonical_sequence_id,
       sequence_id: issue?.sequence_id,
       name: issue?.name,
       description_html: issue?.description_html,
@@ -172,7 +175,28 @@ export class IssueStore implements IIssueStore {
       is_epic: issue?.is_epic,
     };
 
-    this.rootIssueDetailStore.rootIssueStore.issues.addIssue([issuePayload]);
+    const root = this.rootIssueDetailStore.rootIssueStore;
+    const previous = root.issues.getIssueById(issue.id);
+    const issueBeforeUpdate = previous ? { ...previous } : undefined;
+    runInAction(() => {
+      root.issues.addIssue([issuePayload]);
+      // Detail reads update the shared card data. Keep every loaded view's
+      // membership and counts in sync in the same action as the status badge.
+      const views = [
+        root.projectIssues,
+        root.projectEpics,
+        root.workspaceIssues,
+        root.profileIssues,
+        root.cycleIssues,
+        root.moduleIssues,
+        root.projectViewIssues,
+        root.teamIssues,
+        root.teamViewIssues,
+        root.teamProjectWorkItems,
+        root.archivedIssues,
+      ];
+      views.forEach((view) => view?.reconcileLoadedIssue(issuePayload, issueBeforeUpdate));
+    });
     this.fetchingIssueDetails = undefined;
 
     return issuePayload;
@@ -281,8 +305,7 @@ export class IssueStore implements IIssueStore {
 
     if (!issue || !projectId || !issueId) throw new Error("Issue not found");
 
-    const issuePayload = this.addIssueToStore(issue);
-    this.rootIssueDetailStore.rootIssueStore.issues.addIssue([issuePayload]);
+    this.addIssueToStore(issue);
 
     // handle parent issue if exists
     if (issue?.parent && issue?.parent?.id && issue?.parent?.project_id) {
@@ -319,10 +342,12 @@ export class IssueStore implements IIssueStore {
     rootWorkItemDetailStore.comment.fetchComments(workspaceSlug, projectId, issueId);
 
     // fetch sub issues
-    rootWorkItemDetailStore.subIssues.fetchSubIssues(workspaceSlug, projectId, issueId);
+    if (!issue.canonical_issue_id || issue.canonical_issue_id === issue.id)
+      rootWorkItemDetailStore.subIssues.fetchSubIssues(workspaceSlug, projectId, issueId);
 
     // fetch issue relations
-    rootWorkItemDetailStore.relation.fetchRelations(workspaceSlug, projectId, issueId);
+    if (!issue.canonical_issue_id || issue.canonical_issue_id === issue.id)
+      rootWorkItemDetailStore.relation.fetchRelations(workspaceSlug, projectId, issueId);
 
     // fetching states
     // TODO: check if this function is required

@@ -45,6 +45,7 @@ import type { TIssueOperations } from "../issue-detail";
 import { IssueCycleSelect } from "../issue-detail/cycle-select";
 import { IssueLabel } from "../issue-detail/label";
 import { IssueModuleSelect } from "../issue-detail/module-select";
+import { IssueProjectsProperty } from "../issue-detail/projects-property";
 
 interface IPeekOverviewProperties {
   workspaceSlug: string;
@@ -69,7 +70,8 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
   if (!issue) return <></>;
   const createdByDetails = getUserDetails(issue?.created_by);
   const projectDetails = getProjectById(issue.project_id);
-  const isEstimateEnabled = projectDetails?.estimate;
+  const isPlacement = !!issue.canonical_issue_id && issue.canonical_issue_id !== issue.id;
+  const isEstimateEnabled = projectDetails?.estimate && !isPlacement;
   const stateDetails = getStateById(issue.state_id);
 
   const minDate = getDate(issue.start_date);
@@ -82,6 +84,12 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
     <div>
       <h6 className="text-body-xs-medium">{t("common.properties")}</h6>
       <div className={`mt-3 w-full space-y-3 ${disabled ? "opacity-60" : ""}`}>
+        <IssueProjectsProperty
+          workspaceSlug={workspaceSlug}
+          projectId={projectId}
+          issueId={issueId}
+          disabled={disabled}
+        />
         <SidebarPropertyListItem icon={StatePropertyIcon} label={t("common.state")}>
           <StateDropdown
             value={issue?.state_id}
@@ -211,7 +219,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
           </SidebarPropertyListItem>
         )}
 
-        {projectDetails?.module_view && (
+        {projectDetails?.module_view && !isPlacement && (
           <SidebarPropertyListItem icon={ModuleIcon} label={t("common.modules")}>
             <IssueModuleSelect
               className="w-full grow"
@@ -224,7 +232,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
           </SidebarPropertyListItem>
         )}
 
-        {projectDetails?.cycle_view && (
+        {projectDetails?.cycle_view && !isPlacement && (
           <SidebarPropertyListItem
             icon={CycleIcon}
             label={t("common.cycle")}
@@ -241,36 +249,44 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
           </SidebarPropertyListItem>
         )}
 
-        <SidebarPropertyListItem icon={ParentPropertyIcon} label={t("common.parent")}>
-          <IssueParentSelectRoot
-            className="h-7.5 w-full grow"
-            disabled={disabled}
+        {!isPlacement && (
+          <SidebarPropertyListItem icon={ParentPropertyIcon} label={t("common.parent")}>
+            <IssueParentSelectRoot
+              className="h-7.5 w-full grow"
+              disabled={disabled}
+              issueId={issueId}
+              issueOperations={issueOperations}
+              projectId={projectId}
+              workspaceSlug={workspaceSlug}
+            />
+          </SidebarPropertyListItem>
+        )}
+
+        {!isPlacement && (
+          <SidebarPropertyListItem icon={LabelPropertyIcon} label={t("common.labels")}>
+            <IssueLabel workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} disabled={disabled} />
+          </SidebarPropertyListItem>
+        )}
+
+        {!isPlacement && (
+          <IssueWorklogProperty
+            workspaceSlug={workspaceSlug}
+            projectId={projectId}
             issueId={issueId}
-            issueOperations={issueOperations}
+            disabled={disabled}
+          />
+        )}
+
+        {!isPlacement && (
+          <WorkItemAdditionalSidebarProperties
+            workItemId={issue.id}
+            workItemTypeId={issue.type_id}
             projectId={projectId}
             workspaceSlug={workspaceSlug}
+            isEditable={!disabled}
+            isPeekView
           />
-        </SidebarPropertyListItem>
-
-        <SidebarPropertyListItem icon={LabelPropertyIcon} label={t("common.labels")}>
-          <IssueLabel workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} disabled={disabled} />
-        </SidebarPropertyListItem>
-
-        <IssueWorklogProperty
-          workspaceSlug={workspaceSlug}
-          projectId={projectId}
-          issueId={issueId}
-          disabled={disabled}
-        />
-
-        <WorkItemAdditionalSidebarProperties
-          workItemId={issue.id}
-          workItemTypeId={issue.type_id}
-          projectId={projectId}
-          workspaceSlug={workspaceSlug}
-          isEditable={!disabled}
-          isPeekView
-        />
+        )}
       </div>
     </div>
   );

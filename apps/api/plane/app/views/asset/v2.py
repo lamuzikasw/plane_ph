@@ -533,6 +533,14 @@ class ProjectAssetEndpoint(BaseAPIView):
         entity_type = request.data.get("entity_type", "")
         entity_identifier = request.data.get("entity_identifier")
 
+        if entity_type in (FileAsset.EntityTypeContext.ISSUE_DESCRIPTION, FileAsset.EntityTypeContext.ISSUE_ATTACHMENT):
+            from plane.db.models import IssuePlacement
+            from plane.app.views.issue.placement import resolve_issue
+
+            if entity_identifier and IssuePlacement.objects.filter(pk=entity_identifier, workspace__slug=slug).exists():
+                shared_issue, _, _ = resolve_issue(slug, project_id, entity_identifier, request.user, write=True)
+                entity_identifier = shared_issue.id
+
         # Check if the entity type is allowed
         if entity_type not in FileAsset.EntityTypeContext.values:
             return Response(

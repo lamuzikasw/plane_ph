@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+from .placement import IssuePlacementContextMixin, content_membership_filters
+
 # Python imports
 from itertools import chain
 
@@ -21,7 +23,7 @@ from plane.app.permissions import ProjectEntityPermission, allow_permission, ROL
 from plane.db.models import IssueActivity, IssueComment, CommentReaction, IntakeIssue
 
 
-class IssueActivityEndpoint(BaseAPIView):
+class IssueActivityEndpoint(IssuePlacementContextMixin, BaseAPIView):
     permission_classes = [ProjectEntityPermission]
     use_read_replica = True
 
@@ -36,9 +38,7 @@ class IssueActivityEndpoint(BaseAPIView):
             IssueActivity.objects.filter(issue_id=issue_id)
             .filter(
                 ~Q(field__in=["comment", "vote", "reaction", "draft"]),
-                project__project_projectmember__member=self.request.user,
-                project__project_projectmember__is_active=True,
-                project__archived_at__isnull=True,
+                **content_membership_filters(self),
                 workspace__slug=slug,
             )
             .filter(**filters)
@@ -47,9 +47,7 @@ class IssueActivityEndpoint(BaseAPIView):
         issue_comments = (
             IssueComment.objects.filter(issue_id=issue_id)
             .filter(
-                project__project_projectmember__member=self.request.user,
-                project__project_projectmember__is_active=True,
-                project__archived_at__isnull=True,
+                **content_membership_filters(self),
                 workspace__slug=slug,
             )
             .filter(**filters)

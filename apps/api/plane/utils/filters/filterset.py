@@ -87,7 +87,12 @@ class BaseFilterSet(FilterSet):
                     )
             else:
                 # Standard field filter - build Q object directly
-                lookup = f"{f.field_name}__{f.lookup_expr}"
+                field_name = f.field_name
+                if "placement_id" in self.queryset.query.annotations:
+                    from plane.utils.issue_placements import placement_filter_key
+
+                    field_name = placement_filter_key(field_name)
+                lookup = f"{field_name}__{f.lookup_expr}"
                 q_piece = Q(**{lookup: value})
 
             # Apply exclude/include logic

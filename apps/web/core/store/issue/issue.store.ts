@@ -14,6 +14,7 @@ import { getCurrentDateTimeInISO } from "@plane/utils";
 import { rootStore } from "@/lib/store-context";
 // services
 import { IssueService } from "@/services/issue";
+import { canonicalIssueId, sharedIssuePatch } from "@/helpers/issue-placement.helper";
 
 export type IIssueStore = {
   // observables
@@ -111,6 +112,11 @@ export class IssueStore implements IIssueStore {
       set(this.issuesMap, [issueId, "updated_at"], getCurrentDateTimeInISO());
       Object.keys(issue).forEach((key) => {
         set(this.issuesMap, [issueId, key], issue[key as keyof TIssue]);
+      });
+      const canonicalId = canonicalIssueId(this.issuesMap[issueId]);
+      const shared = sharedIssuePatch(issue);
+      Object.values(this.issuesMap).forEach((entry) => {
+        if (entry.id !== issueId && canonicalIssueId(entry) === canonicalId) Object.assign(entry, shared);
       });
     });
   };

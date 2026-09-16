@@ -319,6 +319,8 @@ class BulkArchiveIssuesEndpoint(BaseAPIView):
         )
         if len(issue_ids):
             issues = issues.filter(pk__in=issue_ids)
+            if issues.count() != len(set(issue_ids)):
+                return Response({"error": "Archive shared work items from their original project. No work items were archived."}, status=400)
         if state_id:
             issues = issues.filter(state_id=state_id)
         if state_group:

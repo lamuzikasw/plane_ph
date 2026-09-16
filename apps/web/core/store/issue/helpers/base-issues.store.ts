@@ -89,6 +89,7 @@ export interface IBaseIssuesStore {
 
   addIssueToList: (issueId: string) => void;
   removeIssueFromList: (issueId: string) => void;
+  reconcileLoadedIssue: (issue: TIssue, issueBeforeUpdate?: TIssue) => void;
   moveIssueToProject: (
     workspaceSlug: string,
     projectId: string,
@@ -589,6 +590,10 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
       // call API to update the issue
       await this.issueService.patchIssue(workspaceSlug, projectId, issueId, data);
 
+      // The local status and its board group were updated together above.
+      // Other projects load their mapped status through their own board fetch.
+      // A detail-only refresh here can overwrite a newer drag without moving its group.
+
       // call fetch Parent Stats
       this.fetchParentStats(workspaceSlug, projectId);
     } catch (error) {
@@ -608,7 +613,12 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
     const issueBeforeMove = clone(this.rootIssueStore.issues.getIssueById(issueId));
 
     try {
-      const movedIssueResponse = (await this.issueService.moveIssueToProject(workspaceSlug, projectId, issueId, data)) as Partial<TIssue> & {
+      const movedIssueResponse = (await this.issueService.moveIssueToProject(
+        workspaceSlug,
+        projectId,
+        issueId,
+        data
+      )) as Partial<TIssue> & {
         project?: string | null;
         state?: string | null;
         assignees?: string[];
@@ -1318,6 +1328,13 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
       // update the respective counts from the accumulation object
       this.updateIssueCount(accumulatedUpdatesForCount);
     });
+  }
+
+  reconcileLoadedIssue(issue: TIssue, issueBeforeUpdate?: TIssue) {
+    // A detail response may belong to a different project or a filtered-out task.
+    // Only reconcile cards already present in this view.
+    if (this.getLoadedIssuePaths(issue.id).length === 0) return;
+    this.updateIssueList(issue, issueBeforeUpdate ?? issue);
   }
 
   private getLoadedIssuePaths(issueId: string): string[][] {

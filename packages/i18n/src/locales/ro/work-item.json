@@ -1,4 +1,25 @@
 {
+  "issue_projects": {
+    "also_in": "Also in projects",
+    "add_existing": "Add existing work item",
+    "search_issue": "Search by title or work item number",
+    "no_issues": "No available work items found in the enabled projects.",
+    "title": "Projects",
+    "add": "Add",
+    "add_title": "Add to projects",
+    "share_hint": "The description, comments and attachments are shared. Members of the selected projects will have access to this work item. Each project gets its own work item number.",
+    "search": "Search projects",
+    "no_projects": "No available projects. Only projects enabled for shared work items are listed.",
+    "add_selected": "Add to projects",
+    "added": "Work item added to projects",
+    "save_error": "Could not add to all selected projects. Check your access and try again.",
+    "remove_title": "Remove from project?",
+    "remove_from": "Remove from {project}",
+    "remove_hint": "The work item will disappear from {project}. Its content and other project placements will remain.",
+    "remove": "Remove from project",
+    "removed": "Work item removed from project",
+    "remove_error": "Could not remove from the project. Try again."
+  },
   "issue": {
     "label": "{count, plural, one {Activitate} other {Activități}}",
     "all": "Toate activitățile",

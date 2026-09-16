@@ -236,6 +236,7 @@ class ProjectSerializer(BaseSerializer):
             "updated_by",
             "deleted_at",
             "cover_image_url",
+            "issue_placements_enabled",
         ]
 
     def validate(self, data):
@@ -318,5 +319,6 @@ class ProjectLiteSerializer(BaseSerializer):
             "emoji",
             "description",
             "cover_image_url",
+            "issue_placements_enabled",
         ]
         read_only_fields = fields

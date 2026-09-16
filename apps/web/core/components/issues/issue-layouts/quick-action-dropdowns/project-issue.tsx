@@ -68,9 +68,10 @@ export const ProjectIssueQuickActions = observer(function ProjectIssueQuickActio
       workspaceSlug?.toString(),
       issue.project_id ?? undefined
     ) && !readOnly;
-  const isArchivingAllowed = handleArchive && isEditingAllowed;
+  const isArchivingAllowed =
+    handleArchive && isEditingAllowed && (!issue.canonical_issue_id || issue.canonical_issue_id === issue.id);
   const isInArchivableGroup = !!stateDetails && ARCHIVABLE_STATE_GROUPS.includes(stateDetails?.group);
-  const isDeletingAllowed = isEditingAllowed;
+  const isDeletingAllowed = isEditingAllowed && (!issue.canonical_issue_id || issue.canonical_issue_id === issue.id);
 
   const duplicateIssuePayload = omit(
     {
