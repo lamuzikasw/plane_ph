@@ -5,6 +5,7 @@
  */
 
 import { useMemo } from "react";
+import { useLocation } from "react-router";
 import uniq from "lodash-es/uniq";
 import { observer } from "mobx-react";
 // plane package imports
@@ -26,6 +27,7 @@ import { ActivityFilterRoot } from "@/plane-web/components/issues/worklog/activi
 import { IssueActivityWorklogCreateButton } from "@/plane-web/components/issues/worklog/activity/worklog-create-button";
 import { IssueActivityCommentRoot } from "./activity-comment-root";
 import { useWorkItemCommentOperations } from "./helper";
+import { useCommentNavigation } from "@/hooks/use-comment-navigation";
 import { ActivitySortRoot } from "./sort-root";
 
 type TIssueActivity = {
@@ -34,6 +36,7 @@ type TIssueActivity = {
   issueId: string;
   disabled?: boolean;
   isIntakeIssue?: boolean;
+  commentsRequestedAt?: number;
 };
 
 export type TActivityOperations = {
@@ -44,7 +47,7 @@ export type TActivityOperations = {
 };
 
 export const IssueActivity = observer(function IssueActivity(props: TIssueActivity) {
-  const { workspaceSlug, projectId, issueId, disabled = false, isIntakeIssue = false } = props;
+  const { workspaceSlug, projectId, issueId, disabled = false, isIntakeIssue = false, commentsRequestedAt } = props;
   // i18n
   const { t } = useTranslation();
   // hooks
@@ -56,6 +59,8 @@ export const IssueActivity = observer(function IssueActivity(props: TIssueActivi
   // store hooks
   const {
     issue: { getIssueById },
+    comment: { getCommentsByIssueId },
+    activity: { getActivityAndCommentsByIssueId },
   } = useIssueDetail();
 
   const { getProjectRoleByWorkspaceSlugAndProjectId } = useUserPermissions();
@@ -68,18 +73,20 @@ export const IssueActivity = observer(function IssueActivity(props: TIssueActivi
   const isGuest = currentUserProjectRole === EUserPermissions.GUEST;
   const isAssigned = issue?.assignee_ids && currentUser?.id ? issue?.assignee_ids.includes(currentUser?.id) : false;
   const isWorklogButtonEnabled = !isIntakeIssue && !isGuest && (isAdmin || isAssigned);
-  // toggle filter
+  const location = useLocation();
+  const { activityRef, filters, setFilters } = useCommentNavigation({
+    requestKey: commentsRequestedAt ?? (location.hash === "#comments" ? location.key : undefined),
+    issueId,
+    ready:
+      !!getProjectById(projectId) &&
+      getCommentsByIssueId(issueId) !== undefined &&
+      getActivityAndCommentsByIssueId(issueId, sortOrder || E_SORT_ORDER.ASC) !== undefined,
+    savedFilters: selectedFilters || defaultActivityFilters,
+    saveFilters: setFilterValue,
+  });
   const toggleFilter = (filter: TActivityFilters) => {
-    if (!selectedFilters) return;
-    let _filters = [];
-    if (selectedFilters.includes(filter)) {
-      if (selectedFilters.length === 1) return selectedFilters; // Ensure at least one filter is applied
-      _filters = selectedFilters.filter((f) => f !== filter);
-    } else {
-      _filters = [...selectedFilters, filter];
-    }
-
-    setFilterValue(uniq(_filters));
+    if (filters.includes(filter) && filters.length === 1) return;
+    setFilters(uniq(filters.includes(filter) ? filters.filter((f) => f !== filter) : [...filters, filter]));
   };
 
   const toggleSortOrder = () => {
@@ -105,7 +112,7 @@ export const IssueActivity = observer(function IssueActivity(props: TIssueActivi
   if (!project) return <></>;
 
   return (
-    <div className="space-y-4">
+    <div ref={activityRef} tabIndex={-1} className="scroll-mt-4 space-y-4">
       {/* header */}
       <div className="flex items-center justify-between">
         <div className="text-h5-medium text-primary">{t("common.activity")}</div>
@@ -120,7 +127,7 @@ export const IssueActivity = observer(function IssueActivity(props: TIssueActivi
           )}
           <ActivitySortRoot sortOrder={sortOrder || E_SORT_ORDER.ASC} toggleSort={toggleSortOrder} />
           <ActivityFilterRoot
-            selectedFilters={selectedFilters || defaultActivityFilters}
+            selectedFilters={filters}
             toggleFilter={toggleFilter}
             isIntakeIssue={isIntakeIssue}
             projectId={projectId}
@@ -138,7 +145,7 @@ export const IssueActivity = observer(function IssueActivity(props: TIssueActivi
               workspaceSlug={workspaceSlug}
               isIntakeIssue={isIntakeIssue}
               issueId={issueId}
-              selectedFilters={selectedFilters || defaultActivityFilters}
+              selectedFilters={filters}
               activityOperations={activityOperations}
               showAccessSpecifier={!!project.anchor}
               disabled={disabled}

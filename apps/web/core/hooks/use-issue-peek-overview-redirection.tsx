@@ -27,7 +27,8 @@ const useIssuePeekOverviewRedirection = (isEpic: boolean = false) => {
     workspaceSlug: string | undefined,
     issue: TIssue | undefined,
     isMobile = false,
-    nestingLevel?: number
+    nestingLevel?: number,
+    target?: "comments"
   ) => {
     if (!issue) return;
     const { project_id, id, archived_at, tempId } = issue;
@@ -42,11 +43,18 @@ const useIssuePeekOverviewRedirection = (isEpic: boolean = false) => {
       isEpic,
       isArchived: !!archived_at,
     });
-    if (workspaceSlug && project_id && id && !getIsIssuePeeked(id) && !tempId) {
+    if (workspaceSlug && project_id && id && (!getIsIssuePeeked(id) || target === "comments") && !tempId) {
       if (isMobile) {
-        router.push(workItemLink);
+        router.push(target === "comments" ? `${workItemLink}#comments` : workItemLink);
       } else {
-        setPeekIssue({ workspaceSlug, projectId: project_id, issueId: id, nestingLevel, isArchived: !!archived_at });
+        setPeekIssue({
+          workspaceSlug,
+          projectId: project_id,
+          issueId: id,
+          nestingLevel,
+          isArchived: !!archived_at,
+          commentsRequestedAt: target === "comments" ? Date.now() : undefined,
+        });
       }
     }
   };

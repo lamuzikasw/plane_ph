@@ -138,7 +138,9 @@ def issue_on_results(
         original_list.append(sub_group_by)
 
     required_fields.extend(original_list)
-    return list(issues.values(*required_fields))
+    from plane.utils.issue_comment_counts import with_comment_count
+
+    return list(with_comment_count(issues).values(*required_fields, "comment_count"))
 
 
 def issue_group_values(

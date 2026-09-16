@@ -759,6 +759,7 @@ class IssueStateSerializer(DynamicBaseSerializer):
     project_detail = ProjectLiteSerializer(read_only=True, source="project")
     assignee_details = UserLiteSerializer(read_only=True, source="assignees", many=True)
     sub_issues_count = serializers.IntegerField(read_only=True)
+    comment_count = serializers.IntegerField(read_only=True)
     attachment_count = serializers.IntegerField(read_only=True)
     link_count = serializers.IntegerField(read_only=True)
 
@@ -796,6 +797,7 @@ class IssueSerializer(DynamicBaseSerializer):
 
     # Count items
     sub_issues_count = serializers.IntegerField(read_only=True)
+    comment_count = serializers.IntegerField(read_only=True)
     attachment_count = serializers.IntegerField(read_only=True)
     link_count = serializers.IntegerField(read_only=True)
 
@@ -824,6 +826,7 @@ class IssueSerializer(DynamicBaseSerializer):
             "created_by",
             "updated_by",
             "attachment_count",
+            "comment_count",
             "link_count",
             "is_draft",
             "archived_at",

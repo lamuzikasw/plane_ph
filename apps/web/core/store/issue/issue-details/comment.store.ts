@@ -89,6 +89,15 @@ export class IssueCommentStore implements IIssueCommentStore {
     return this.commentMap[commentId] ?? undefined;
   };
 
+  private updateCommentCount = (issueId: string, change: { total: number } | { delta: number }) => {
+    const issues = this.rootIssueDetail.rootIssueStore.issues;
+    const issue = issues.getIssueById(issueId);
+    if (!issue) return;
+    const count = "total" in change ? change.total : (issue.comment_count ?? 0) + change.delta;
+    // Counts are metadata; do not make an older task snapshot look like a newer edit.
+    issues.updateIssue(issueId, { comment_count: Math.max(0, count), updated_at: issue.updated_at });
+  };
+
   fetchComments = async (
     workspaceSlug: string,
     projectId: string,
@@ -97,25 +106,18 @@ export class IssueCommentStore implements IIssueCommentStore {
   ) => {
     this.loader = loaderType;
 
-    let props = {};
-    const _commentIds = this.getCommentsByIssueId(issueId);
-    if (_commentIds && _commentIds.length > 0) {
-      const _comment = this.getCommentById(_commentIds[_commentIds.length - 1]);
-      if (_comment) props = { created_at__gt: _comment.created_at };
-    }
-
-    const comments = await this.issueCommentService.getIssueComments(workspaceSlug, projectId, issueId, props);
+    // Reload the complete discussion so edits/deletions from other placements
+    // cannot leave stale IDs or an inflated card count in this cache.
+    const comments = await this.issueCommentService.getIssueComments(workspaceSlug, projectId, issueId);
 
     const commentIds = comments.map((comment) => comment.id);
     runInAction(() => {
-      update(this.comments, issueId, (_commentIds) => {
-        if (!_commentIds) return commentIds;
-        return uniq(concat(_commentIds, commentIds));
-      });
+      set(this.comments, issueId, commentIds);
       comments.forEach((comment) => {
         this.rootIssueDetail.commentReaction.applyCommentReactions(comment.id, comment?.comment_reactions || []);
         set(this.commentMap, comment.id, comment);
       });
+      this.updateCommentCount(issueId, { total: commentIds.length });
       this.loader = undefined;
     });
 
@@ -131,6 +133,7 @@ export class IssueCommentStore implements IIssueCommentStore {
         return uniq(concat(_commentIds, [response.id]));
       });
       set(this.commentMap, response.id, response);
+      this.updateCommentCount(issueId, { delta: 1 });
     });
 
     return response;
@@ -176,6 +179,7 @@ export class IssueCommentStore implements IIssueCommentStore {
     runInAction(() => {
       pull(this.comments[issueId], commentId);
       delete this.commentMap[commentId];
+      this.updateCommentCount(issueId, { delta: -1 });
     });
 
     return response;

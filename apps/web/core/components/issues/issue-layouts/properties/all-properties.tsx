@@ -42,10 +42,12 @@ import { useProject } from "@/hooks/store/use-project";
 import { useProjectState } from "@/hooks/store/use-project-state";
 import { useAppRouter } from "@/hooks/use-app-router";
 import { useIssueStoreType } from "@/hooks/use-issue-layout-store";
+import useIssuePeekOverviewRedirection from "@/hooks/use-issue-peek-overview-redirection";
 import { usePlatformOS } from "@/hooks/use-platform-os";
 // plane web components
 import { WorkItemLayoutAdditionalProperties } from "@/plane-web/components/issues/issue-layouts/additional-properties";
 // local components
+import { IssueCommentCount } from "./comment-count";
 import { IssuePropertyLabels } from "./labels";
 import { WithDisplayPropertiesHOC } from "./with-display-properties-HOC";
 
@@ -81,6 +83,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
   const { areEstimateEnabledByProjectId } = useProjectEstimates();
   const { getStateById } = useProjectState();
   const { isMobile } = usePlatformOS();
+  const { handleRedirection } = useIssuePeekOverviewRedirection(isEpic);
   const projectDetails = getProjectById(issue.project_id);
 
   // router
@@ -494,6 +497,12 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
           </Tooltip>
         </WithDisplayPropertiesHOC>
       )}
+
+      <IssueCommentCount
+        count={issue.comment_count}
+        isMobile={isMobile}
+        onClick={() => handleRedirection(workspaceSlug?.toString(), issue, isMobile, undefined, "comments")}
+      />
 
       {/* attachments */}
       <WithDisplayPropertiesHOC

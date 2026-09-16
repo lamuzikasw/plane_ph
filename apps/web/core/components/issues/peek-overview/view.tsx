@@ -66,6 +66,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
   // store hooks
   const {
     setPeekIssue,
+    peekIssue,
     isAnyModalOpen,
     issue: { getIssueById },
   } = useIssueDetail();
@@ -206,6 +207,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                     />
 
                     <IssueActivity
+                      commentsRequestedAt={peekIssue?.commentsRequestedAt}
                       workspaceSlug={workspaceSlug}
                       projectId={projectId}
                       issueId={issueId}
@@ -239,6 +241,7 @@ export const IssueView = observer(function IssueView(props: IIssueView) {
                         </div>
 
                         <IssueActivity
+                          commentsRequestedAt={peekIssue?.commentsRequestedAt}
                           workspaceSlug={workspaceSlug}
                           projectId={projectId}
                           issueId={issueId}

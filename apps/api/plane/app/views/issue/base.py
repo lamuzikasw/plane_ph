@@ -75,6 +75,7 @@ from plane.utils.grouper import (
 )
 from plane.utils.host import base_host
 from plane.utils.issue_filters import issue_filters
+from plane.utils.issue_comment_counts import with_comment_count
 from plane.utils.issue_move import IssueMoveConflict, move_issue_to_project
 from plane.utils.exception_logger import log_exception
 from plane.utils.order_queryset import order_issue_queryset
@@ -219,6 +220,7 @@ class IssueViewSet(BaseViewSet):
         return issues
 
     def apply_annotations(self, issues):
+        issues = with_comment_count(issues)
         issues = (
             issues.annotate(
                 cycle_id=Subquery(
