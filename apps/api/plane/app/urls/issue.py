@@ -160,6 +160,11 @@ urlpatterns = [
     ## Issue Activity
     ## IssueComments
     path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/comments/read/",
+        IssueCommentViewSet.as_view({"post": "mark_read"}),
+        name="project-issue-comment-read",
+    ),
+    path(
         "workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/comments/",
         IssueCommentViewSet.as_view({"get": "list", "post": "create"}),
         name="project-issue-comment",

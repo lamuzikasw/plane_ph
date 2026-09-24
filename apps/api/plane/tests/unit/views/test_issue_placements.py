@@ -340,3 +340,53 @@ def test_board_drag_cannot_change_placement_identity(shared_work, field):
     assert response.status_code == 400
     entry.refresh_from_db()
     assert entry.sort_order == previous_order
+
+
+def test_replies_use_canonical_issue_through_shared_placement(shared_work):
+    actor, workspace, source, target, issue = shared_work
+    entry = attach_issue(issue=issue, project=target, actor=actor)
+    root = IssueComment.objects.create(project=source, issue=issue, actor=actor, comment_html="<p>Question</p>")
+    teammate = UserFactory(username=str(uuid4()))
+    WorkspaceMember.objects.create(workspace=workspace, member=teammate, role=15)
+    ProjectMember.objects.create(project=target, member=teammate, role=15)
+    client = client_for(teammate)
+    response = client.post(
+        url(workspace, target, f"{entry.id}/comments/"),
+        {
+            "parent": str(root.id),
+            "comment_html": "<p>Reply from shared project</p>",
+        },
+        format="json",
+    )
+    assert response.status_code == 201, response.data
+    reply = IssueComment.objects.get(pk=response.data["id"])
+    assert reply.parent_id == root.id
+    assert reply.issue_id == issue.id
+    assert reply.project_id == source.id
+
+
+def test_guest_can_mark_visible_replies_read_through_placement(shared_work):
+    from plane.db.models import IssueCommentRead
+
+    actor, workspace, source, target, issue = shared_work
+    target.guest_view_all_features = True
+    target.save()
+    entry = attach_issue(issue=issue, project=target, actor=actor)
+    root = IssueComment.objects.create(project=source, issue=issue, actor=actor)
+    reply = IssueComment.objects.create(project=source, issue=issue, parent=root, actor=actor)
+    guest = UserFactory(username=str(uuid4()))
+    WorkspaceMember.objects.create(workspace=workspace, member=guest, role=5)
+    ProjectMember.objects.create(project=target, member=guest, role=5)
+    client = client_for(guest)
+    history_url = url(workspace, target, f"{entry.id}/history/")
+    history = client.get(history_url, {"activity_type": "issue-comment"})
+    assert history.status_code == 200, history.data
+    response = client.post(
+        url(workspace, target, f"{entry.id}/comments/read/"),
+        {"comment_ids": [str(reply.id)]},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    assert IssueCommentRead.objects.filter(user=guest, comment=reply).exists()
+    history = client.get(history_url, {"activity_type": "issue-comment"}).data
+    assert not any(row["is_unread"] for row in history)

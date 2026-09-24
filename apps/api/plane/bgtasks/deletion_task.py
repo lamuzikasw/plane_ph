@@ -37,6 +37,14 @@ def soft_delete_related_objects(app_label, model_name, instance_pk, using=None):
     for relation in all_related:
         related_name = relation.get_accessor_name()
 
+        # Removing a message must not remove other people's replies. Deleting the
+        # work item/project still cascades through the entire conversation.
+        if model_class._meta.label_lower == "db.issuecomment" and related_name == "parent_issue_comment":
+            from plane.db.models import Issue
+
+            if Issue.objects.filter(pk=instance.issue_id).exists():
+                continue
+
         # Skip if the relation doesn't exist
         if not hasattr(instance, related_name):
             continue
@@ -163,7 +171,12 @@ def hard_delete():
 
     _ = IssueActivity.all_objects.filter(deleted_at__lt=timezone.now() - timezone.timedelta(days=days)).delete()
 
-    _ = IssueComment.all_objects.filter(deleted_at__lt=timezone.now() - timezone.timedelta(days=days)).delete()
+    live_reply_roots = IssueComment.objects.filter(parent__isnull=False).values("parent_id")
+    _ = (
+        IssueComment.all_objects.filter(deleted_at__lt=timezone.now() - timezone.timedelta(days=days))
+        .exclude(pk__in=live_reply_roots)
+        .delete()
+    )
 
     _ = IssueLink.all_objects.filter(deleted_at__lt=timezone.now() - timezone.timedelta(days=days)).delete()
 
@@ -185,6 +198,9 @@ def hard_delete():
 
     # Iterate through all models
     for model in all_models:
+        if model is IssueComment:
+            # Already handled above, with live thread roots retained.
+            continue
         # Check if the model has a 'deleted_at' field
         if hasattr(model, "deleted_at"):
             # Get all instances where 'deleted_at' is greater than 30 days ago

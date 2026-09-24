@@ -28,6 +28,7 @@ from .integration import (
     SlackProjectSync,
     WorkspaceIntegration,
 )
+from .comment_read import IssueCommentRead
 from .issue import (
     CommentReaction,
     Issue,

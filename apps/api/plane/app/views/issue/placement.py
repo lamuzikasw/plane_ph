@@ -197,12 +197,14 @@ class IssuePlacementContextMixin:
                 require_project_access(
                     request.user,
                     entry.project,
-                    write=request.method not in ("GET", "HEAD", "OPTIONS"),
+                    write=request.method not in ("GET", "HEAD", "OPTIONS")
+                    and getattr(self, "action", None) != "mark_read",
                     issue=entry.issue,
                 )
                 if issue_key == "pk" and request.method not in ("GET", "HEAD", "OPTIONS", "PATCH"):
                     raise PermissionDenied(
-                        "Remove the placement using Projects. Deleting the shared work item requires access to its original project."
+                        "Remove the placement using Projects. "
+                        "Deleting the shared work item requires access to its original project."
                     )
                 self.placement_context = entry
                 self.kwargs[issue_key] = entry.issue_id

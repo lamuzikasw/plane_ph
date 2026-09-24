@@ -20,7 +20,8 @@ from rest_framework import status
 from .. import BaseAPIView
 from plane.app.serializers import IssueActivitySerializer, IssueCommentSerializer
 from plane.app.permissions import ProjectEntityPermission, allow_permission, ROLE
-from plane.db.models import IssueActivity, IssueComment, CommentReaction, IntakeIssue
+from plane.db.models import IssueActivity, CommentReaction, IntakeIssue
+from plane.utils.comment_threads import comments_with_thread_roots
 
 
 class IssueActivityEndpoint(IssuePlacementContextMixin, BaseAPIView):
@@ -45,7 +46,8 @@ class IssueActivityEndpoint(IssuePlacementContextMixin, BaseAPIView):
             .select_related("actor", "workspace", "issue", "project")
         ).order_by("created_at")
         issue_comments = (
-            IssueComment.objects.filter(issue_id=issue_id)
+            comments_with_thread_roots(request.user)
+            .filter(issue_id=issue_id)
             .filter(
                 **content_membership_filters(self),
                 workspace__slug=slug,

@@ -5,6 +5,7 @@
  */
 
 import { useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { observer } from "mobx-react";
 import { Clock } from "lucide-react";
 // plane imports
@@ -26,6 +27,8 @@ type TNotificationItem = {
 
 export const NotificationItem = observer(function NotificationItem(props: TNotificationItem) {
   const { workspaceSlug, notificationId } = props;
+  const navigate = useNavigate();
+  const location = useLocation();
   // hooks
   const { currentSelectedNotificationId, setCurrentSelectedNotificationId } = useWorkspaceNotifications();
   const { asJson: notification, markNotificationAsRead } = useNotification(notificationId);
@@ -58,6 +61,12 @@ export const NotificationItem = observer(function NotificationItem(props: TNotif
       }
 
       if (notification?.is_inbox_issue === false) {
+        const commentId =
+          notificationField === "comment" ? notification.data?.issue_activity.new_identifier : undefined;
+        void navigate(
+          { pathname: location.pathname, search: location.search, hash: commentId ? `#comment-${commentId}` : "" },
+          { replace: true, preventScrollReset: true }
+        );
         if (!getIsIssuePeeked(issueId)) {
           setPeekIssue({ workspaceSlug, projectId, issueId });
         }

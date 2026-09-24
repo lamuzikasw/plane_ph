@@ -7,7 +7,7 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { observer } from "mobx-react";
-import { usePathname } from "next/navigation";
+import { useLocation } from "react-router";
 // plane imports
 import type { EditorRefApi } from "@plane/editor";
 import { useHashScroll } from "@plane/hooks";
@@ -71,7 +71,7 @@ export const CommentCardDisplay = observer(function CommentCardDisplay(props: TC
   const userReactions = activityOperations.userReactions(comment.id);
 
   // navigation
-  const pathname = usePathname();
+  const location = useLocation();
   // derived values
   const commentBlockId = `comment-${comment?.id}`;
   // Check if there are any reactions to determine if we should render the footer
@@ -81,7 +81,7 @@ export const CommentCardDisplay = observer(function CommentCardDisplay(props: TC
   // scroll to comment
   const { isHashMatch } = useHashScroll({
     elementId: commentBlockId,
-    pathname,
+    pathname: `${location.pathname}${location.hash}:${location.key}`,
   });
 
   useEffect(() => {

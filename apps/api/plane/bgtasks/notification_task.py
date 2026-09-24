@@ -300,6 +300,26 @@ def notifications(
 
             project = Project.objects.get(pk=project_id)
 
+            # Replies reach the original author even if they unsubscribed from
+            # general task updates. Mentions/subscriptions still produce one alert.
+            if type == "comment.activity.created":
+                payload = json.loads(requested_data) if requested_data else {}
+                parent = IssueComment.objects.filter(
+                    pk=payload.get("parent"), issue_id=issue_id, project_id=project_id
+                ).first()
+                if (
+                    parent
+                    and parent.actor_id
+                    and str(parent.actor_id) not in new_mentions + comment_mentions + [actor_id]
+                ):
+                    membership = ProjectMember.objects.filter(
+                        project_id=project_id, member_id=parent.actor_id, is_active=True
+                    ).first()
+                    if membership and (
+                        membership.role > 5 or project.guest_view_all_features or issue.created_by_id == parent.actor_id
+                    ):
+                        issue_subscribers.append(parent.actor_id)
+
             issue_assignees = IssueAssignee.objects.filter(
                 issue_id=issue_id,
                 project_id=project_id,

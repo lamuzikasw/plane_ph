@@ -24,6 +24,9 @@ export type TCommentReaction = {
 };
 export type TIssueComment = {
   id: string;
+  parent?: string | null;
+  is_unread?: boolean;
+  deleted_at?: string | null;
   workspace: string;
   workspace_detail: TIssueActivityWorkspaceDetail;
   project: string;
@@ -48,6 +51,7 @@ export type TIssueComment = {
 };
 
 export type TCommentsOperations = {
+  markCommentsRead?: (commentIds: string[]) => Promise<void>;
   copyCommentLink: (commentId: string) => void;
   createComment: (data: Partial<TIssueComment>) => Promise<Partial<TIssueComment> | undefined>;
   updateComment: (commentId: string, data: Partial<TIssueComment>) => Promise<void>;

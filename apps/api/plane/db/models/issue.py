@@ -515,7 +515,17 @@ class IssueComment(ChangeTrackerMixin, ProjectBaseModel):
         }
 
         with transaction.atomic():
+            # A thread has one visibility across app, public and integration APIs.
+            # Lock the root so a concurrent visibility change cannot leave a reply
+            # with the old access level.
+            if self.parent_id:
+                parent = IssueComment.all_objects.select_for_update().get(pk=self.parent_id)
+                self.access = parent.access
+                if kwargs.get("update_fields") is not None:
+                    kwargs["update_fields"] = set(kwargs["update_fields"]) | {"access"}
             super(IssueComment, self).save(*args, **kwargs)
+            if not self.parent_id:
+                IssueComment.objects.filter(parent_id=self.pk).exclude(access=self.access).update(access=self.access)
 
             if is_creating or not self.description_id:
                 # Create new description for new comment

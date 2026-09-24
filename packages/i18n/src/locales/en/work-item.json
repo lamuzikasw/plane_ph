@@ -134,6 +134,8 @@
         "error": "Error copying comment link. Please try again later."
       },
       "replies": {
+        "new_count": "{count} new",
+        "new_replies": "New replies",
         "create": {
           "submit_button": "Add reply",
           "placeholder": "Add reply"
@@ -168,8 +170,12 @@
               "message": "Failed to delete reply"
             }
           }
-        }
-      }
+        },
+        "count": "{count, plural, one{# reply} other{# replies}}",
+        "replying_to": "Replying to {name}",
+        "without_text": "Message without text"
+      },
+      "deleted": "Comment deleted"
     },
     "empty_state": {
       "issue_detail": {

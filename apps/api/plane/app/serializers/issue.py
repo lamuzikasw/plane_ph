@@ -733,6 +733,7 @@ class IssueVoteSerializer(BaseSerializer):
 
 
 class IssueCommentSerializer(BaseSerializer):
+    is_unread = serializers.BooleanField(read_only=True, default=False)
     actor_detail = UserLiteSerializer(read_only=True, source="actor")
     issue_detail = IssueFlatSerializer(read_only=True, source="issue")
     project_detail = ProjectLiteSerializer(read_only=True, source="project")
@@ -751,9 +752,25 @@ class IssueCommentSerializer(BaseSerializer):
             "updated_by",
             "created_at",
             "updated_at",
+            "deleted_at",
+            "actor",
         ]
 
     def validate(self, attrs):
+        parent = attrs.get("parent", self.instance.parent if self.instance else None)
+        if self.instance and "parent" in attrs and attrs["parent"] != self.instance.parent:
+            raise serializers.ValidationError({"parent": "A comment cannot be moved to another thread."})
+        if parent:
+            view = self.context.get("view")
+            issue_id = self.instance.issue_id if self.instance else getattr(view, "kwargs", {}).get("issue_id")
+            project_id = self.instance.project_id if self.instance else getattr(view, "kwargs", {}).get("project_id")
+            if str(parent.issue_id) != str(issue_id) or str(parent.project_id) != str(project_id):
+                raise serializers.ValidationError({"parent": "The parent must belong to this work item."})
+            if parent.parent_id or (not self.instance and parent.deleted_at):
+                raise serializers.ValidationError({"parent": "Reply to an existing top-level comment."})
+            if "access" in attrs and attrs["access"] != parent.access:
+                raise serializers.ValidationError({"access": "Replies inherit their parent's visibility."})
+            attrs["access"] = parent.access
         if "comment_html" in attrs and attrs["comment_html"]:
             is_valid, error_msg, sanitized_html = validate_html_content(attrs["comment_html"])
             if not is_valid:
@@ -761,6 +778,20 @@ class IssueCommentSerializer(BaseSerializer):
             if sanitized_html is not None:
                 attrs["comment_html"] = sanitized_html
         return attrs
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if instance.deleted_at:
+            # A tombstone carries only the position/identity needed by live replies.
+            data.update(
+                comment_html="",
+                comment_json={},
+                comment_stripped="",
+                attachments=[],
+                comment_reactions=[],
+                description=None,
+            )
+        return data
 
 
 class IssueStateFlatSerializer(BaseSerializer):

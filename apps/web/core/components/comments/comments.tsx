@@ -11,7 +11,8 @@ import { useParams } from "next/navigation";
 import type { E_SORT_ORDER } from "@plane/constants";
 import type { TCommentsOperations, TIssueComment } from "@plane/types";
 // local components
-import { CommentCard } from "./card/root";
+import { CommentThread } from "./comment-thread";
+import { groupCommentThreads } from "@/helpers/comment-threads";
 import { CommentCreate } from "./comment-create";
 
 type TCommentsWrapper = {
@@ -55,28 +56,27 @@ export const CommentsWrapper = observer(function CommentsWrapper(props: TComment
     [isEditingAllowed, workspaceSlug, entityId, activityOperations, projectId]
   );
 
+  const resolvedComments = comments.flatMap((data) => {
+    const comment = typeof data === "string" ? getCommentById?.(data) : data;
+    return comment ? [comment] : [];
+  });
+  const { roots, replies } = groupCommentThreads(resolvedComments);
+
   return (
     <div className="relative flex h-full flex-col gap-y-2 overflow-hidden">
       {renderCommentCreate}
       <div className="flex-grow overflow-y-auto py-4">
-        {comments?.map((data, index) => {
-          let comment;
-          if (typeof data === "string") {
-            comment = getCommentById?.(data);
-          } else {
-            comment = data;
-          }
-
-          if (!comment) return null;
+        {roots.map((comment, index) => {
           return (
-            <CommentCard
+            <CommentThread
               key={comment.id}
               workspaceSlug={workspaceSlug}
               entityId={entityId}
               comment={comment}
+              replies={replies.get(comment.id) ?? []}
               activityOperations={activityOperations}
               disabled={!isEditingAllowed}
-              ends={index === 0 ? "top" : index === comments.length - 1 ? "bottom" : undefined}
+              ends={index === 0 ? "top" : index === roots.length - 1 ? "bottom" : undefined}
               projectId={projectId}
               showAccessSpecifier={showAccessSpecifier}
               showCopyLinkOption={showCopyLinkOption}

@@ -235,6 +235,10 @@ class IssueCommentSerializer(BaseSerializer):
             "updated_by",
             "created_at",
             "updated_at",
+            # Public comments do not expose the authenticated thread API.
+            "parent",
+            "deleted_at",
+            "actor",
         ]
 
 

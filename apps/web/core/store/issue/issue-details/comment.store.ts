@@ -39,6 +39,7 @@ export interface IIssueCommentStoreActions {
 }
 
 export interface IIssueCommentStore extends IIssueCommentStoreActions {
+  markCommentsRead: (workspaceSlug: string, projectId: string, issueId: string, commentIds: string[]) => Promise<void>;
   // observables
   loader: TCommentLoader;
   comments: TIssueCommentIdMap;
@@ -117,11 +118,20 @@ export class IssueCommentStore implements IIssueCommentStore {
         this.rootIssueDetail.commentReaction.applyCommentReactions(comment.id, comment?.comment_reactions || []);
         set(this.commentMap, comment.id, comment);
       });
-      this.updateCommentCount(issueId, { total: commentIds.length });
+      this.updateCommentCount(issueId, { total: comments.filter((comment) => !comment.deleted_at).length });
       this.loader = undefined;
     });
 
     return comments;
+  };
+
+  markCommentsRead = async (workspaceSlug: string, projectId: string, issueId: string, commentIds: string[]) => {
+    const response = await this.issueCommentService.markCommentsRead(workspaceSlug, projectId, issueId, commentIds);
+    runInAction(() => {
+      response.comment_ids.forEach((id) => {
+        if (this.commentMap[id]) this.commentMap[id].is_unread = false;
+      });
+    });
   };
 
   createComment = async (workspaceSlug: string, projectId: string, issueId: string, data: Partial<TIssueComment>) => {
@@ -146,6 +156,7 @@ export class IssueCommentStore implements IIssueCommentStore {
     commentId: string,
     data: Partial<TIssueComment>
   ) => {
+    const previousComment = this.commentMap[commentId] ? { ...this.commentMap[commentId] } : undefined;
     try {
       runInAction(() => {
         Object.keys(data).forEach((key) => {
@@ -162,19 +173,32 @@ export class IssueCommentStore implements IIssueCommentStore {
       );
 
       runInAction(() => {
-        set(this.commentMap, [commentId, "updated_at"], response.updated_at);
-        set(this.commentMap, [commentId, "edited_at"], response.edited_at);
+        set(this.commentMap, commentId, response);
+        if (data.access) {
+          (this.comments[issueId] ?? []).forEach((id) => {
+            if (this.commentMap[id]?.parent === commentId) this.commentMap[id].access = response.access;
+          });
+        }
       });
 
       return response;
     } catch (error) {
-      this.rootIssueDetail.activity.fetchActivities(workspaceSlug, projectId, issueId);
+      if (previousComment) runInAction(() => set(this.commentMap, commentId, previousComment));
       throw error;
     }
   };
 
   removeComment = async (workspaceSlug: string, projectId: string, issueId: string, commentId: string) => {
     const response = await this.issueCommentService.deleteIssueComment(workspaceSlug, projectId, issueId, commentId);
+
+    // Reload thread tombstones and remove an empty tombstone after its last reply.
+    if (
+      this.commentMap[commentId]?.parent ||
+      (this.comments[issueId] ?? []).some((id) => this.commentMap[id]?.parent === commentId)
+    ) {
+      await this.fetchComments(workspaceSlug, projectId, issueId, "mutate");
+      return response;
+    }
 
     runInAction(() => {
       pull(this.comments[issueId], commentId);

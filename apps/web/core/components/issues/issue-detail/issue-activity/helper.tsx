@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useTranslation } from "@plane/i18n";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import { EFileAssetType } from "@plane/types";
@@ -23,6 +23,7 @@ export const useWorkItemCommentOperations = (
 ): TCommentsOperations => {
   // store hooks
   const {
+    comment: { markCommentsRead },
     commentReaction: { getCommentReactionsByCommentId, commentReactionsByUser, getCommentReactionById },
     createComment,
     updateComment,
@@ -40,11 +41,19 @@ export const useWorkItemCommentOperations = (
   const projectDetails = projectId ? getProjectById(projectId) : undefined;
   // translation
   const { t } = useTranslation();
+  const handleMarkCommentsRead = useCallback(
+    async (ids: string[]) => {
+      if (!workspaceSlug || !projectId || !issueId) throw new Error("Missing fields");
+      await markCommentsRead(workspaceSlug, projectId, issueId, ids);
+    },
+    [workspaceSlug, projectId, issueId, markCommentsRead]
+  );
 
   const operations: TCommentsOperations = useMemo(() => {
     // Define operations object with all methods
     const ops: TCommentsOperations = {
-      copyCommentLink: (id) => {
+      markCommentsRead: handleMarkCommentsRead,
+      copyCommentLink: async (id) => {
         if (!workspaceSlug || !issueDetails) return;
         try {
           const workItemLink = generateWorkItemLink({
@@ -55,12 +64,11 @@ export const useWorkItemCommentOperations = (
             sequenceId: issueDetails.sequence_id,
           });
           const commentLink = `${workItemLink}#comment-${id}`;
-          copyUrlToClipboard(commentLink).then(() => {
-            setToast({
-              title: t("common.success"),
-              type: TOAST_TYPE.SUCCESS,
-              message: t("issue.comments.copy_link.success"),
-            });
+          await copyUrlToClipboard(commentLink);
+          setToast({
+            title: t("common.success"),
+            type: TOAST_TYPE.SUCCESS,
+            message: t("issue.comments.copy_link.success"),
           });
         } catch (error) {
           console.error("Error in copying comment link:", error);
@@ -139,7 +147,7 @@ export const useWorkItemCommentOperations = (
           return res;
         } catch (error) {
           console.log("Error in uploading comment asset:", error);
-          throw new Error(t("issue.comments.upload.error"));
+          throw new Error(t("issue.comments.upload.error"), { cause: error });
         }
       },
       duplicateCommentAsset: async (assetId, commentId) => {
@@ -210,7 +218,27 @@ export const useWorkItemCommentOperations = (
       },
     };
     return ops;
-  }, [workspaceSlug, projectId, issueId, createComment, updateComment, uploadEditorAsset, removeComment]);
+  }, [
+    workspaceSlug,
+    projectId,
+    issueId,
+    createComment,
+    updateComment,
+    uploadEditorAsset,
+    removeComment,
+    handleMarkCommentsRead,
+    currentUser,
+    getCommentReactionsByCommentId,
+    duplicateEditorAsset,
+    issueDetails,
+    getUserDetails,
+    projectDetails?.identifier,
+    removeCommentReaction,
+    getCommentReactionById,
+    createCommentReaction,
+    commentReactionsByUser,
+    t,
+  ]);
 
   return operations;
 };

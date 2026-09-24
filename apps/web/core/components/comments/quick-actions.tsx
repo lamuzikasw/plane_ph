@@ -6,7 +6,7 @@
 
 import { useMemo } from "react";
 import { observer } from "mobx-react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Reply } from "lucide-react";
 // plane imports
 import { EIssueCommentAccessSpecifier } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
@@ -25,10 +25,11 @@ type TCommentCard = {
   setEditMode: () => void;
   showAccessSpecifier: boolean;
   showCopyLinkOption: boolean;
+  onReply?: () => void;
 };
 
 export const CommentQuickActions = observer(function CommentQuickActions(props: TCommentCard) {
-  const { activityOperations, comment, setEditMode, showAccessSpecifier, showCopyLinkOption } = props;
+  const { activityOperations, comment, setEditMode, showAccessSpecifier, showCopyLinkOption, onReply } = props;
   // store hooks
   const { data: currentUser } = useUser();
   // derived values
@@ -41,6 +42,13 @@ export const CommentQuickActions = observer(function CommentQuickActions(props: 
   const MENU_ITEMS = useMemo(
     function MENU_ITEMS(): TContextMenuItem[] {
       return [
+        {
+          key: "reply",
+          action: () => onReply?.(),
+          title: t("common.actions.reply"),
+          icon: Reply,
+          shouldRender: !!onReply,
+        },
         {
           key: "edit",
           action: setEditMode,
@@ -69,7 +77,7 @@ export const CommentQuickActions = observer(function CommentQuickActions(props: 
               ? t("issue.comments.switch.public")
               : t("issue.comments.switch.private"),
           icon: comment.access === EIssueCommentAccessSpecifier.INTERNAL ? GlobeIcon : LockIcon,
-          shouldRender: showAccessSpecifier,
+          shouldRender: showAccessSpecifier && !comment.parent && isAuthor,
         },
         {
           key: "delete",
@@ -80,7 +88,18 @@ export const CommentQuickActions = observer(function CommentQuickActions(props: 
         },
       ].filter((item) => item.shouldRender !== false);
     },
-    [t, setEditMode, canEdit, showCopyLinkOption, activityOperations, comment, showAccessSpecifier, canDelete]
+    [
+      t,
+      setEditMode,
+      canEdit,
+      showCopyLinkOption,
+      activityOperations,
+      comment,
+      showAccessSpecifier,
+      canDelete,
+      onReply,
+      isAuthor,
+    ]
   );
 
   if (MENU_ITEMS.length === 0) return null;

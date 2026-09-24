@@ -75,7 +75,9 @@ export const IssueActivity = observer(function IssueActivity(props: TIssueActivi
   const isWorklogButtonEnabled = !isIntakeIssue && !isGuest && (isAdmin || isAssigned);
   const location = useLocation();
   const { activityRef, filters, setFilters } = useCommentNavigation({
-    requestKey: commentsRequestedAt ?? (location.hash === "#comments" ? location.key : undefined),
+    requestKey:
+      commentsRequestedAt ??
+      (location.hash === "#comments" || location.hash.startsWith("#comment-") ? location.key : undefined),
     issueId,
     ready:
       !!getProjectById(projectId) &&
@@ -83,6 +85,7 @@ export const IssueActivity = observer(function IssueActivity(props: TIssueActivi
       getActivityAndCommentsByIssueId(issueId, sortOrder || E_SORT_ORDER.ASC) !== undefined,
     savedFilters: selectedFilters || defaultActivityFilters,
     saveFilters: setFilterValue,
+    scrollToDiscussion: !location.hash.startsWith("#comment-"),
   });
   const toggleFilter = (filter: TActivityFilters) => {
     if (filters.includes(filter) && filters.length === 1) return;

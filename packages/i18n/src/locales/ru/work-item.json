@@ -134,6 +134,8 @@
         "error": "Ошибка при копировании ссылки на комментарий. Попробуйте позже."
       },
       "replies": {
+        "new_count": "{count, plural, one {# новый} few {# новых} many {# новых} other {# новых}}",
+        "new_replies": "Новые ответы",
         "create": {
           "submit_button": "Добавить ответ",
           "placeholder": "Добавить ответ"
@@ -168,8 +170,12 @@
               "message": "Не удалось удалить ответ"
             }
           }
-        }
-      }
+        },
+        "count": "{count, plural, one{# ответ} few{# ответа} many{# ответов} other{# ответа}}",
+        "replying_to": "Ответ: {name}",
+        "without_text": "Сообщение без текста"
+      },
+      "deleted": "Комментарий удалён"
     },
     "empty_state": {
       "issue_detail": {

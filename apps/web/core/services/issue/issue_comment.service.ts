@@ -61,6 +61,22 @@ export class IssueCommentService extends APIService {
       });
   }
 
+  async markCommentsRead(
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    commentIds: string[]
+  ): Promise<{ comment_ids: string[] }> {
+    return this.post(
+      `/api/workspaces/${workspaceSlug}/projects/${projectId}/${this.serviceType}/${issueId}/comments/read/`,
+      { comment_ids: commentIds }
+    )
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
   async patchIssueComment(
     workspaceSlug: string,
     projectId: string,

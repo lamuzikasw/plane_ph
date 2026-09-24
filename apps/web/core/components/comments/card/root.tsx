@@ -6,6 +6,7 @@
 
 import { useRef, useState } from "react";
 import { observer } from "mobx-react";
+import { useTranslation } from "@plane/i18n";
 // plane imports
 import type { EditorRefApi } from "@plane/editor";
 import type { TIssueComment, TCommentsOperations } from "@plane/types";
@@ -14,7 +15,7 @@ import { CommentBlock, CommentCardDisplay } from "@/plane-web/components/comment
 // local imports
 import { CommentQuickActions } from "../quick-actions";
 
-type TCommentCard = {
+export type TCommentCard = {
   workspaceSlug: string;
   entityId: string;
   comment: TIssueComment | undefined;
@@ -25,6 +26,8 @@ type TCommentCard = {
   enableReplies: boolean;
   disabled?: boolean;
   projectId?: string;
+  onReply?: () => void;
+  isReply?: boolean;
 };
 
 export const CommentCard = observer(function CommentCard(props: TCommentCard) {
@@ -38,7 +41,11 @@ export const CommentCard = observer(function CommentCard(props: TCommentCard) {
     showCopyLinkOption,
     disabled = false,
     projectId,
+    enableReplies,
+    onReply,
+    isReply = false,
   } = props;
+  const { t } = useTranslation();
   // states
   const [isEditing, setIsEditing] = useState(false);
   // refs
@@ -48,30 +55,40 @@ export const CommentCard = observer(function CommentCard(props: TCommentCard) {
 
   if (!comment || !workspaceId) return null;
 
-  return (
+  const content = comment.deleted_at ? (
+    <div id={`comment-${comment.id}`} className="py-2 text-body-sm-regular text-tertiary">
+      {t("issue.comments.deleted")}
+    </div>
+  ) : (
+    <CommentCardDisplay
+      activityOperations={activityOperations}
+      entityId={entityId}
+      comment={comment}
+      disabled={disabled}
+      projectId={projectId}
+      readOnlyEditorRef={readOnlyEditorRef}
+      showAccessSpecifier={showAccessSpecifier}
+      workspaceId={workspaceId}
+      workspaceSlug={workspaceSlug}
+      isEditing={isEditing}
+      setIsEditing={setIsEditing}
+      renderQuickActions={() => (
+        <CommentQuickActions
+          activityOperations={activityOperations}
+          comment={comment}
+          setEditMode={() => setIsEditing(true)}
+          showAccessSpecifier={showAccessSpecifier}
+          showCopyLinkOption={showCopyLinkOption}
+          onReply={enableReplies && !disabled ? onReply : undefined}
+        />
+      )}
+    />
+  );
+  return isReply ? (
+    <div className="min-w-0 border-b border-subtle py-3 last:border-0">{content}</div>
+  ) : (
     <CommentBlock comment={comment} ends={ends}>
-      <CommentCardDisplay
-        activityOperations={activityOperations}
-        entityId={entityId}
-        comment={comment}
-        disabled={disabled}
-        projectId={projectId}
-        readOnlyEditorRef={readOnlyEditorRef}
-        showAccessSpecifier={showAccessSpecifier}
-        workspaceId={workspaceId}
-        workspaceSlug={workspaceSlug}
-        isEditing={isEditing}
-        setIsEditing={setIsEditing}
-        renderQuickActions={() => (
-          <CommentQuickActions
-            activityOperations={activityOperations}
-            comment={comment}
-            setEditMode={() => setIsEditing(true)}
-            showAccessSpecifier={showAccessSpecifier}
-            showCopyLinkOption={showCopyLinkOption}
-          />
-        )}
-      />
+      {content}
     </CommentBlock>
   );
 });

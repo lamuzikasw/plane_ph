@@ -95,6 +95,11 @@ def create_payload(notification_data):
                 old_value = str(issue_activity.get("old_value"))
                 new_value = str(issue_activity.get("new_value"))
 
+                if field in ("comment", "mention") and issue_activity.get("new_identifier"):
+                    # Email digests group changes by author; link to their latest
+                    # comment so opening a reply also reveals its thread.
+                    data.setdefault(actor_id, {}).setdefault(field, {})["comment_id"] = issue_activity["new_identifier"]
+
                 # Append old_value if it's not empty and not already in the list
                 if old_value:
                     (

@@ -37,6 +37,8 @@ export type TNotificationData = {
     verb: "created" | "updated" | "deleted";
     new_value: string | undefined;
     old_value: string | undefined;
+    new_identifier?: string | null;
+    old_identifier?: string | null;
   };
 };
 

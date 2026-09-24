@@ -9,12 +9,14 @@ export function useCommentNavigation({
   ready,
   savedFilters,
   saveFilters,
+  scrollToDiscussion = true,
 }: {
   requestKey: string | number | undefined;
   issueId: string;
   ready: boolean;
   savedFilters: TActivityFilters[];
   saveFilters: (filters: TActivityFilters[]) => void;
+  scrollToDiscussion?: boolean;
 }) {
   const activityRef = useRef<HTMLDivElement>(null);
   const handledRequest = useRef<string>();
@@ -27,7 +29,7 @@ export function useCommentNavigation({
     : savedFilters;
 
   useEffect(() => {
-    if (!request || !ready || handledRequest.current === request || !activityRef.current) return;
+    if (!scrollToDiscussion || !request || !ready || handledRequest.current === request || !activityRef.current) return;
     const frame = requestAnimationFrame(() => {
       const element = activityRef.current;
       if (!element) return;
@@ -36,7 +38,7 @@ export function useCommentNavigation({
       handledRequest.current = request;
     });
     return () => cancelAnimationFrame(frame);
-  }, [request, ready]);
+  }, [request, ready, scrollToDiscussion]);
 
   return {
     activityRef,

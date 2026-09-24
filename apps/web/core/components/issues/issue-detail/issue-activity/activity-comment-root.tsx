@@ -10,7 +10,8 @@ import type { E_SORT_ORDER, TActivityFilters, EActivityFilterType } from "@plane
 import { BASE_ACTIVITY_FILTER_TYPES, filterActivityOnSelectedFilters } from "@plane/constants";
 import type { TCommentsOperations } from "@plane/types";
 // components
-import { CommentCard } from "@/components/comments/card/root";
+import { CommentThread } from "@/components/comments/comment-thread";
+import { groupCommentThreads } from "@/helpers/comment-threads";
 // hooks
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 // plane web components
@@ -56,18 +57,28 @@ export const IssueActivityCommentRoot = observer(function IssueActivityCommentRo
 
   if (activityAndComments.length <= 0) return null;
 
-  const filteredActivityAndComments = filterActivityOnSelectedFilters(activityAndComments, selectedFilters);
+  const { roots, replies } = groupCommentThreads(
+    activityAndComments.flatMap((item) => {
+      const comment = item.activity_type === "COMMENT" ? getCommentById(item.id) : undefined;
+      return comment ? [comment] : [];
+    })
+  );
+  const rootIds = new Set(roots.map((comment) => comment.id));
+  const filteredActivityAndComments = filterActivityOnSelectedFilters(activityAndComments, selectedFilters).filter(
+    (item) => item.activity_type !== "COMMENT" || rootIds.has(item.id)
+  );
 
   return (
     <div>
       {filteredActivityAndComments.map((activityComment, index) => {
         const comment = getCommentById(activityComment.id);
         return activityComment.activity_type === "COMMENT" ? (
-          <CommentCard
+          <CommentThread
             key={activityComment.id}
             workspaceSlug={workspaceSlug}
             entityId={issueId}
             comment={comment}
+            replies={replies.get(activityComment.id) ?? []}
             activityOperations={activityOperations}
             ends={index === 0 ? "top" : index === filteredActivityAndComments.length - 1 ? "bottom" : undefined}
             showAccessSpecifier={!!showAccessSpecifier}

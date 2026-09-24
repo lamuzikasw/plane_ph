@@ -15,16 +15,17 @@ from django.db import IntegrityError
 
 # Third Party imports
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import serializers, status
 
 # Module imports
 from .. import BaseViewSet
 from plane.app.serializers import IssueCommentSerializer, CommentReactionSerializer
 from plane.app.permissions import allow_permission, ROLE
-from plane.db.models import IssueComment, ProjectMember, CommentReaction, Project, Issue
+from plane.db.models import IssueComment, IssueCommentRead, ProjectMember, CommentReaction, Project, Issue
 from plane.bgtasks.issue_activities_task import issue_activity
 from plane.utils.host import base_host
 from plane.bgtasks.webhook_task import model_activity
+from plane.utils.comment_threads import comments_with_thread_roots
 
 
 class IssueCommentViewSet(IssuePlacementContextMixin, BaseViewSet):
@@ -36,8 +37,7 @@ class IssueCommentViewSet(IssuePlacementContextMixin, BaseViewSet):
 
     def get_queryset(self):
         return self.filter_queryset(
-            super()
-            .get_queryset()
+            comments_with_thread_roots(self.request.user)
             .filter(workspace__slug=self.kwargs.get("slug"))
             .filter(project_id=self.kwargs.get("project_id"))
             .filter(issue_id=self.kwargs.get("issue_id"))
@@ -61,6 +61,27 @@ class IssueCommentViewSet(IssuePlacementContextMixin, BaseViewSet):
         )
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
+    def mark_read(self, request, slug, project_id, issue_id):
+        ids = serializers.ListField(child=serializers.UUIDField(), min_length=1, max_length=100).run_validation(
+            request.data.get("comment_ids")
+        )
+        ids = set(ids)
+        allowed = set(
+            self.get_queryset()
+            .filter(pk__in=ids, parent__isnull=False, deleted_at__isnull=True)
+            .values_list("id", flat=True)
+        )
+        if allowed != ids:
+            return Response(
+                {"error": "Only replies in this work item can be marked read."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        IssueCommentRead.objects.bulk_create(
+            [IssueCommentRead(comment_id=comment_id, user=request.user) for comment_id in allowed],
+            ignore_conflicts=True,
+        )
+        return Response({"comment_ids": [str(comment_id) for comment_id in allowed]})
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def create(self, request, slug, project_id, issue_id):
         project = Project.objects.get(pk=project_id)
         issue = Issue.objects.get(pk=issue_id)
@@ -79,7 +100,7 @@ class IssueCommentViewSet(IssuePlacementContextMixin, BaseViewSet):
                 {"error": "You are not allowed to comment on the issue"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        serializer = IssueCommentSerializer(data=request.data)
+        serializer = IssueCommentSerializer(data=request.data, context=self.get_serializer_context())
         if serializer.is_valid():
             serializer.save(project_id=project_id, issue_id=issue_id, actor=request.user)
             issue_activity.delay(
@@ -111,7 +132,9 @@ class IssueCommentViewSet(IssuePlacementContextMixin, BaseViewSet):
         issue_comment = IssueComment.objects.get(workspace__slug=slug, project_id=project_id, issue_id=issue_id, pk=pk)
         requested_data = json.dumps(self.request.data, cls=DjangoJSONEncoder)
         current_instance = json.dumps(IssueCommentSerializer(issue_comment).data, cls=DjangoJSONEncoder)
-        serializer = IssueCommentSerializer(issue_comment, data=request.data, partial=True)
+        serializer = IssueCommentSerializer(
+            issue_comment, data=request.data, partial=True, context=self.get_serializer_context()
+        )
         if serializer.is_valid():
             if "comment_html" in request.data and request.data["comment_html"] != issue_comment.comment_html:
                 serializer.save(edited_at=timezone.now())

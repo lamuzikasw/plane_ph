@@ -4,12 +4,13 @@
  * See the LICENSE file for details.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react";
 import { useForm, Controller } from "react-hook-form";
 // plane imports
 import { EIssueCommentAccessSpecifier } from "@plane/constants";
 import type { EditorRefApi } from "@plane/editor";
+import { useTranslation } from "@plane/i18n";
 import type { TIssueComment, TCommentsOperations } from "@plane/types";
 import { cn, isCommentEmpty } from "@plane/utils";
 // components
@@ -18,6 +19,7 @@ import { LiteTextEditor } from "@/components/editor/lite-text";
 import { useWorkspace } from "@/hooks/store/use-workspace";
 // services
 import { FileService } from "@/services/file.service";
+import { CommentReplyContext } from "./comment-reply-context";
 
 type TCommentCreate = {
   entityId: string;
@@ -26,6 +28,9 @@ type TCommentCreate = {
   showToolbarInitially?: boolean;
   projectId?: string;
   onSubmitCallback?: (elementId: string) => void;
+  parentComment?: TIssueComment;
+  replyToComment?: TIssueComment;
+  onCancel?: () => void;
 };
 
 // services
@@ -39,11 +44,25 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
     showToolbarInitially = false,
     projectId,
     onSubmitCallback,
+    parentComment,
+    replyToComment,
+    onCancel,
   } = props;
+  const { t } = useTranslation();
   // states
   const [uploadedAssetIds, setUploadedAssetIds] = useState<string[]>([]);
   // refs
   const editorRef = useRef<EditorRefApi>(null);
+  const submittingRef = useRef(false);
+  const replyContextRef = useRef<HTMLDivElement>(null);
+  const replyTarget = replyToComment ?? parentComment;
+
+  // Selecting another message in the same thread preserves the current draft.
+  useEffect(() => {
+    if (!replyTarget?.id) return;
+    replyContextRef.current?.scrollIntoView({ block: "nearest" });
+    editorRef.current?.focus("end");
+  }, [replyTarget?.id]);
   // store hooks
   const workspaceStore = useWorkspace();
   // derived values
@@ -62,28 +81,39 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
   });
 
   const onSubmit = async (formData: Partial<TIssueComment>) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     try {
-      const comment = await activityOperations.createComment(formData);
-      if (comment?.id) onSubmitCallback?.(comment.id);
-      if (uploadedAssetIds.length > 0) {
-        if (projectId) {
-          await fileService.updateBulkProjectAssetsUploadStatus(workspaceSlug, projectId.toString(), entityId, {
-            asset_ids: uploadedAssetIds,
-          });
-        } else {
-          await fileService.updateBulkWorkspaceAssetsUploadStatus(workspaceSlug, entityId, {
-            asset_ids: uploadedAssetIds,
-          });
+      const comment = await activityOperations.createComment({
+        ...formData,
+        ...(parentComment ? { parent: parentComment.id, access: parentComment.access } : {}),
+      });
+      // The operations layer reports errors with a toast and can return undefined.
+      if (!comment?.id) return;
+      try {
+        if (uploadedAssetIds.length > 0) {
+          if (projectId) {
+            await fileService.updateBulkProjectAssetsUploadStatus(workspaceSlug, projectId.toString(), entityId, {
+              asset_ids: uploadedAssetIds,
+            });
+          } else {
+            await fileService.updateBulkWorkspaceAssetsUploadStatus(workspaceSlug, entityId, {
+              asset_ids: uploadedAssetIds,
+            });
+          }
         }
+      } finally {
+        // The message is persisted even if attachment bookkeeping fails; don't
+        // leave it in the composer where retrying would create a duplicate.
         setUploadedAssetIds([]);
+        reset({ comment_html: "<p></p>" });
+        editorRef.current?.clearEditor();
+        onSubmitCallback?.(comment.id);
       }
     } catch (error) {
       console.error(error);
     } finally {
-      reset({
-        comment_html: "<p></p>",
-      });
-      editorRef.current?.clearEditor();
+      submittingRef.current = false;
     }
   };
 
@@ -92,7 +122,9 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
 
   return (
     <div
-      className={cn("sticky bottom-0 z-[4] bg-surface-1 sm:static")}
+      role="group"
+      aria-label={parentComment ? t("issue.comments.replies.create.placeholder") : t("issue.comments.placeholder")}
+      className={cn("bg-surface-1", !parentComment && "sticky bottom-0 z-[4] sm:static")}
       onKeyDown={(e) => {
         if (
           e.key === "Enter" &&
@@ -106,6 +138,11 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
           handleSubmit(onSubmit)(e);
       }}
     >
+      {parentComment && replyTarget && (
+        <div ref={replyContextRef} className="mb-2">
+          <CommentReplyContext comment={replyTarget} />
+        </div>
+      )}
       <Controller
         name="access"
         control={control}
@@ -117,7 +154,10 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
               <LiteTextEditor
                 editable
                 workspaceId={workspaceId}
-                id={"add_comment_" + entityId}
+                id={`add_comment_${parentComment?.id ?? entityId}`}
+                autofocus={!!parentComment}
+                placeholder={parentComment ? t("issue.comments.replies.create.placeholder") : undefined}
+                submitButtonText={parentComment ? "common.actions.reply" : "common.comment"}
                 value={"<p></p>"}
                 workspaceSlug={workspaceSlug}
                 projectId={projectId}
@@ -130,8 +170,8 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
                 initialValue={value ?? "<p></p>"}
                 containerClassName="min-h-min"
                 onChange={(comment_json, comment_html) => onChange(comment_html)}
-                accessSpecifier={accessValue ?? EIssueCommentAccessSpecifier.INTERNAL}
-                handleAccessChange={onAccessChange}
+                accessSpecifier={parentComment?.access ?? accessValue ?? EIssueCommentAccessSpecifier.INTERNAL}
+                handleAccessChange={parentComment ? undefined : onAccessChange}
                 isSubmitting={isSubmitting}
                 uploadFile={async (blockId, file) => {
                   const { asset_id } = await activityOperations.uploadCommentAsset(blockId, file);
@@ -153,6 +193,16 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
           />
         )}
       />
+      {onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isSubmitting}
+          className="mt-2 rounded px-2 py-1 text-body-sm-regular text-secondary hover:bg-layer-1 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
+        >
+          {t("common.cancel")}
+        </button>
+      )}
     </div>
   );
 });

@@ -41,12 +41,24 @@ function setup() {
     createIssueComment: vi.fn().mockResolvedValue({ id: "new" }),
     deleteIssueComment: vi.fn().mockResolvedValue(undefined),
     getIssueComments: vi.fn().mockResolvedValue([{ id: "one" }, { id: "two" }]),
+    markCommentsRead: vi.fn().mockResolvedValue({ comment_ids: ["one"] }),
   };
   Object.assign(store.issueCommentService, service);
   return { issue, store, service };
 }
 
 describe("live card counts", () => {
+  it("clears unread state only for server-confirmed receipts and keeps it on failure", async () => {
+    const { store, service } = setup();
+    store.commentMap.one = { id: "one", is_unread: true } as TIssueComment;
+    store.commentMap.two = { id: "two", is_unread: true } as TIssueComment;
+    service.markCommentsRead.mockRejectedValueOnce(new Error("offline"));
+    await expect(store.markCommentsRead("workspace", "project", "task", ["one"])).rejects.toThrow("offline");
+    expect(store.commentMap.one.is_unread).toBe(true);
+    await store.markCommentsRead("workspace", "project", "task", ["one"]);
+    expect(store.commentMap.one.is_unread).toBe(false);
+    expect(store.commentMap.two.is_unread).toBe(true);
+  });
   it("increments and decrements after successful mutations without changing task freshness", async () => {
     const { issue, store } = setup();
     await store.createComment("workspace", "project", "task", { comment_html: "<p>Test</p>" });
@@ -78,4 +90,30 @@ describe("live card counts", () => {
     expect(store.getCommentsByIssueId("task")).toEqual([]);
     expect(service.getIssueComments).toHaveBeenCalledWith("w", "p", "task");
   });
+});
+
+it("counts replies but excludes deleted thread roots when reconciling the discussion", async () => {
+  const { issue, store, service } = setup();
+  service.getIssueComments.mockResolvedValue([
+    { id: "parent", deleted_at: "2026-09-24T10:00:00Z" },
+    { id: "reply", parent: "parent" },
+  ]);
+  await store.fetchComments("w", "p", "task");
+  expect(issue.comment_count).toBe(1);
+  expect(store.getCommentsByIssueId("task")).toEqual(["parent", "reply"]);
+});
+
+it("reloads a thread after deleting its root so live replies keep their tombstone", async () => {
+  const { issue, store, service } = setup();
+  store.comments.task = ["parent", "reply"];
+  store.commentMap.parent = { id: "parent" } as TIssueComment;
+  store.commentMap.reply = { id: "reply", parent: "parent" } as TIssueComment;
+  service.getIssueComments.mockResolvedValue([
+    { id: "parent", deleted_at: "2026-09-24T10:00:00Z" },
+    { id: "reply", parent: "parent" },
+  ]);
+  await store.removeComment("w", "p", "task", "parent");
+  expect(store.getCommentById("parent")?.deleted_at).toBeTruthy();
+  expect(store.getCommentsByIssueId("task")).toEqual(["parent", "reply"]);
+  expect(issue.comment_count).toBe(1);
 });
