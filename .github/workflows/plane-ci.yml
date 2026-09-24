@@ -58,8 +58,8 @@ jobs:
           path: ${{ env.PNPM_STORE }}
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter web test
       - run: pnpm turbo run build --filter=web
+      - run: pnpm --filter web test
       - run: pnpm turbo run check:types --filter=web
       - name: Lint web and dependencies
         run: |
