@@ -78,10 +78,14 @@ class DeploymentTests(unittest.TestCase):
             patches.enter_context(patch.object(deploy, 'healthy', side_effect=[False, True]))
             with self.assertRaisesRegex(RuntimeError, 'Web/API checks failed'):
                 deploy.deploy('a' * 40, 'b' * 64)
-            self.assertEqual(override.read_text(), original)
+            restored = override.read_text()
+            self.assertEqual(restored.count('local/plane-rollback:'), 5)
+            self.assertNotIn('ci-' + 'a' * 40, restored)
             self.assertFalse((root / 'releases/current.json').exists())
             self.assertEqual(sum(call.args[:2] == ('up', '-d')
                                  for call in composer.call_args_list), 2)
             restores = [call for call in runner.call_args_list if 'pg_restore' in call.args]
             self.assertEqual(len(restores), 1)
             self.assertIn('-l', restores[0].args)  # Validate dump; never restore user data.
+            commands = [call.args[:2] for call in runner.call_args_list]
+            self.assertLess(commands.index(('docker', 'tag')), commands.index(('docker', 'load')))

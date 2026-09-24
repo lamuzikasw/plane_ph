@@ -31,12 +31,18 @@ def validate_arguments(revision, index_hash):
 
 
 def replace_images(original, revision):
+    return replace_image_map(original, {
+        service: f'local/plane-{"frontend" if service == "web" else "backend"}:ci-{revision}'
+        for service in (*SERVICES, 'migrator')
+    })
+
+
+def replace_image_map(original, images):
     result = original
-    for service in (*SERVICES, 'migrator'):
-        image = 'frontend' if service == 'web' else 'backend'
+    for service, image in images.items():
         pattern = rf'(^  {re.escape(service)}:\n    image: )[^\n]+'
         result, count = re.subn(
-            pattern, rf'\g<1>local/plane-{image}:ci-{revision}', result, flags=re.M
+            pattern, rf'\g<1>{image}', result, flags=re.M
         )
         if count != 1:
             raise ValueError(f'Expected exactly one image override for {service}')
@@ -109,6 +115,19 @@ def deploy(revision, index_hash):
         print(f'Receiving release {name}', flush=True)
         receive_archive(sys.stdin.buffer, archive)
         run('gzip', '-t', str(archive))
+        override = APP / 'docker-compose.override.yaml'
+        original = override.read_text()
+        updated = replace_images(original, revision)
+        # Preserve actual running images BEFORE docker load can replace a tag.
+        # This also makes a repeated deployment of the same commit rollback-safe.
+        previous_images = {}
+        for service in SERVICES:
+            image_id = run('docker', 'inspect', '--format', '{{.Image}}',
+                           f'plane-app-{service}-1', capture_output=True, text=True).stdout.strip()
+            previous_images[service] = f'local/plane-rollback:{name}-{service}'
+            run('docker', 'tag', image_id, previous_images[service])
+        previous_images['migrator'] = previous_images['api']
+        rollback_override = replace_image_map(original, previous_images)
         run('docker', 'load', '-i', str(archive))
         for component in ('backend', 'frontend'):
             label = run(
@@ -120,12 +139,10 @@ def deploy(revision, index_hash):
                 raise RuntimeError(f'Unexpected {component} image revision')
         archive.unlink()  # Images are in Docker; do not retain a second large copy.
 
-        override = APP / 'docker-compose.override.yaml'
-        original = override.read_text()
-        updated = replace_images(original, revision)
         backup = BACKUPS / name
         backup.mkdir(parents=True)
-        atomic_write(backup / 'docker-compose.override.yaml', original)
+        atomic_write(backup / 'docker-compose.override.yaml', rollback_override)
+        atomic_write(backup / 'source-override.yaml', original)
         with (backup / 'image-ids.txt').open('w') as output:
             compose('images', stdout=output)
         # Read DB credentials inside its container, never into Actions logs.
@@ -164,7 +181,7 @@ def deploy(revision, index_hash):
         except BaseException:
             if switched:
                 print('Release failed. Restoring previous application images.', flush=True)
-                atomic_write(override, original)
+                atomic_write(override, rollback_override)
                 compose('up', '-d', '--no-deps', *SERVICES)
                 if not healthy(old_index_hash):
                     print('ROLLBACK HEALTH CHECK FAILED: operator action required', file=sys.stderr)
