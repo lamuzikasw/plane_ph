@@ -22,11 +22,15 @@ jobs:
       - name: Test deployment tooling
         run: python3 -m unittest discover -s deploy/tests -v
       - name: Test API
-        run: docker compose -f docker-compose-test.yml run --rm --build api-tests pytest plane/tests/unit --tb=short -q
+        # Unit tests use local/mocked storage, so they need no MinIO image.
+        # The full integration stack in docker-compose-test.yml remains available.
+        run: |
+          docker compose -f docker-compose-test.yml up -d --wait test-db test-redis test-mq
+          docker compose -f docker-compose-test.yml run --rm --no-deps --build -e USE_MINIO=0 api-tests pytest plane/tests/unit --tb=short -q
       - name: Check migrations
         run: |
-          docker compose -f docker-compose-test.yml run --rm api-tests python manage.py makemigrations --check --dry-run
-          docker compose -f docker-compose-test.yml run --rm api-tests python manage.py migrate --noinput
+          docker compose -f docker-compose-test.yml run --rm --no-deps -e USE_MINIO=0 api-tests python manage.py makemigrations --check --dry-run
+          docker compose -f docker-compose-test.yml run --rm --no-deps -e USE_MINIO=0 api-tests python manage.py migrate --noinput
       - name: Clean up test services
         if: always()
         run: docker compose -f docker-compose-test.yml down -v
