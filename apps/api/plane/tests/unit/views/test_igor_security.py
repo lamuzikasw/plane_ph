@@ -15,6 +15,9 @@ from plane.app.views.external.base import IgorChatEndpoint
 from plane.db.models import Issue, IssueAssignee, Project, State, WorkspaceMember
 from plane.tests.factories import UserFactory, WorkspaceFactory
 
+pytestmark = pytest.mark.usefixtures("igor_enabled")
+
+
 
 @pytest.mark.unit
 @pytest.mark.django_db

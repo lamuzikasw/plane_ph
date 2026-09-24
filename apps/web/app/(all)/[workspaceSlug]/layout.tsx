@@ -10,6 +10,7 @@ import { WorkspaceContentWrapper } from "@/plane-web/components/workspace/conten
 import { AppRailVisibilityProvider } from "@/lib/app-rail";
 import { GlobalModals } from "@/plane-web/components/common/modal/global";
 import { IgorChat } from "@/components/ai/igor-chat";
+import { IgorFeature } from "@/components/ai/igor-feature";
 import { WorkspaceAuthWrapper } from "@/layouts/auth-layout/workspace-wrapper";
 import type { Route } from "./+types/layout";
 
@@ -22,7 +23,9 @@ export default function WorkspaceLayout(props: Route.ComponentProps) {
         <AppRailVisibilityProvider>
           <WorkspaceContentWrapper>
             <GlobalModals workspaceSlug={workspaceSlug} />
-            <IgorChat workspaceSlug={workspaceSlug} />
+            <IgorFeature>
+              <IgorChat workspaceSlug={workspaceSlug} />
+            </IgorFeature>
             <Outlet />
           </WorkspaceContentWrapper>
         </AppRailVisibilityProvider>

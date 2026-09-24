@@ -24,6 +24,9 @@ from plane.db.models import (
 )
 from plane.tests.factories import UserFactory, WorkspaceFactory
 
+pytestmark = pytest.mark.usefixtures("igor_enabled")
+
+
 
 WEEKLY_SUMMARY_QUESTIONS = [
     # Обычные рабочие формулировки.

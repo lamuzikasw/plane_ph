@@ -289,6 +289,11 @@ class IgorChatEndpoint(IgorCaptureMixin, BaseAPIView):
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
         action = request.data.get("action")
+        if not settings.IGOR_ENABLED:
+            return Response(
+                {"error": "igor_disabled", "answer": "Игорь отключён администратором."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         raw_message = request.data.get("message")
         if raw_message is not None and not isinstance(raw_message, str):
             return Response({"error": "Message must be a string"}, status=status.HTTP_400_BAD_REQUEST)

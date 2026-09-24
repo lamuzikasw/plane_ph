@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { cn, joinUrlPath } from "@plane/utils";
 import useLocalStorage from "@/hooks/use-local-storage";
+import { IgorFeature } from "@/components/ai/igor-feature";
 import {
   getReleaseBySlug,
   LATEST_RELEASE,
@@ -386,9 +387,11 @@ function ReleaseAction({
 
   if (action.event === "open-igor") {
     return (
-      <button type="button" className={className} onClick={() => window.dispatchEvent(new Event("plane:open-igor"))}>
-        {content}
-      </button>
+      <IgorFeature>
+        <button type="button" className={className} onClick={() => window.dispatchEvent(new Event("plane:open-igor"))}>
+          {content}
+        </button>
+      </IgorFeature>
     );
   }
 

@@ -59,6 +59,7 @@ export interface IInstanceConfig {
   posthog_host: string | undefined;
   has_unsplash_configured: boolean;
   has_llm_configured: boolean;
+  is_igor_enabled?: boolean;
   file_size_limit: number | undefined;
   is_smtp_configured: boolean;
   app_base_url: string | undefined;

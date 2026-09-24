@@ -19,6 +19,9 @@ from plane.app.views.external.base import IgorChatEndpoint
 from plane.db.models import Issue, Project, ProjectMember, State, WorkspaceMember
 from plane.tests.factories import UserFactory, WorkspaceFactory
 
+pytestmark = pytest.mark.usefixtures("igor_enabled")
+
+
 
 @pytest.mark.parametrize(
     "message",

@@ -17,6 +17,12 @@ def django_db_setup(django_db_setup):  # noqa: F811
 
 
 @pytest.fixture
+def igor_enabled(settings):
+    """Existing Igor behavior stays covered even while the feature is off by default."""
+    settings.IGOR_ENABLED = True
+
+
+@pytest.fixture
 def api_client():
     """Return an unauthenticated API client"""
     return APIClient()

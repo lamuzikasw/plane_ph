@@ -151,6 +151,7 @@ class InstanceEndpoint(BaseAPIView):
 
         # Open AI settings
         data["has_llm_configured"] = bool(LLM_API_KEY)
+        data["is_igor_enabled"] = settings.IGOR_ENABLED
 
         # File size settings
         data["file_size_limit"] = float(os.environ.get("FILE_SIZE_LIMIT", 5242880))

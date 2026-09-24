@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 
 from celery import shared_task
+from django.conf import settings
 from django.core.cache import cache
 
 from plane.db.models import User, Workspace, WorkspaceMember
@@ -26,6 +27,9 @@ def _capture_job_lock(cache_key, timeout):
 
 @shared_task(bind=True, max_retries=100, acks_late=True, reject_on_worker_lost=True, ignore_result=True)
 def process_igor_capture_job(self, workspace_id, user_id, job_id):
+    if not settings.IGOR_ENABLED:
+        return
+
     # Imported inside the worker to avoid coupling API module initialization to Celery startup.
     from plane.app.views.external.base import IgorChatEndpoint
 
