@@ -45,6 +45,7 @@ jobs:
             .release/images.tar.gz
             .release/index.sha256
           compression-level: 0
+          include-hidden-files: true
           retention-days: 7
 
   deploy:
@@ -77,7 +78,7 @@ jobs:
           [[ "$INDEX_SHA" =~ ^[0-9a-f]{64}$ ]]
           ssh -T -i ~/.ssh/plane_deploy -o IdentitiesOnly=yes -o BatchMode=yes \
             -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 \
-            "plane-ci@$SSH_HOST" "deploy $REVISION $INDEX_SHA" < release/images.tar.gz
+            "deploy@$SSH_HOST" "deploy $REVISION $INDEX_SHA" < release/images.tar.gz
           {
             echo '### Plane deployed successfully'
             echo "Revision: \`$REVISION\`"

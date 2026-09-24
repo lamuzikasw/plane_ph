@@ -44,8 +44,9 @@ CI запускает unit-тесты API, проверяет миграции �
 - Сервер: `187.77.70.240`, рабочая установка `/opt/plane/plane-app`.
 - GitHub environment `production`: secret `PLANE_DEPLOY_KEY`, variables `PLANE_SSH_HOST`, `PLANE_KNOWN_HOSTS`.
 - Ключ выделенный, Ed25519. Личный ключ разработчика в GitHub не используется.
-- Пользователь `plane-ci` принимает только команду `deploy COMMIT_SHA INDEX_SHA256`.
-  Интерактивная оболочка, PTY и SSH forwarding закрыты. Скрипты и authorized_keys принадлежат root.
+- CI использует существующего пользователя `deploy`, но отдельный ключ принимает только команду
+  `deploy COMMIT_SHA INDEX_SHA256`. Для этого ключа интерактивная оболочка, PTY и SSH forwarding закрыты.
+  Доверенные скрипты принадлежат root. SSH-политика сервера и обычный ключ администратора не меняются.
 - Скрипты устанавливаются через `sudo bash deploy/install.sh /path/to/ci-key.pub`.
   Изменение скриптов в GitHub само по себе не заменяет доверенный скрипт сервера: его обновляет оператор.
 - Резервные копии: `/opt/plane/backups/<timestamp>-<sha>/database.dump` и `docker-compose.override.yaml`.
@@ -54,7 +55,8 @@ CI запускает unit-тесты API, проверяет миграции �
 - Артефакты GitHub хранятся 7 дней. Резервные копии и старые образы на сервере автоматически не удаляются;
   периодически очищайте только старые выпуски Plane, сохраняя текущий и предыдущий. Не запускайте общий Docker prune.
   При свободном месте меньше 5 GiB выпуск остановится до изменения приложения.
-- Для отключения CI-доступа удалите `/var/lib/plane-ci/.ssh/authorized_keys` и GitHub secret.
+- Для отключения CI-доступа удалите только строку ключа `plane-ph-github-actions`
+  из `/home/deploy/.ssh/authorized_keys` и GitHub secret; остальные ключи сохраните.
 
 Восстановление приложения вручную: сохраните текущий override, верните override из нужной резервной копии
 и выполните `sudo ./compose-safe.sh up -d --no-deps api worker beat-worker web` из каталога установки.
