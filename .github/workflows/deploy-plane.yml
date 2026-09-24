@@ -1,0 +1,86 @@
+name: Deploy Plane
+run-name: Deploy Plane · ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A second click queues a release; it must never interrupt a migration.
+concurrency:
+  group: plane-production
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/plane-ci.yml
+
+  release:
+    name: Build release images
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-client
+          path: .release/web/client
+      - name: Build exact checked revision
+        env:
+          REVISION: ${{ github.sha }}
+        run: |
+          cp apps/web/nginx/nginx.conf .release/web/nginx.conf
+          cp deploy/Dockerfile.web .release/web/Dockerfile
+          docker build --label "org.opencontainers.image.revision=$REVISION" -t "local/plane-backend:ci-$REVISION" -f apps/api/Dockerfile.api apps/api
+          docker build --label "org.opencontainers.image.revision=$REVISION" -t "local/plane-frontend:ci-$REVISION" .release/web
+          sha256sum .release/web/client/index.html | cut -d ' ' -f 1 > .release/index.sha256
+          docker save "local/plane-backend:ci-$REVISION" "local/plane-frontend:ci-$REVISION" | gzip -1 > .release/images.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-images
+          path: |
+            .release/images.tar.gz
+            .release/index.sha256
+          compression-level: 0
+          retention-days: 7
+
+  deploy:
+    name: Update production
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://plane.myneogroup.space
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-images
+          path: release
+      - name: Deploy through restricted SSH command
+        env:
+          REVISION: ${{ github.sha }}
+          SSH_PRIVATE_KEY: ${{ secrets.PLANE_DEPLOY_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.PLANE_KNOWN_HOSTS }}
+          SSH_HOST: ${{ vars.PLANE_SSH_HOST }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/plane_deploy
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/plane_deploy' EXIT
+          INDEX_SHA=$(cat release/index.sha256)
+          [[ "$INDEX_SHA" =~ ^[0-9a-f]{64}$ ]]
+          ssh -T -i ~/.ssh/plane_deploy -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 \
+            "plane-ci@$SSH_HOST" "deploy $REVISION $INDEX_SHA" < release/images.tar.gz
+          {
+            echo '### Plane deployed successfully'
+            echo "Revision: \`$REVISION\`"
+            echo 'Site: https://plane.myneogroup.space'
+            echo 'Database backup, migrations, API, web checksum and worker checks passed.'
+          } >> "$GITHUB_STEP_SUMMARY"

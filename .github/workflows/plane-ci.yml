@@ -1,0 +1,76 @@
+name: Plane CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - name: Create isolated test configuration
+        run: cp apps/api/.env.example apps/api/.env
+      - name: Test deployment tooling
+        run: python3 -m unittest discover -s deploy/tests -v
+      - name: Test API
+        run: docker compose -f docker-compose-test.yml run --rm --build api-tests pytest plane/tests/unit --tb=short -q
+      - name: Check migrations
+        run: |
+          docker compose -f docker-compose-test.yml run --rm api-tests python manage.py makemigrations --check --dry-run
+          docker compose -f docker-compose-test.yml run --rm api-tests python manage.py migrate --noinput
+      - name: Clean up test services
+        if: always()
+        run: docker compose -f docker-compose-test.yml down -v
+
+  web:
+    name: Web tests and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      VITE_API_BASE_URL: ""
+      VITE_WEB_BASE_URL: https://plane.myneogroup.space
+      VITE_ADMIN_BASE_URL: https://plane.myneogroup.space
+      VITE_ADMIN_BASE_PATH: /god-mode
+      VITE_SPACE_BASE_URL: https://plane.myneogroup.space
+      VITE_SPACE_BASE_PATH: /spaces
+      VITE_LIVE_BASE_URL: https://plane.myneogroup.space
+      VITE_LIVE_BASE_PATH: /live
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.18.0"
+      - run: corepack enable pnpm
+      - name: Locate pnpm store
+        run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+      - uses: actions/cache@v5
+        with:
+          path: ${{ env.PNPM_STORE }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter web test
+      - run: pnpm turbo run build --filter=web
+      - run: pnpm turbo run check:types --filter=web
+      - name: Lint web and dependencies
+        run: |
+          if ! pnpm turbo run check:lint --filter='web...' > /tmp/plane-lint.log 2>&1; then
+            tail -n 200 /tmp/plane-lint.log
+            exit 1
+          fi
+          tail -n 12 /tmp/plane-lint.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-client
+          path: apps/web/build/client
+          if-no-files-found: error
+          retention-days: 7
