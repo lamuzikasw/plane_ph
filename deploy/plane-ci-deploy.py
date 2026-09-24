@@ -128,6 +128,9 @@ def deploy(revision, index_hash):
             run('docker', 'tag', image_id, previous_images[service])
         previous_images['migrator'] = previous_images['api']
         rollback_override = replace_image_map(original, previous_images)
+        # Point the current config at those exact same images as well. A failed
+        # load/migration must not make a later restart use a replaced SHA tag.
+        atomic_write(override, rollback_override)
         run('docker', 'load', '-i', str(archive))
         for component in ('backend', 'frontend'):
             label = run(
