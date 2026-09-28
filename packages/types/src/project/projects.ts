@@ -152,6 +152,7 @@ export type TProjectIssuesSearchParams = {
   cycle?: boolean;
   module?: string;
   sub_issue?: boolean;
+  include_parented?: boolean;
   issue_id?: string;
   workspace_search: boolean;
   target_date?: string;
@@ -181,6 +182,14 @@ export interface ISearchIssueResponse {
   type_id: string;
   assignee_ids?: string[];
   priority?: string;
+  can_select?: boolean;
+  parent?: {
+    id: string;
+    name: string;
+    project_id: string;
+    project__identifier: string;
+    sequence_id: number;
+  } | null;
 }
 
 export type TPartialProject = IPartialProject;

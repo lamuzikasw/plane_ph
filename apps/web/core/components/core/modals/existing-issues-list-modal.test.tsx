@@ -81,7 +81,7 @@ async function click(node: Element) {
     (node as HTMLElement).click();
   });
 }
-function Harness() {
+function Harness({ relation = false }: { relation?: boolean }) {
   const [isOpen, setOpen] = useState(true);
   return (
     <>
@@ -94,15 +94,15 @@ function Harness() {
           setOpen(false);
           mocks.close();
         }}
-        searchParams={{ sub_issue: true }}
+        searchParams={relation ? { issue_relation: true } : { sub_issue: true }}
         handleOnSubmit={mocks.submit}
       />
     </>
   );
 }
-async function render() {
+async function render(relation = false) {
   await act(async () => {
-    root.render(<Harness />);
+    root.render(<Harness relation={relation} />);
   });
 }
 
@@ -180,6 +180,63 @@ describe("existing work item picker", () => {
     await click(button("Reopen"));
     expect(button("issue.select.filters.add").textContent).toContain("(0)");
     vi.restoreAllMocks();
+  });
+  it("shows parent context, blocks selection, and skips parented tasks in select shown", async () => {
+    const parented = {
+      ...row("2"),
+      can_select: false,
+      parent: {
+        id: "parent",
+        name: "Supplier integration",
+        project_id: "project",
+        project__identifier: "SPRINT",
+        sequence_id: 159,
+      },
+    };
+    mocks.search.mockResolvedValue([row("1"), parented]);
+    await render();
+    expect(mocks.search.mock.lastCall?.[2].include_parented).toBe(true);
+    const disabled = host.querySelector('[role="option"][aria-disabled="true"]')!;
+    expect(disabled.textContent).toContain("issue.select.filters.already_inside");
+    const parentLink = [...disabled.querySelectorAll("a")].find((link) => link.textContent === "SPRINT-159")!;
+    expect(parentLink.title).toBe("Supplier integration");
+    expect(parentLink.target).toBe("_blank");
+    expect(disabled.querySelector("input")?.disabled).toBe(true);
+    await click(disabled);
+    const parentClick = new MouseEvent("click", { bubbles: true, cancelable: true });
+    await act(async () => {
+      parentLink.dispatchEvent(parentClick);
+    });
+    expect(parentClick.defaultPrevented).toBe(false);
+    expect(button("issue.select.filters.add").textContent).toContain("(0)");
+    await click(button("issue.select.filters.select_shown"));
+    expect(button("issue.select.deselect_all")).toBeDefined();
+    await click(button("issue.select.filters.add"));
+    expect(mocks.submit).toHaveBeenCalledWith([row("1")]);
+  });
+  it("keeps only-parented search results visible with no available selection", async () => {
+    mocks.search.mockResolvedValue([{ ...row("2"), can_select: false, parent: null }]);
+    await render();
+    expect(host.textContent).toContain("Work 2");
+    expect(host.textContent).toContain("issue.select.filters.has_parent");
+    expect(button("issue.select.filters.select_shown").disabled).toBe(true);
+    expect(button("issue.select.filters.add").disabled).toBe(true);
+  });
+  it("does not block adding relations to parented work items", async () => {
+    mocks.search.mockResolvedValue([{ ...row("2"), can_select: false }]);
+    await render(true);
+    expect(mocks.search.mock.lastCall?.[2].include_parented).toBe(false);
+    await click(host.querySelector('[role="option"]')!);
+    expect(button("issue.select.filters.add").textContent).toContain("(1)");
+  });
+  it("drops a previous selection if a refreshed result acquired a parent", async () => {
+    mocks.search
+      .mockResolvedValueOnce([row("1")])
+      .mockResolvedValueOnce([{ ...row("1"), can_select: false, parent: null }]);
+    await render();
+    await click(host.querySelector('[role="option"]')!);
+    await click(button("Filter started"));
+    expect(button("issue.select.filters.add").disabled).toBe(true);
   });
   it("serializes an assignee OR unassigned without sending the sentinel as a UUID", () => {
     expect(

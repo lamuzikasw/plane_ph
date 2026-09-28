@@ -123,3 +123,64 @@ def test_existing_sub_item_and_relation_exclusions_are_preserved(picker):
 )
 def test_invalid_filters_return_400(picker, params):
     assert search(picker, **params).status_code == 400
+
+
+def test_parented_items_are_visible_but_not_selectable_when_requested(picker):
+    _, _, (project, *_), *_ = picker
+    root = Issue.objects.create(project=project, name="Integration")
+    parent = Issue.objects.create(project=project, name="Suppliers", parent=root)
+    child = Issue.objects.create(project=project, name="Steam Wallet", parent=parent)
+    available = Issue.objects.create(project=project, name="Available")
+    response = search(picker, issue_id=str(root.id), sub_issue="true", include_parented="true")
+    assert ids(response) == {str(parent.id), str(child.id), str(available.id)}
+    rows = {str(row["id"]): row for row in response.data}
+    assert rows[str(available.id)]["can_select"] is True
+    assert rows[str(available.id)]["parent"] is None
+    assert rows[str(child.id)]["can_select"] is False
+    assert rows[str(child.id)]["parent"] == {
+        "id": parent.id,
+        "name": parent.name,
+        "project_id": project.id,
+        "project__identifier": project.identifier,
+        "sequence_id": parent.sequence_id,
+    }
+    assert rows[str(parent.id)]["can_select"] is False
+    assert rows[str(parent.id)]["parent"]["id"] == root.id
+    assert ids(search(picker, issue_id=str(root.id), sub_issue="true")) == {str(available.id)}
+    assert ids(
+        search(picker, issue_id=str(root.id), sub_issue="true", include_parented="true", search="Steam Wallet")
+    ) == {str(child.id)}
+    assert ids(search(picker, issue_id=str(child.id), sub_issue="true", include_parented="true")) == {str(available.id)}
+    # Relation search must still allow work items that already have a parent.
+    relation = search(picker, issue_id=str(root.id), issue_relation="true", include_parented="true")
+    assert str(child.id) in ids(relation)
+    assert all("can_select" not in row for row in relation.data)
+
+
+def test_parent_context_does_not_expose_inaccessible_project(picker):
+    _, _, (project, _, private), *_ = picker
+    root = Issue.objects.create(project=project, name="Root")
+    hidden_parent = Issue.objects.create(project=private, name="Private parent")
+    child = Issue.objects.create(project=project, name="Accessible child", parent=hidden_parent)
+    response = search(picker, issue_id=str(root.id), sub_issue="true", include_parented="true")
+    assert ids(response) == {str(child.id)}
+    assert response.data[0]["can_select"] is False
+    assert response.data[0]["parent"] is None
+    assert "parent_id" not in response.data[0]
+
+
+def test_guest_cannot_read_another_creators_parent_context(picker):
+    _, _, (project, *_), actor, colleague = picker
+    ProjectMember.objects.filter(project=project, member=actor).update(role=5)
+    ProjectMember.objects.create(project=project, member=colleague, role=20)
+    root = Issue.objects.create(project=project, name="My root", created_by=actor)
+    parent = Issue.objects.create(project=project, name="Other creators parent", created_by=colleague)
+    child = Issue.objects.create(project=project, name="My child", created_by=actor, parent=parent)
+    # Model.save normally takes the creator from request middleware; this
+    # fixture is created outside a request, so persist the authors explicitly.
+    Issue.objects.filter(pk__in=[root.id, child.id]).update(created_by=actor)
+    Issue.objects.filter(pk=parent.id).update(created_by=colleague)
+    response = search(picker, issue_id=str(root.id), sub_issue="true", include_parented="true")
+    assert ids(response) == {str(child.id)}
+    assert response.data[0]["can_select"] is False
+    assert response.data[0]["parent"] is None

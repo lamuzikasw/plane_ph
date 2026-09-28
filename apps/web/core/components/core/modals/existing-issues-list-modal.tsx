@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { observer } from "mobx-react";
-import { ExternalLink, Search, X } from "lucide-react";
+import { CornerDownRight, ExternalLink, Search, X } from "lucide-react";
 import { Combobox } from "@headlessui/react";
 import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
@@ -68,6 +68,10 @@ export const ExistingIssuesListModal = observer(function ExistingIssuesListModal
   const { baseTabIndex } = getTabIndex(undefined, isMobile);
   const hasInitializedSelection = useRef(false);
   const focusSearch = useCallback((input: HTMLInputElement | null) => input?.focus(), []);
+  const canSelectIssue = useCallback(
+    (issue: ISearchIssueResponse) => !searchParams.sub_issue || issue.can_select !== false,
+    [searchParams.sub_issue]
+  );
   const search = useCallback(
     (params: TProjectIssuesSearchParams) => {
       if (workItemSearchServiceCallback) return workItemSearchServiceCallback(params);
@@ -82,6 +86,7 @@ export const ExistingIssuesListModal = observer(function ExistingIssuesListModal
       ...searchParams,
       ...pickerFilterParams(filters),
       search: debouncedSearchTerm,
+      include_parented: searchParams.sub_issue === true,
       workspace_search: workspaceLevelToggle || defaultWorkspaceLevel,
     },
     search
@@ -89,17 +94,26 @@ export const ExistingIssuesListModal = observer(function ExistingIssuesListModal
   const waitingForSearch = searchTerm !== debouncedSearchTerm;
   const filteredIssues = issues.filter((issue) => !shouldHideIssue?.(issue));
   const visibleIssues = showSelected ? selectedIssues : filteredIssues;
+  const selectableIssues = visibleIssues.filter(canSelectIssue);
   const allSelected =
-    visibleIssues.length > 0 &&
-    visibleIssues.every((issue) => selectedIssues.some((selected) => selected.id === issue.id));
+    selectableIssues.length > 0 &&
+    selectableIssues.every((issue) => selectedIssues.some((selected) => selected.id === issue.id));
   const hasFilters = hasPickerFilters(filters);
 
   useEffect(() => {
     if (isOpen && !hasInitializedSelection.current && selectedWorkItemIds && issues.length > 0) {
-      setSelectedIssues(issues.filter((issue) => selectedWorkItemIds.includes(issue.id)));
+      setSelectedIssues(issues.filter((issue) => selectedWorkItemIds.includes(issue.id) && canSelectIssue(issue)));
       hasInitializedSelection.current = true;
     }
-  }, [isOpen, issues, selectedWorkItemIds]);
+    const unavailableIds = new Set(issues.filter((issue) => !canSelectIssue(issue)).map((issue) => issue.id));
+    if (unavailableIds.size) {
+      setSelectedIssues((current) =>
+        current.some((issue) => unavailableIds.has(issue.id))
+          ? current.filter((issue) => !unavailableIds.has(issue.id))
+          : current
+      );
+    }
+  }, [isOpen, issues, selectedWorkItemIds, canSelectIssue]);
 
   // Also reset when a parent closes the dialog without invoking its close button.
   useEffect(() => {
@@ -112,11 +126,11 @@ export const ExistingIssuesListModal = observer(function ExistingIssuesListModal
   }, [isOpen]);
 
   const selectVisible = () => {
-    const visibleIds = new Set(visibleIssues.map((issue) => issue.id));
+    const visibleIds = new Set(selectableIssues.map((issue) => issue.id));
     setSelectedIssues((current) =>
       allSelected
         ? current.filter((issue) => !visibleIds.has(issue.id))
-        : [...current, ...visibleIssues.filter((issue) => !current.some((selected) => selected.id === issue.id))]
+        : [...current, ...selectableIssues.filter((issue) => !current.some((selected) => selected.id === issue.id))]
     );
   };
   const onSubmit = async () => {
@@ -169,7 +183,7 @@ export const ExistingIssuesListModal = observer(function ExistingIssuesListModal
           multiple
           by="id"
           value={selectedIssues}
-          onChange={(value: ISearchIssueResponse[]) => setSelectedIssues(value)}
+          onChange={(value: ISearchIssueResponse[]) => setSelectedIssues(value.filter(canSelectIssue))}
         >
           <div className="relative mx-4 mb-3">
             <Search className="pointer-events-none absolute top-3 left-3 size-4 text-placeholder" aria-hidden="true" />
@@ -272,6 +286,7 @@ export const ExistingIssuesListModal = observer(function ExistingIssuesListModal
                 )}
                 {visibleIssues.map((issue) => {
                   const selected = selectedIssues.some((item) => item.id === issue.id);
+                  const unavailable = !canSelectIssue(issue);
                   const assignees = (issue.assignee_ids ?? [])
                     .map((id) => getUserDetails(id)?.display_name)
                     .filter(Boolean)
@@ -280,13 +295,15 @@ export const ExistingIssuesListModal = observer(function ExistingIssuesListModal
                     <Combobox.Option
                       key={issue.id}
                       value={issue}
+                      disabled={unavailable}
                       className={({ active }) =>
-                        `group my-0.5 flex cursor-pointer items-center gap-3 rounded-md px-2 py-2.5 text-13 ${active ? "bg-layer-1" : selected ? "bg-layer-1/50" : ""}`
+                        `group my-0.5 flex items-center gap-3 rounded-md px-2 py-2.5 text-13 ${unavailable ? "cursor-default" : "cursor-pointer"} ${active ? "bg-layer-1" : selected ? "bg-layer-1/50" : ""}`
                       }
                     >
                       <input
                         type="checkbox"
                         checked={selected}
+                        disabled={unavailable}
                         readOnly
                         tabIndex={-1}
                         aria-label={issue.name}
@@ -323,6 +340,35 @@ export const ExistingIssuesListModal = observer(function ExistingIssuesListModal
                             </>
                           )}
                         </div>
+                        {unavailable && (
+                          <div className="mt-1.5 flex items-center gap-1 text-11 text-secondary">
+                            <CornerDownRight className="size-3 shrink-0" aria-hidden="true" />
+                            {issue.parent ? (
+                              <>
+                                <span>{t("issue.select.filters.already_inside")}</span>
+                                <a
+                                  href={generateWorkItemLink({
+                                    workspaceSlug,
+                                    projectId: issue.parent.project_id,
+                                    issueId: issue.parent.id,
+                                    projectIdentifier: issue.parent.project__identifier,
+                                    sequenceId: issue.parent.sequence_id,
+                                  })}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={issue.parent.name}
+                                  className="rounded-sm text-accent-primary underline underline-offset-2 focus-visible:outline-2"
+                                  onClick={(event) => event.stopPropagation()}
+                                  onKeyDown={(event) => event.stopPropagation()}
+                                >
+                                  {issue.parent.project__identifier}-{issue.parent.sequence_id}
+                                </a>
+                              </>
+                            ) : (
+                              <span>{t("issue.select.filters.has_parent")}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <a
                         href={generateWorkItemLink({
@@ -358,7 +404,7 @@ export const ExistingIssuesListModal = observer(function ExistingIssuesListModal
           <button
             type="button"
             onClick={selectVisible}
-            disabled={!visibleIssues.length || (!showSelected && (loading || waitingForSearch))}
+            disabled={!selectableIssues.length || (!showSelected && (loading || waitingForSearch))}
             className="text-12 text-accent-primary disabled:opacity-40"
           >
             {t(allSelected ? "issue.select.deselect_all" : "issue.select.filters.select_shown")}

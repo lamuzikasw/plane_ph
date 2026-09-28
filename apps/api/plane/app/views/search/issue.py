@@ -17,6 +17,7 @@ from plane.utils.issue_search import search_issues
 
 
 class IssueSearchFiltersSerializer(serializers.Serializer):
+    include_parented = serializers.BooleanField(default=False)
     project_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
     state_groups = serializers.ListField(
         child=serializers.ChoiceField(choices=["backlog", "unstarted", "started", "completed", "cancelled"]),
@@ -88,9 +89,46 @@ class IssueSearchEndpoint(BaseAPIView):
         issue = Issue.issue_objects.filter(pk=issue_id).first()
         if issue:
             issues = issues.filter(~Q(pk=issue_id), parent__isnull=True)
-        if issue.parent:
+        if issue and issue.parent:
             issues = issues.filter(~Q(pk=issue.parent_id))
         return issues
+
+    def filter_sub_issue_candidates(self, issue_id, slug, issues):
+        # Include existing children as read-only results, but never offer the
+        # current work item or its ancestors (which would create a cycle).
+        ancestors = set()
+        current_id = str(issue_id)
+        while current_id and current_id not in ancestors:
+            ancestors.add(current_id)
+            parent_id = (
+                Issue.issue_objects.filter(pk=current_id, workspace__slug=slug)
+                .values_list("parent_id", flat=True)
+                .first()
+            )
+            current_id = str(parent_id) if parent_id else None
+        return issues.exclude(pk__in=ancestors)
+
+    def add_parent_context(self, rows, slug):
+        parent_ids = {row["parent_id"] for row in rows if row["parent_id"]}
+        parents = Issue.issue_objects.filter(
+            Q(project__project_projectmember__role__gt=5) | Q(created_by=self.request.user),
+            pk__in=parent_ids,
+            workspace__slug=slug,
+            project__project_projectmember__member=self.request.user,
+            project__project_projectmember__is_active=True,
+            project__archived_at__isnull=True,
+        )
+        parent_map = {
+            parent["id"]: parent
+            for parent in parents.values("id", "name", "project_id", "project__identifier", "sequence_id")
+        }
+        for row in rows:
+            parent_id = row.pop("parent_id")
+            row["can_select"] = parent_id is None
+            # A restricted/deleted parent still prevents selection, but its
+            # identifier and title must not be exposed by the search endpoint.
+            row["parent"] = parent_map.get(parent_id)
+        return rows
 
     def exclude_issues_in_cycles(self, issues: QuerySet) -> QuerySet:
         """
@@ -130,6 +168,7 @@ class IssueSearchEndpoint(BaseAPIView):
         sub_issue = request.query_params.get("sub_issue", "false")
         target_date = request.query_params.get("target_date", True)
         issue_id = request.query_params.get("issue_id", False)
+        include_parented = sub_issue == "true" and bool(issue_id) and filters["include_parented"]
 
         issues = Issue.issue_objects.filter(
             workspace__slug=slug,
@@ -151,7 +190,10 @@ class IssueSearchEndpoint(BaseAPIView):
             issues = self.filter_issues_excluding_related_issues(issue_id, issues)
 
         if sub_issue == "true" and issue_id:
-            issues = self.filter_root_issues_only(issue_id, issues)
+            if include_parented:
+                issues = self.filter_sub_issue_candidates(issue_id, slug, issues)
+            else:
+                issues = self.filter_root_issues_only(issue_id, issues)
 
         if cycle == "true":
             issues = self.exclude_issues_in_cycles(issues)
@@ -200,22 +242,25 @@ class IssueSearchEndpoint(BaseAPIView):
         )
         offset = filters["offset"]
 
-        return Response(
-            issues.values(
-                "name",
-                "id",
-                "start_date",
-                "sequence_id",
-                "project__name",
-                "project__identifier",
-                "project_id",
-                "workspace__slug",
-                "state__name",
-                "state__group",
-                "state__color",
-                "priority",
-                "type_id",
-                "assignee_ids",
-            )[offset : offset + filters["limit"]],
-            status=status.HTTP_200_OK,
-        )
+        fields = [
+            "name",
+            "id",
+            "start_date",
+            "sequence_id",
+            "project__name",
+            "project__identifier",
+            "project_id",
+            "workspace__slug",
+            "state__name",
+            "state__group",
+            "state__color",
+            "priority",
+            "type_id",
+            "assignee_ids",
+        ]
+        if include_parented:
+            fields.append("parent_id")
+        rows = list(issues.values(*fields)[offset : offset + filters["limit"]])
+        if include_parented:
+            self.add_parent_context(rows, slug)
+        return Response(rows, status=status.HTTP_200_OK)

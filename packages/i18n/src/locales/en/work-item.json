@@ -247,6 +247,8 @@
         "label_ids": "Labels",
         "more": "More filters",
         "hide": "Hide filters",
+        "already_inside": "Already inside",
+        "has_parent": "Already has a parent work item",
         "me": "Me",
         "reset": "Reset filters",
         "remove": "Remove filter",
