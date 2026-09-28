@@ -4,30 +4,23 @@
  * See the LICENSE file for details.
  */
 
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { Rocket } from "lucide-react";
+import { useCallback, useEffect, useState, useRef } from "react";
+import { observer } from "mobx-react";
+import { ExternalLink, Search, X } from "lucide-react";
 import { Combobox } from "@headlessui/react";
-// i18n
 import { useTranslation } from "@plane/i18n";
-// types
 import { Button } from "@plane/propel/button";
-import { SearchIcon, CloseIcon } from "@plane/propel/icons";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
-import { Tooltip } from "@plane/propel/tooltip";
 import type { ISearchIssueResponse, TProjectIssuesSearchParams } from "@plane/types";
-// ui
-import { Loader, ToggleSwitch, EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
+import { Loader, EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
 import { generateWorkItemLink, getTabIndex } from "@plane/utils";
-// helpers
-// hooks
 import useDebounce from "@/hooks/use-debounce";
 import { usePlatformOS } from "@/hooks/use-platform-os";
-// plane web components
+import { useMember } from "@/hooks/store/use-member";
 import { IssueIdentifier } from "@/plane-web/components/issues/issue-details/issue-identifier";
-// services
 import { ProjectService } from "@/services/project";
-// components
-import { IssueSearchModalEmptyState } from "./issue-search-modal-empty-state";
+import { emptyPickerFilters, hasPickerFilters, IssuePickerFilterBar, pickerFilterParams } from "./issue-picker-filters";
+import { useIssuePickerSearch } from "./use-issue-picker-search";
 
 type Props = {
   workspaceSlug: string | undefined;
@@ -48,9 +41,8 @@ type Props = {
 
 const projectService = new ProjectService();
 
-export function ExistingIssuesListModal(props: Props) {
+export const ExistingIssuesListModal = observer(function ExistingIssuesListModal(props: Props) {
   const { t } = useTranslation();
-
   const {
     workspaceSlug,
     projectId,
@@ -61,127 +53,46 @@ export function ExistingIssuesListModal(props: Props) {
     workspaceLevelToggle = false,
     defaultWorkspaceLevel = false,
     searchInputPlaceholder,
-    workspaceLevelLabel,
-    workspaceLevelTooltip,
     shouldHideIssue,
     selectedWorkItemIds,
     workItemSearchServiceCallback,
   } = props;
-  // states
-  const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [issues, setIssues] = useState<ISearchIssueResponse[]>([]);
+  const [filters, setFilters] = useState(emptyPickerFilters);
   const [selectedIssues, setSelectedIssues] = useState<ISearchIssueResponse[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [showSelected, setShowSelected] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isWorkspaceLevel, setIsWorkspaceLevel] = useState(defaultWorkspaceLevel);
-  const [selectedProjectFilterId, setSelectedProjectFilterId] = useState<string | undefined>(projectId);
+  const { getUserDetails } = useMember();
   const { isMobile } = usePlatformOS();
-  const debouncedSearchTerm: string = useDebounce(searchTerm, 500);
+  const debouncedSearchTerm: string = useDebounce(searchTerm, 300);
   const { baseTabIndex } = getTabIndex(undefined, isMobile);
   const hasInitializedSelection = useRef(false);
-
-  const handleClose = () => {
-    onClose();
-    setSearchTerm("");
-    setSelectedIssues([]);
-    setIsWorkspaceLevel(defaultWorkspaceLevel);
-    setSelectedProjectFilterId(projectId);
-    hasInitializedSelection.current = false;
-  };
-
-  const onSubmit = async () => {
-    if (selectedIssues.length === 0) {
-      setToast({
-        type: TOAST_TYPE.ERROR,
-        title: t("toast.error"),
-        message: t("issue.select.error"),
-      });
-
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    await handleOnSubmit(selectedIssues).finally(() => setIsSubmitting(false));
-
-    handleClose();
-  };
-
-  const handleSearch = useCallback(() => {
-    if (!isOpen || !workspaceSlug) return;
-    setIsLoading(true);
-    const searchService =
-      workItemSearchServiceCallback ??
-      (projectId
-        ? projectService.projectIssuesSearch.bind(projectService, workspaceSlug?.toString(), projectId?.toString())
-        : undefined);
-    if (!searchService) return;
-    searchService({
-      search: debouncedSearchTerm,
-      ...searchParams,
-      workspace_search: workspaceLevelToggle ? true : isWorkspaceLevel,
-    })
-      .then((res) => setIssues(res))
-      .finally(() => {
-        setIsSearching(false);
-        setIsLoading(false);
-      });
-  }, [
-    debouncedSearchTerm,
-    isOpen,
-    isWorkspaceLevel,
-    projectId,
-    searchParams,
-    workItemSearchServiceCallback,
-    workspaceLevelToggle,
-    workspaceSlug,
-  ]);
-
-  const projectFilterOptions = useMemo(() => {
-    const projectMap = new Map<string, { id: string; name: string }>();
-
-    issues.forEach((issue) => {
-      if (!issue.project_id || projectMap.has(issue.project_id)) return;
-
-      projectMap.set(issue.project_id, {
-        id: issue.project_id,
-        name: issue.project__name || issue.project__identifier,
-      });
-    });
-
-    return Array.from(projectMap.values());
-  }, [issues]);
-
-  const filteredIssues = useMemo(
-    () =>
-      issues.filter((issue) => {
-        if (shouldHideIssue?.(issue)) return false;
-        if (!isWorkspaceLevel && selectedProjectFilterId) return issue.project_id === selectedProjectFilterId;
-
-        return true;
-      }),
-    [issues, isWorkspaceLevel, selectedProjectFilterId, shouldHideIssue]
+  const focusSearch = useCallback((input: HTMLInputElement | null) => input?.focus(), []);
+  const search = useCallback(
+    (params: TProjectIssuesSearchParams) => {
+      if (workItemSearchServiceCallback) return workItemSearchServiceCallback(params);
+      if (!workspaceSlug || !projectId) return Promise.resolve([]);
+      return projectService.projectIssuesSearch(workspaceSlug, projectId, params);
+    },
+    [workspaceSlug, projectId, workItemSearchServiceCallback]
   );
-
-  const areAllFilteredIssuesSelected =
-    filteredIssues.length > 0 &&
-    filteredIssues.every((issue) => selectedIssues.some((selected) => selected.id === issue.id));
-
-  const handleSelectIssues = () => {
-    setSelectedIssues((prevData) => {
-      if (areAllFilteredIssuesSelected) {
-        const filteredIssueIds = new Set(filteredIssues.map((issue) => issue.id));
-
-        return prevData.filter((issue) => !filteredIssueIds.has(issue.id));
-      }
-
-      const selectedIssueIds = new Set(prevData.map((issue) => issue.id));
-      const newIssues = filteredIssues.filter((issue) => !selectedIssueIds.has(issue.id));
-
-      return [...prevData, ...newIssues];
-    });
-  };
+  const { issues, loading, loadingMore, hasMore, error, loadMore, retry } = useIssuePickerSearch(
+    isOpen,
+    {
+      ...searchParams,
+      ...pickerFilterParams(filters),
+      search: debouncedSearchTerm,
+      workspace_search: workspaceLevelToggle || defaultWorkspaceLevel,
+    },
+    search
+  );
+  const waitingForSearch = searchTerm !== debouncedSearchTerm;
+  const filteredIssues = issues.filter((issue) => !shouldHideIssue?.(issue));
+  const visibleIssues = showSelected ? selectedIssues : filteredIssues;
+  const allSelected =
+    visibleIssues.length > 0 &&
+    visibleIssues.every((issue) => selectedIssues.some((selected) => selected.id === issue.id));
+  const hasFilters = hasPickerFilters(filters);
 
   useEffect(() => {
     if (isOpen && !hasInitializedSelection.current && selectedWorkItemIds && issues.length > 0) {
@@ -190,180 +101,200 @@ export function ExistingIssuesListModal(props: Props) {
     }
   }, [isOpen, issues, selectedWorkItemIds]);
 
+  // Also reset when a parent closes the dialog without invoking its close button.
   useEffect(() => {
-    handleSearch();
-  }, [handleSearch]);
+    if (isOpen) return;
+    setSearchTerm("");
+    setFilters(emptyPickerFilters());
+    setSelectedIssues([]);
+    setShowSelected(false);
+    hasInitializedSelection.current = false;
+  }, [isOpen]);
 
-  useEffect(() => {
-    if (isWorkspaceLevel) return;
-    if (selectedProjectFilterId && projectFilterOptions.some((project) => project.id === selectedProjectFilterId))
-      return;
-
-    const currentProjectOption = projectId
-      ? projectFilterOptions.find((project) => project.id === projectId)
-      : undefined;
-
-    setSelectedProjectFilterId(currentProjectOption?.id ?? projectFilterOptions[0]?.id);
-  }, [isWorkspaceLevel, projectFilterOptions, projectId, selectedProjectFilterId]);
+  const selectVisible = () => {
+    const visibleIds = new Set(visibleIssues.map((issue) => issue.id));
+    setSelectedIssues((current) =>
+      allSelected
+        ? current.filter((issue) => !visibleIds.has(issue.id))
+        : [...current, ...visibleIssues.filter((issue) => !current.some((selected) => selected.id === issue.id))]
+    );
+  };
+  const onSubmit = async () => {
+    if (!selectedIssues.length || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await handleOnSubmit(selectedIssues);
+      onClose();
+    } catch (cause: unknown) {
+      console.error("Failed to add selected work items", cause);
+      setToast({ type: TOAST_TYPE.ERROR, title: t("toast.error"), message: t("issue.select.filters.submit_error") });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
-    <ModalCore isOpen={isOpen} handleClose={handleClose} position={EModalPosition.CENTER} width={EModalWidth.XXL}>
-      <Combobox
-        as="div"
-        onChange={(val: ISearchIssueResponse) => {
-          if (selectedIssues.some((i) => i.id === val.id))
-            setSelectedIssues((prevData) => prevData.filter((i) => i.id !== val.id));
-          else setSelectedIssues((prevData) => [...prevData, val]);
-        }}
-      >
-        <div className="relative m-1">
-          <SearchIcon
-            className="text-opacity-40 pointer-events-none absolute top-3.5 left-4 h-5 w-5 text-primary"
-            aria-hidden="true"
-          />
-          <Combobox.Input
-            className="h-12 w-full border-0 bg-transparent pr-4 pl-11 text-13 text-primary outline-none placeholder:text-placeholder focus:ring-0"
-            placeholder={searchInputPlaceholder ?? t("common.search.placeholder")}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            tabIndex={baseTabIndex}
-          />
+    <ModalCore
+      isOpen={isOpen}
+      handleClose={() => {
+        if (!isSubmitting) onClose();
+      }}
+      position={EModalPosition.CENTER}
+      width={EModalWidth.XXL}
+    >
+      <div className="flex max-h-[85dvh] flex-col">
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+          <h2 className="text-16 font-semibold text-primary">
+            {t(
+              searchParams.sub_issue
+                ? "issue.select.filters.sub_items_title"
+                : searchParams.issue_relation
+                  ? "issue.select.filters.relations_title"
+                  : "issue.select.filters.title"
+            )}
+          </h2>
+          <button
+            type="button"
+            aria-label={t("close")}
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="rounded-sm p-1 text-secondary hover:bg-layer-1 focus-visible:outline-2"
+          >
+            <X className="size-4" />
+          </button>
         </div>
-
-        <div className="flex flex-col-reverse gap-4 p-2 text-13 text-secondary sm:flex-row sm:items-center sm:justify-between">
-          {selectedIssues.length > 0 ? (
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              {selectedIssues.map((issue) => (
-                <div
-                  key={issue.id}
-                  className="flex items-center gap-1 rounded-md border border-subtle bg-layer-1 py-1 pl-2 text-11 whitespace-nowrap text-primary"
-                >
-                  <IssueIdentifier
-                    projectId={issue.project_id}
-                    issueTypeId={issue.type_id}
-                    projectIdentifier={issue.project__identifier}
-                    issueSequenceId={issue.sequence_id}
-                    size="xs"
-                    variant="secondary"
-                  />
-                  <button
-                    type="button"
-                    className="group p-1"
-                    onClick={() => setSelectedIssues((prevData) => prevData.filter((i) => i.id !== issue.id))}
-                  >
-                    <CloseIcon className="h-3 w-3 text-secondary group-hover:text-primary" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="w-min rounded-md border border-subtle bg-layer-1 p-2 text-11 whitespace-nowrap">
-              {t("issue.select.empty")}
-            </div>
+        <Combobox
+          as="div"
+          className="flex min-h-0 flex-1 flex-col"
+          multiple
+          by="id"
+          value={selectedIssues}
+          onChange={(value: ISearchIssueResponse[]) => setSelectedIssues(value)}
+        >
+          <div className="relative mx-4 mb-3">
+            <Search className="pointer-events-none absolute top-3 left-3 size-4 text-placeholder" aria-hidden="true" />
+            <Combobox.Input
+              ref={focusSearch}
+              className="h-10 w-full rounded-md border border-subtle bg-transparent pr-9 pl-9 text-13 text-primary outline-none placeholder:text-placeholder focus:border-accent-strong"
+              placeholder={searchInputPlaceholder ?? t("issue.select.filters.search_placeholder")}
+              aria-label={t("issue.select.filters.search_placeholder")}
+              value={searchTerm}
+              onChange={(event) => {
+                setSearchTerm(event.target.value);
+                setShowSelected(false);
+              }}
+              tabIndex={baseTabIndex}
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                className="absolute top-2.5 right-2.5 text-secondary"
+                aria-label={t("issue.select.filters.clear_search")}
+                onClick={() => setSearchTerm("")}
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+          {isOpen && workspaceSlug && (
+            <IssuePickerFilterBar
+              workspaceSlug={workspaceSlug}
+              projectId={projectId}
+              allowProjects={workspaceLevelToggle}
+              value={filters}
+              onChange={(value) => {
+                setFilters(value);
+                setShowSelected(false);
+              }}
+            />
           )}
-          {workspaceLevelToggle && (
-            <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
-              {!isWorkspaceLevel && projectFilterOptions.length > 0 && (
-                <label className="flex items-center gap-2 text-11 text-secondary">
-                  <span className="hidden sm:inline">Проект</span>
-                  <select
-                    value={selectedProjectFilterId ?? ""}
-                    onChange={(e) => setSelectedProjectFilterId(e.target.value || undefined)}
-                    className="focus:border-custom-primary-100 h-8 max-w-56 rounded-md border border-subtle bg-layer-1 px-2 text-12 text-primary outline-none"
-                  >
-                    {projectFilterOptions.map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <Tooltip tooltipContent={workspaceLevelTooltip ?? "Toggle workspace level search"} isMobile={isMobile}>
-                <div
-                  className={`flex cursor-pointer items-center gap-1 text-11 ${
-                    isWorkspaceLevel ? "text-primary" : "text-secondary"
-                  }`}
-                >
-                  <ToggleSwitch
-                    value={isWorkspaceLevel}
-                    onChange={() => {
-                      setIsWorkspaceLevel((prevData) => !prevData);
-                      setSelectedProjectFilterId(projectId);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsWorkspaceLevel((prevData) => !prevData);
-                      setSelectedProjectFilterId(projectId);
-                    }}
-                    className="flex-shrink-0"
-                  >
-                    {workspaceLevelLabel ?? t("common.workspace_level")}
-                  </button>
-                </div>
-              </Tooltip>
-            </div>
-          )}
-        </div>
-
-        <Combobox.Options static className="vertical-scrollbar scrollbar-md max-h-80 scroll-py-2 overflow-y-auto">
-          {/* TODO: Translate here */}
-          {searchTerm !== "" && (
-            <h5 className="mx-2 text-13 text-secondary">
-              Search results for{" "}
-              <span className="text-primary">
-                {'"'}
-                {searchTerm}
-                {'"'}
-              </span>{" "}
-              {isWorkspaceLevel ? "across workspace:" : "in selected project:"}
-            </h5>
-          )}
-
-          {isSearching || isLoading ? (
-            <Loader className="space-y-3 p-3">
-              <Loader.Item height="40px" />
-              <Loader.Item height="40px" />
-              <Loader.Item height="40px" />
-              <Loader.Item height="40px" />
-            </Loader>
-          ) : (
-            <>
-              {filteredIssues.length === 0 ? (
-                <IssueSearchModalEmptyState
-                  debouncedSearchTerm={debouncedSearchTerm}
-                  isSearching={isSearching}
-                  issues={filteredIssues}
-                  searchTerm={searchTerm}
-                />
-              ) : (
-                <ul className={`text-13 text-primary ${filteredIssues.length > 0 ? "p-2" : ""}`}>
-                  {filteredIssues.map((issue) => {
-                    const selected = selectedIssues.some((i) => i.id === issue.id);
-
-                    return (
-                      <Combobox.Option
-                        key={issue.id}
-                        as="label"
-                        htmlFor={`issue-${issue.id}`}
-                        value={issue}
-                        className={({ active }) =>
-                          `group my-0.5 flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-secondary select-none ${
-                            active ? "bg-layer-1 text-primary" : ""
-                          } ${selected ? "text-primary" : ""}`
-                        }
+          <div className="flex items-center justify-between gap-2 px-4 py-2 text-11 text-tertiary">
+            <span aria-live="polite">
+              {showSelected
+                ? t("issue.select.filters.selected_list")
+                : loading || waitingForSearch
+                  ? t("issue.select.filters.searching")
+                  : `${t("issue.select.filters.shown")}: ${filteredIssues.length}${hasMore ? "+" : ""}`}
+            </span>
+            <button
+              type="button"
+              aria-pressed={showSelected}
+              className={`rounded-sm px-1 py-0.5 ${showSelected || selectedIssues.length ? "text-accent-primary" : "text-secondary"}`}
+              onClick={() => setShowSelected(!showSelected)}
+            >
+              {showSelected
+                ? t("issue.select.filters.back_to_results")
+                : `${t("issue.select.filters.selected")}: ${selectedIssues.length}`}
+            </button>
+          </div>
+          <Combobox.Options
+            static
+            className="vertical-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2 sm:max-h-80 sm:min-h-48"
+          >
+            {!showSelected && (loading || waitingForSearch) ? (
+              <Loader className="space-y-3 p-3">
+                <Loader.Item height="44px" />
+                <Loader.Item height="44px" />
+                <Loader.Item height="44px" />
+              </Loader>
+            ) : (
+              <>
+                {!showSelected && error && (
+                  <div role="alert" className="px-3 py-4 text-center text-13 text-secondary">
+                    <p>{t("issue.select.filters.search_error")}</p>
+                    <button
+                      type="button"
+                      className="mt-2 text-accent-primary"
+                      onClick={issues.length ? loadMore : retry}
+                    >
+                      {t("issue.select.filters.retry")}
+                    </button>
+                  </div>
+                )}
+                {visibleIssues.length === 0 && (showSelected || !error) && (
+                  <div className="px-4 py-10 text-center">
+                    <p className="text-13 text-secondary">
+                      {t(showSelected ? "issue.select.empty" : "issue.select.filters.no_results")}
+                    </p>
+                    {!showSelected && (
+                      <p className="mt-1 text-12 text-tertiary">{t("issue.select.filters.no_results_hint")}</p>
+                    )}
+                    {hasFilters && !showSelected && (
+                      <button
+                        type="button"
+                        className="mt-3 text-12 text-accent-primary"
+                        onClick={() => setFilters(emptyPickerFilters())}
                       >
-                        <div className="flex min-w-0 items-center gap-2">
-                          <input type="checkbox" checked={selected} readOnly />
-                          <span
-                            className="block h-1.5 w-1.5 flex-shrink-0 rounded-full"
-                            style={{
-                              backgroundColor: issue.state__color,
-                            }}
-                          />
-                          <span className="flex-shrink-0">
+                        {t("issue.select.filters.reset")}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {visibleIssues.map((issue) => {
+                  const selected = selectedIssues.some((item) => item.id === issue.id);
+                  const assignees = (issue.assignee_ids ?? [])
+                    .map((id) => getUserDetails(id)?.display_name)
+                    .filter(Boolean)
+                    .join(", ");
+                  return (
+                    <Combobox.Option
+                      key={issue.id}
+                      value={issue}
+                      className={({ active }) =>
+                        `group my-0.5 flex cursor-pointer items-center gap-3 rounded-md px-2 py-2.5 text-13 ${active ? "bg-layer-1" : selected ? "bg-layer-1/50" : ""}`
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        readOnly
+                        tabIndex={-1}
+                        aria-label={issue.name}
+                        className="pointer-events-none size-3.5 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="shrink-0 text-12 text-secondary">
                             <IssueIdentifier
                               projectId={issue.project_id}
                               issueTypeId={issue.type_id}
@@ -373,61 +304,81 @@ export function ExistingIssuesListModal(props: Props) {
                               variant="secondary"
                             />
                           </span>
-                          <span className="flex min-w-0 flex-col">
-                            <span className="truncate">{issue.name}</span>
-                            {issue.project__name && (
-                              <span className="truncate text-11 text-tertiary">{issue.project__name}</span>
-                            )}
+                          <span className="truncate text-primary" title={issue.name}>
+                            {issue.name}
                           </span>
                         </div>
-                        <a
-                          href={generateWorkItemLink({
-                            workspaceSlug,
-                            projectId: issue?.project_id,
-                            issueId: issue?.id,
-                            projectIdentifier: issue.project__identifier,
-                            sequenceId: issue?.sequence_id,
-                          })}
-                          target="_blank"
-                          className="relative z-1 hidden flex-shrink-0 text-secondary group-hover:block hover:text-primary"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Rocket className="h-4 w-4" />
-                        </a>
-                      </Combobox.Option>
-                    );
-                  })}
-                </ul>
-              )}
-            </>
-          )}
-        </Combobox.Options>
-      </Combobox>
-      <div className="flex items-center justify-between p-3">
-        <Button
-          variant="link"
-          onClick={handleSelectIssues}
-          disabled={filteredIssues.length === 0}
-          className={filteredIssues.length === 0 ? "p-0" : ""}
-        >
-          {areAllFilteredIssuesSelected ? t("issue.select.deselect_all") : t("issue.select.select_all")}
-        </Button>
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" size="lg" onClick={handleClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={onSubmit}
-            loading={isSubmitting}
-            disabled={isSubmitting || selectedIssues.length === 0}
+                        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-11 text-tertiary">
+                          <span
+                            className="size-1.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: issue.state__color }}
+                          />
+                          <span className="truncate">{issue.state__name}</span>
+                          <span>·</span>
+                          <span className="truncate">{assignees || t("unassigned")}</span>
+                          {workspaceLevelToggle && issue.project__name && (
+                            <>
+                              <span>·</span>
+                              <span className="truncate">{issue.project__name}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <a
+                        href={generateWorkItemLink({
+                          workspaceSlug,
+                          projectId: issue.project_id,
+                          issueId: issue.id,
+                          projectIdentifier: issue.project__identifier,
+                          sequenceId: issue.sequence_id,
+                        })}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`${t("issue.open_in_full_screen")}: ${issue.name}`}
+                        className="shrink-0 rounded-sm p-1 text-secondary opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <ExternalLink className="size-3.5" />
+                      </a>
+                    </Combobox.Option>
+                  );
+                })}
+                {!showSelected && hasMore && !error && (
+                  <div className="p-2 text-center">
+                    <Button variant="secondary" onClick={loadMore} disabled={loadingMore} loading={loadingMore}>
+                      {t("issue.select.filters.load_more")}
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </Combobox.Options>
+        </Combobox>
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-subtle p-3">
+          <button
+            type="button"
+            onClick={selectVisible}
+            disabled={!visibleIssues.length || (!showSelected && (loading || waitingForSearch))}
+            className="text-12 text-accent-primary disabled:opacity-40"
           >
-            {isSubmitting ? t("common.adding") : t("issue.select.add_selected")}
-          </Button>
+            {t(allSelected ? "issue.select.deselect_all" : "issue.select.filters.select_shown")}
+          </button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="lg" onClick={onClose} disabled={isSubmitting}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={onSubmit}
+              loading={isSubmitting}
+              disabled={isSubmitting || !selectedIssues.length}
+            >
+              {isSubmitting ? t("common.adding") : `${t("issue.select.filters.add")} (${selectedIssues.length})`}
+            </Button>
+          </div>
         </div>
       </div>
     </ModalCore>
   );
-}
+});

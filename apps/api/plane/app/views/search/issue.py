@@ -3,16 +3,33 @@
 # See the LICENSE file for details.
 
 # Django imports
-from django.db.models import Q, QuerySet
+from django.db.models import OuterRef, Q, QuerySet
+from django.contrib.postgres.expressions import ArraySubquery
 
 # Third party imports
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.response import Response
 
 # Module imports
 from .base import BaseAPIView
-from plane.db.models import Issue, ProjectMember, IssueRelation
+from plane.db.models import Issue, IssueAssignee, IssueLabel, ProjectMember, IssueRelation
 from plane.utils.issue_search import search_issues
+
+
+class IssueSearchFiltersSerializer(serializers.Serializer):
+    project_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    state_groups = serializers.ListField(
+        child=serializers.ChoiceField(choices=["backlog", "unstarted", "started", "completed", "cancelled"]),
+        required=False,
+    )
+    assignee_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    unassigned = serializers.BooleanField(default=False)
+    priorities = serializers.ListField(
+        child=serializers.ChoiceField(choices=["urgent", "high", "medium", "low", "none"]), required=False
+    )
+    label_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    offset = serializers.IntegerField(min_value=0, default=0)
+    limit = serializers.IntegerField(min_value=1, max_value=100, default=100)
 
 
 class IssueSearchEndpoint(BaseAPIView):
@@ -97,6 +114,13 @@ class IssueSearchEndpoint(BaseAPIView):
         return issues
 
     def get(self, request, slug, project_id):
+        filter_data = request.query_params.dict()
+        for key in ("project_ids", "state_groups", "assignee_ids", "priorities", "label_ids"):
+            if key in filter_data:
+                filter_data[key] = [value for value in filter_data[key].split(",") if value]
+        serializer = IssueSearchFiltersSerializer(data=filter_data)
+        serializer.is_valid(raise_exception=True)
+        filters = serializer.validated_data
         query = request.query_params.get("search", False)
         workspace_search = request.query_params.get("workspace_search", "false")
         parent = request.query_params.get("parent", "false")
@@ -143,6 +167,39 @@ class IssueSearchEndpoint(BaseAPIView):
         ).exists():
             issues = issues.filter(created_by=self.request.user)
 
+        # Filter before pagination; never derive filter choices from the first page.
+        for param, field in (
+            ("project_ids", "project_id"),
+            ("state_groups", "state__group"),
+            ("priorities", "priority"),
+        ):
+            if filters.get(param):
+                issues = issues.filter(**{f"{field}__in": filters[param]})
+
+        assignments = IssueAssignee.objects.filter(deleted_at__isnull=True)
+        if filters.get("assignee_ids") or filters["unassigned"]:
+            assignee_filter = Q(
+                pk__in=assignments.filter(assignee_id__in=filters.get("assignee_ids", [])).values("issue_id")
+            )
+            if filters["unassigned"]:
+                assignee_filter |= ~Q(pk__in=assignments.values("issue_id"))
+            issues = issues.filter(assignee_filter)
+        if filters.get("label_ids"):
+            issues = issues.filter(
+                pk__in=IssueLabel.objects.filter(label_id__in=filters["label_ids"], deleted_at__isnull=True).values(
+                    "issue_id"
+                )
+            )
+
+        issues = (
+            issues.annotate(
+                assignee_ids=ArraySubquery(assignments.filter(issue_id=OuterRef("pk")).values("assignee_id"))
+            )
+            .order_by("-created_at", "-id")
+            .distinct()
+        )
+        offset = filters["offset"]
+
         return Response(
             issues.values(
                 "name",
@@ -156,6 +213,9 @@ class IssueSearchEndpoint(BaseAPIView):
                 "state__name",
                 "state__group",
                 "state__color",
-            )[:100],
+                "priority",
+                "type_id",
+                "assignee_ids",
+            )[offset : offset + filters["limit"]],
             status=status.HTTP_200_OK,
         )

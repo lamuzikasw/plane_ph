@@ -238,7 +238,52 @@
       "empty": "No work items selected",
       "add_selected": "Add selected work items",
       "select_all": "Select all",
-      "deselect_all": "Deselect all"
+      "deselect_all": "Deselect all",
+      "filters": {
+        "project_ids": "Project",
+        "state_groups": "Status",
+        "assignees": "Assignee",
+        "priorities": "Priority",
+        "label_ids": "Labels",
+        "more": "More filters",
+        "me": "Me",
+        "reset": "Reset filters",
+        "remove": "Remove filter",
+        "no_options": "No options found",
+        "options_error": "Could not load filters. Retry",
+        "states": {
+          "backlog": "Backlog",
+          "unstarted": "Not started",
+          "started": "In progress",
+          "completed": "Completed",
+          "cancelled": "Cancelled"
+        },
+        "priority_values": {
+          "urgent": "Urgent",
+          "high": "High",
+          "medium": "Medium",
+          "low": "Low",
+          "none": "No priority"
+        },
+        "title": "Add work items",
+        "sub_items_title": "Add sub-items",
+        "relations_title": "Add relation",
+        "search_placeholder": "Search by name or ID…",
+        "clear_search": "Clear search",
+        "selected_list": "Selected work items",
+        "searching": "Searching…",
+        "shown": "Shown",
+        "selected": "Selected",
+        "back_to_results": "Back to results",
+        "no_results": "No work items found",
+        "no_results_hint": "Try another search or change the filters.",
+        "search_error": "Could not load work items.",
+        "submit_error": "Could not add work items. Your selection has been kept.",
+        "retry": "Retry",
+        "load_more": "Load more",
+        "select_shown": "Select shown",
+        "add": "Add"
+      }
     },
     "open_in_full_screen": "Open work item in full screen",
     "duplicate": {

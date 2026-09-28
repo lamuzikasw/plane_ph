@@ -156,6 +156,14 @@ export type TProjectIssuesSearchParams = {
   workspace_search: boolean;
   target_date?: string;
   epic?: boolean;
+  project_ids?: string;
+  state_groups?: string;
+  assignee_ids?: string;
+  unassigned?: boolean;
+  priorities?: string;
+  label_ids?: string;
+  offset?: number;
+  limit?: number;
 };
 
 export interface ISearchIssueResponse {
@@ -171,6 +179,8 @@ export interface ISearchIssueResponse {
   state__name: string;
   workspace__slug: string;
   type_id: string;
+  assignee_ids?: string[];
+  priority?: string;
 }
 
 export type TPartialProject = IPartialProject;
