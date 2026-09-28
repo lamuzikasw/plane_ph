@@ -246,6 +246,7 @@
         "priorities": "Priority",
         "label_ids": "Labels",
         "more": "More filters",
+        "hide": "Hide filters",
         "me": "Me",
         "reset": "Reset filters",
         "remove": "Remove filter",

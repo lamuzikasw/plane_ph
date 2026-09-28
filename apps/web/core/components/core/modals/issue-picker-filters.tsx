@@ -145,7 +145,7 @@ export const IssuePickerFilterBar = observer(function IssuePickerFilterBar({
           className="flex h-8 items-center gap-1.5 rounded-md px-2 text-12 text-secondary hover:bg-layer-1 focus-visible:outline-2"
         >
           <SlidersHorizontal className="size-3.5" />
-          {t("issue.select.filters.more")}
+          {t(expanded ? "issue.select.filters.hide" : "issue.select.filters.more")}
           {moreCount > 0 && ` (${moreCount})`}
         </button>
       </div>
