@@ -4,19 +4,31 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { TIssueComment, TCommentsOperations } from "@plane/types";
 
-const mocks = vi.hoisted(() => ({ clear: vi.fn(), focus: vi.fn(), create: vi.fn(), posted: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  clear: vi.fn(),
+  focus: vi.fn(),
+  create: vi.fn(),
+  posted: vi.fn(),
+  upload: vi.fn(),
+  attach: vi.fn(),
+}));
 vi.mock("@/hooks/store/use-workspace", () => ({ useWorkspace: () => ({ getWorkspaceBySlug: () => ({ id: "w" }) }) }));
 vi.mock("@plane/i18n", () => ({
   useTranslation: () => ({ t: (key: string, args?: { name: string }) => (args ? `Ответ: ${args.name}` : key) }),
 }));
 vi.mock("@/hooks/store/use-member", () => ({ useMember: () => ({ getUserDetails: () => undefined }) }));
-vi.mock("@/services/file.service", () => ({ FileService: vi.fn() }));
+vi.mock("@/services/file.service", () => ({
+  FileService: class {
+    updateBulkProjectAssetsUploadStatus = mocks.attach;
+  },
+}));
 vi.mock("@/components/editor/lite-text", () => ({
   LiteTextEditor: forwardRef(function Editor(
     props: {
       id: string;
       onChange: (json: object, html: string) => void;
       onEnterKeyPress: (e: React.MouseEvent<HTMLButtonElement>) => void;
+      uploadFile: (blockId: string, file: File) => Promise<string>;
     },
     ref
   ) {
@@ -25,6 +37,13 @@ vi.mock("@/components/editor/lite-text", () => ({
       <div data-editor={props.id}>
         <button onClick={() => props.onChange({}, "<p>My reply</p>")}>Type</button>
         <button onClick={props.onEnterKeyPress}>Send</button>
+        <button
+          onClick={() =>
+            props.uploadFile("image-block", new File(["image"], "image.png", { type: "image/png" })).catch(() => {})
+          }
+        >
+          Paste image
+        </button>
       </div>
     );
   }),
@@ -49,6 +68,37 @@ afterEach(async () => {
 async function click(label: string) {
   await act(async () => [...document.querySelectorAll("button")].find((b) => b.textContent === label)!.click());
 }
+it.each([
+  [new Error("Network error"), "issue.comments.upload.error"],
+  [
+    new Error("Upload failed", { cause: new DOMException("Clipboard file is inaccessible", "NotReadableError") }),
+    "issue.comments.upload.unreadable_file",
+  ],
+])("reports %s without clearing the draft and attaches a retry to the new reply", async (error, message) => {
+  mocks.upload.mockRejectedValueOnce(error).mockResolvedValueOnce({ asset_id: "image" });
+  mocks.create.mockResolvedValue({ id: "new-reply" });
+  await act(async () =>
+    root.render(
+      <CommentCreate
+        workspaceSlug="w"
+        entityId="issue"
+        projectId="project"
+        parentComment={{ id: "parent", access: "INTERNAL" } as TIssueComment}
+        activityOperations={
+          { createComment: mocks.create, uploadCommentAsset: mocks.upload } as unknown as TCommentsOperations
+        }
+      />
+    )
+  );
+  await click("Type");
+  await click("Paste image");
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe(message);
+  expect(mocks.clear).not.toHaveBeenCalled();
+  await click("Paste image");
+  expect(document.querySelector('[role="alert"]')).toBeNull();
+  await click("Send");
+  expect(mocks.attach).toHaveBeenCalledWith("w", "project", "new-reply", { asset_ids: ["image"] });
+});
 it("preserves a failed draft, retries with parent identity/visibility, and clears only after success", async () => {
   mocks.create.mockResolvedValueOnce(undefined).mockResolvedValueOnce({ id: "reply" });
   await act(async () =>

@@ -127,6 +127,7 @@
         "error": "Comment remove failed. Please try again later."
       },
       "upload": {
+        "unreadable_file": "The browser cannot read this clipboard file. Save the image to your computer and select it using the add image button.",
         "error": "Asset upload failed. Please try again later."
       },
       "copy_link": {

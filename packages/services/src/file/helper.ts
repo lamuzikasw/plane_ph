@@ -68,10 +68,12 @@ export const generateFileUploadPayload = (signedURLResponse: TFileSignedURLRespo
  * @returns {Promise<string>} detected MIME type or empty string if unknown
  */
 const detectMimeTypeFromSignature = async (file: File): Promise<string> => {
+  // Clipboard file references can outlive access to their backing file (for
+  // example when copied from Telegram on macOS). A read failure is not an
+  // unknown format: let the caller report it instead of uploading type: "".
+  const chunk = file.slice(0, 4096);
+  const buffer = await chunk.arrayBuffer();
   try {
-    // Read first 4KB which is usually sufficient for most file type detection
-    const chunk = file.slice(0, 4096);
-    const buffer = await chunk.arrayBuffer();
     const uint8Array = new Uint8Array(buffer);
 
     const fileType = await fileTypeFromBuffer(uint8Array);
@@ -108,18 +110,8 @@ const validateAndDetectFileType = async (file: File): Promise<string> => {
     console.warn(`File validation warning: ${filenameError}`);
   }
 
-  try {
-    const signatureType = await detectMimeTypeFromSignature(file);
-    if (signatureType) {
-      return signatureType;
-    }
-
-    return detectMimeTypeFromExtension(file.name);
-  } catch (_error) {
-    console.warn("Error detecting file type from signature:", _error);
-  }
-
-  return detectMimeTypeFromExtension(file.name);
+  const signatureType = await detectMimeTypeFromSignature(file);
+  return signatureType || detectMimeTypeFromExtension(file.name);
 };
 
 /**

@@ -51,6 +51,7 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
   const { t } = useTranslation();
   // states
   const [uploadedAssetIds, setUploadedAssetIds] = useState<string[]>([]);
+  const [uploadError, setUploadError] = useState<"unreadable" | "generic" | null>(null);
   // refs
   const editorRef = useRef<EditorRefApi>(null);
   const submittingRef = useRef(false);
@@ -93,11 +94,11 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
       try {
         if (uploadedAssetIds.length > 0) {
           if (projectId) {
-            await fileService.updateBulkProjectAssetsUploadStatus(workspaceSlug, projectId.toString(), entityId, {
+            await fileService.updateBulkProjectAssetsUploadStatus(workspaceSlug, projectId.toString(), comment.id, {
               asset_ids: uploadedAssetIds,
             });
           } else {
-            await fileService.updateBulkWorkspaceAssetsUploadStatus(workspaceSlug, entityId, {
+            await fileService.updateBulkWorkspaceAssetsUploadStatus(workspaceSlug, comment.id, {
               asset_ids: uploadedAssetIds,
             });
           }
@@ -106,6 +107,7 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
         // The message is persisted even if attachment bookkeeping fails; don't
         // leave it in the composer where retrying would create a duplicate.
         setUploadedAssetIds([]);
+        setUploadError(null);
         reset({ comment_html: "<p></p>" });
         editorRef.current?.clearEditor();
         onSubmitCallback?.(comment.id);
@@ -174,9 +176,23 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
                 handleAccessChange={parentComment ? undefined : onAccessChange}
                 isSubmitting={isSubmitting}
                 uploadFile={async (blockId, file) => {
-                  const { asset_id } = await activityOperations.uploadCommentAsset(blockId, file);
-                  setUploadedAssetIds((prev) => [...prev, asset_id]);
-                  return asset_id;
+                  setUploadError(null);
+                  try {
+                    const { asset_id } = await activityOperations.uploadCommentAsset(blockId, file);
+                    setUploadedAssetIds((prev) => [...prev, asset_id]);
+                    return asset_id;
+                  } catch (error) {
+                    const cause = error instanceof Error && error.cause ? error.cause : error;
+                    setUploadError(
+                      typeof cause === "object" &&
+                        cause !== null &&
+                        "name" in cause &&
+                        cause.name === "NotReadableError"
+                        ? "unreadable"
+                        : "generic"
+                    );
+                    throw error;
+                  }
                 }}
                 duplicateFile={async (assetId: string) => {
                   const { asset_id } = await activityOperations.duplicateCommentAsset(assetId);
@@ -193,6 +209,11 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
           />
         )}
       />
+      {uploadError && (
+        <p role="alert" className="mt-2 text-body-sm-regular text-danger-primary">
+          {t(uploadError === "unreadable" ? "issue.comments.upload.unreadable_file" : "issue.comments.upload.error")}
+        </p>
+      )}
       {onCancel && (
         <button
           type="button"
