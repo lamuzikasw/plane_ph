@@ -94,3 +94,4 @@ from .sticky import Sticky
 
 from .description import Description, DescriptionVersion
 from .issue_placement import IssuePlacement
+from .telegram import TelegramConnection, TelegramDelivery, TelegramEvent, TelegramMute, TelegramBotState

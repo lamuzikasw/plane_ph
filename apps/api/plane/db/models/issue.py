@@ -492,6 +492,10 @@ class IssueComment(ChangeTrackerMixin, ProjectBaseModel):
 
     TRACKED_FIELDS = ["comment_stripped", "comment_json", "comment_html"]
 
+    reply_to = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="direct_replies"
+    )
+
     def save(self, *args, **kwargs):
         """
         Custom save method for IssueComment that manages the associated Description model.

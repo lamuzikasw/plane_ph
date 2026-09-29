@@ -87,7 +87,7 @@ export const CommentCreate = observer(function CommentCreate(props: TCommentCrea
     try {
       const comment = await activityOperations.createComment({
         ...formData,
-        ...(parentComment ? { parent: parentComment.id, access: parentComment.access } : {}),
+        ...(parentComment ? { parent: parentComment.id, access: parentComment.access, reply_to: replyTarget?.id } : {}),
       });
       // The operations layer reports errors with a toast and can return undefined.
       if (!comment?.id) return;

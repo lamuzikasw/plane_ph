@@ -3,6 +3,7 @@
 # See the LICENSE file for details.
 
 from django.urls import path
+from plane.app.views.notification.telegram import TelegramSettingsEndpoint
 
 
 from plane.app.views import (
@@ -14,6 +15,7 @@ from plane.app.views import (
 
 
 urlpatterns = [
+    path("users/me/telegram/", TelegramSettingsEndpoint.as_view(), name="telegram-settings"),
     path(
         "workspaces/<str:slug>/users/notifications/",
         NotificationViewSet.as_view({"get": "list"}),

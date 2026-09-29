@@ -1,0 +1,16 @@
+[Unit]
+Description=Plane Telegram notifications
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/docker exec -e PYTHONUNBUFFERED=1 plane-app-api-1 python manage.py telegram_worker
+ExecStop=-/usr/bin/docker exec plane-app-api-1 pkill -TERM -f "^python manage.py telegram_worker$"
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

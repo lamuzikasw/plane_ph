@@ -305,7 +305,7 @@ def notifications(
             if type == "comment.activity.created":
                 payload = json.loads(requested_data) if requested_data else {}
                 parent = IssueComment.objects.filter(
-                    pk=payload.get("parent"), issue_id=issue_id, project_id=project_id
+                    pk=payload.get("reply_to") or payload.get("parent"), issue_id=issue_id, project_id=project_id
                 ).first()
                 if (
                     parent

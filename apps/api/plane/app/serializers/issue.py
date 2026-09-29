@@ -771,6 +771,14 @@ class IssueCommentSerializer(BaseSerializer):
             if "access" in attrs and attrs["access"] != parent.access:
                 raise serializers.ValidationError({"access": "Replies inherit their parent's visibility."})
             attrs["access"] = parent.access
+        reply_to = attrs.get("reply_to", self.instance.reply_to if self.instance else None)
+        if self.instance and "reply_to" in attrs and attrs["reply_to"] != self.instance.reply_to:
+            raise serializers.ValidationError({"reply_to": "The reply recipient cannot be changed."})
+        if reply_to and (
+            not parent or reply_to.deleted_at or
+            (reply_to.pk != parent.pk and reply_to.parent_id != parent.pk)
+        ):
+            raise serializers.ValidationError({"reply_to": "Reply to a live comment in the same thread."})
         if "comment_html" in attrs and attrs["comment_html"]:
             is_valid, error_msg, sanitized_html = validate_html_content(attrs["comment_html"])
             if not is_valid:

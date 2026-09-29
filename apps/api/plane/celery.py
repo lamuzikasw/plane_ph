@@ -42,6 +42,10 @@ app = Celery("plane")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 
 app.conf.beat_schedule = {
+    "telegram-notifications": {
+        "task": "plane.bgtasks.telegram_task.dispatch_telegram",
+        "schedule": 30.0,
+    },
     # Intra day recurring jobs
     "create-due-recurring-work-items": {
         "task": "plane.bgtasks.recurring_issue_task.create_due_recurring_issues",

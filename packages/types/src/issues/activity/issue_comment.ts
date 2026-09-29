@@ -25,6 +25,7 @@ export type TCommentReaction = {
 export type TIssueComment = {
   id: string;
   parent?: string | null;
+  reply_to?: string | null;
   is_unread?: boolean;
   deleted_at?: string | null;
   workspace: string;

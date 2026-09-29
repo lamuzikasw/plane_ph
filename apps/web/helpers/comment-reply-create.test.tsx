@@ -168,3 +168,22 @@ it("shows the selected reply's author and quote, preserves the draft when switch
     expect.objectContaining({ parent: "parent", comment_html: "<p>My reply</p>" })
   );
 });
+
+it("sends the selected reply as the recipient while keeping the root thread", async () => {
+  mocks.create.mockResolvedValue({ id: "new-reply" });
+  await act(() =>
+    root.render(
+      <CommentCreate
+        workspaceSlug="w"
+        entityId="issue"
+        projectId="project"
+        activityOperations={{ createComment: mocks.create } as unknown as TCommentsOperations}
+        parentComment={{ id: "root", access: "INTERNAL" } as TIssueComment}
+        replyToComment={{ id: "selected-reply", parent: "root", access: "INTERNAL" } as TIssueComment}
+      />
+    )
+  );
+  await click("Type");
+  await click("Send");
+  expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ parent: "root", reply_to: "selected-reply" }));
+});

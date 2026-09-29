@@ -12,6 +12,7 @@ from celery import shared_task
 # Django imports
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
+from django.db import transaction
 
 
 # Module imports
@@ -1581,7 +1582,11 @@ def issue_activity(
             )
 
         # Save all the values to database
-        issue_activities_created = IssueActivity.objects.bulk_create(issue_activities)
+        from plane.utils.telegram import enqueue_activities
+
+        with transaction.atomic():
+            issue_activities_created = IssueActivity.objects.bulk_create(issue_activities)
+            enqueue_activities(issue_activities_created)
 
         if notification:
             notifications.delay(

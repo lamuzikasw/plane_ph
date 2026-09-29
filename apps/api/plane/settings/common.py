@@ -351,7 +351,15 @@ CELERY_IMPORTS = (
     # Igor large specification processing
     "plane.bgtasks.igor_capture_task",
     "plane.bgtasks.recurring_issue_task",
+    "plane.bgtasks.telegram_task",
 )
+
+TELEGRAM_ENABLED = os.environ.get("TELEGRAM_ENABLED", "0") == "1"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "")
+# Explicit pilot recipients; '*' enables delivery for all confirmed connections.
+# Empty means no task content leaves the instance.
+TELEGRAM_DELIVERY_USER_IDS = os.environ.get("TELEGRAM_DELIVERY_USER_IDS", "").split(",")
 
 FILE_SIZE_LIMIT = int(os.environ.get("FILE_SIZE_LIMIT", 5242880))
 
