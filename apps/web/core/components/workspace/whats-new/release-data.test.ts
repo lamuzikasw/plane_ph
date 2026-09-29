@@ -7,11 +7,13 @@
 import { describe, expect, it } from "vitest";
 import {
   getReleaseBySlug,
+  getReleaseActionHref,
   hasUnseenRelease,
   LATEST_RELEASE,
   PATCH_1_0,
   PATCH_1_1,
   PATCH_1_2,
+  PATCH_1_3,
   PRODUCT_RELEASES,
   shouldResetReleaseScroll,
   WHATS_NEW_LAST_SEEN_STORAGE_KEY,
@@ -19,11 +21,13 @@ import {
 
 describe("release archive", () => {
   it("keeps the newest release first and resolves release URLs", () => {
-    expect(PRODUCT_RELEASES.map((release) => release.slug)).toEqual(["1-2", "1-1", "1-0"]);
-    expect(LATEST_RELEASE).toBe(PATCH_1_2);
+    expect(PRODUCT_RELEASES.map((release) => release.slug)).toEqual(["1-3", "1-2", "1-1", "1-0"]);
+    expect(LATEST_RELEASE).toBe(PATCH_1_3);
     expect(getReleaseBySlug("1-0")).toBe(PATCH_1_0);
     expect(getReleaseBySlug("1-1")).toBe(PATCH_1_1);
-    expect(getReleaseBySlug("unknown")).toBe(PATCH_1_2);
+    expect(getReleaseBySlug("1-2")).toBe(PATCH_1_2);
+    expect(getReleaseBySlug("1-3")).toBe(PATCH_1_3);
+    expect(getReleaseBySlug("unknown")).toBe(PATCH_1_3);
   });
 
   it("uses one browser-wide marker for the application release", () => {
@@ -34,13 +38,31 @@ describe("release archive", () => {
     expect(hasUnseenRelease(null)).toBe(true);
     expect(hasUnseenRelease("1-0")).toBe(true);
     expect(hasUnseenRelease("1-1")).toBe(true);
-    expect(hasUnseenRelease("1-2")).toBe(false);
+    expect(hasUnseenRelease("1-2")).toBe(true);
+    expect(hasUnseenRelease("1-3")).toBe(false);
   });
 
   it("resets the page position only when the selected release changes", () => {
     expect(shouldResetReleaseScroll(null, "1-1")).toBe(false);
     expect(shouldResetReleaseScroll("1-1", "1-1")).toBe(false);
     expect(shouldResetReleaseScroll("1-0", "1-1")).toBe(true);
+  });
+});
+
+describe("patch 1.3 navigation", () => {
+  it("opens personal notification settings outside the workspace routes", () => {
+    const actions = [
+      ...PATCH_1_3.actions,
+      ...PATCH_1_3.features.map((feature) => feature.action),
+      PATCH_1_3.footer.action,
+    ];
+    for (const action of actions) {
+      expect(getReleaseActionHref(action, "payholder")).toBe(
+        action.href.startsWith("/settings/profile/") ? action.href : `/payholder${action.href}`
+      );
+    }
+    expect(getReleaseActionHref({ label: "Projects", href: "/projects/" }, "")).toBe("/projects/");
+    expect(getReleaseActionHref({ label: "Assistant", event: "open-igor" }, "payholder")).toBeUndefined();
   });
 });
 

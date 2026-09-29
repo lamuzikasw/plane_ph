@@ -19,12 +19,13 @@ export type TReleaseFeatureIcon =
   | "tasks"
   | "today"
   | "updates";
-export type TReleasePreview = "gantt" | "igor" | "igor-specification";
+export type TReleasePreview = "gantt" | "igor" | "igor-specification" | "collaboration";
 export type TReleaseActionEvent = "open-igor";
 
 export type TReleaseAction = {
   label: string;
   href?: string;
+  scope?: "workspace" | "profile";
   event?: TReleaseActionEvent;
 };
 
@@ -55,6 +56,7 @@ export type TProductRelease = {
   featureTitle: string;
   featureSummary: string;
   features: TReleaseFeature[];
+  fixes?: string[];
   footer: {
     title: string;
     description: string;
@@ -62,10 +64,131 @@ export type TProductRelease = {
   };
 };
 
+export const PATCH_1_3 = {
+  slug: "1-3",
+  version: "Патч 1.3",
+  status: "Новый",
+  releasedAt: "29 сентября 2026",
+  title: "Общие задачи, обсуждения и уведомления",
+  summary:
+    "Работайте над одной задачей в нескольких проектах, отвечайте в ветках и получайте адресованные вам уведомления в Telegram. Собрали новые возможности и исправления с патча 1.2.",
+  preview: "collaboration",
+  actions: [
+    { label: "Подключить Telegram", href: "/settings/profile/notifications/", scope: "profile" },
+    { label: "Открыть проекты", href: "/projects/" },
+  ],
+  featureTitle: "Договорённости остаются рядом с задачей",
+  featureSummary: "Общие карточки для команд, понятные обсуждения и уведомления с учётом вашего рабочего времени.",
+  features: [
+    {
+      id: "shared-tasks",
+      label: "Общие задачи",
+      title: "Одна задача на нескольких досках",
+      description: "Добавляйте существующую задачу в другие проекты без копирования описания и обсуждения.",
+      highlights: [
+        "Описание, исполнители, сроки, комментарии и вложения остаются общими",
+        "Статусы синхронизируются с учётом рабочего процесса каждого проекта",
+        "В поле «Проекты» видны все размещения и ссылки на них",
+        "Удаление дополнительного размещения сохраняет исходную задачу",
+      ],
+      icon: "tasks",
+      action: { label: "Открыть проекты", href: "/projects/" },
+    },
+    {
+      id: "comment-threads",
+      label: "Обсуждения",
+      title: "Ответы собираются в отдельные ветки",
+      description: "Отвечайте на конкретный комментарий и возвращайтесь к обсуждению прямо с карточки на доске.",
+      highlights: [
+        "Контекст ответа показывает, кому и на какое сообщение вы отвечаете",
+        "Непрочитанные ответы учитываются отдельно для каждого участника",
+        "Счётчик комментариев на карточке открывает обсуждение задачи",
+        "Ссылка из уведомления ведёт к нужному комментарию внутри ветки",
+      ],
+      icon: "interface",
+      action: { label: "Перейти к задачам", href: "/projects/" },
+    },
+    {
+      id: "telegram",
+      label: "Telegram",
+      title: "Важные события приходят в личный чат",
+      description: "Подключите свой Telegram в настройках Plane и выберите, какие события хотите получать.",
+      highlights: [
+        "Назначения, упоминания, ответы вам и комментарии к вашим задачам",
+        "Обсуждения собираются в сводки, частота отправки ограничена",
+        "Рабочие часы и часовой пояс настраиваются под ваше расписание",
+        "Пауза показывает время окончания; уведомления можно возобновить кнопкой",
+      ],
+      icon: "updates",
+      action: { label: "Настроить Telegram", href: "/settings/profile/notifications/", scope: "profile" },
+    },
+    {
+      id: "recurring-tasks",
+      label: "Повторения",
+      title: "Регулярные задачи создаются по расписанию",
+      description:
+        "Настройте повторение один раз для ежедневных проверок, еженедельных отчётов и другой регулярной работы.",
+      highlights: [
+        "Ежедневное или еженедельное повторение с выбранным интервалом",
+        "Настройка дней недели, времени создания и часового пояса",
+        "Срок выполнения для новых задач задаётся в расписании",
+        "Расписание можно изменить или отключить в настройках проекта",
+      ],
+      icon: "planning",
+      action: { label: "Выбрать проект", href: "/projects/" },
+    },
+    {
+      id: "task-picker",
+      label: "Поиск и связи",
+      title: "Нужную задачу проще найти и привязать",
+      description: "В окнах добавления связи и подэлемента появились фильтры и объяснения ограничений.",
+      highlights: [
+        "Фильтры по проекту, статусу, исполнителю, приоритету и меткам",
+        "Поиск по доступным задачам с учётом выбранных фильтров",
+        "Уже вложенная задача показывает, внутри какой задачи она находится",
+        "Кнопка «Скрыть фильтры» понятно обозначает сворачивание панели",
+      ],
+      icon: "search",
+      action: { label: "Открыть задачи", href: "/projects/" },
+    },
+    {
+      id: "project-labels",
+      label: "Работа команды",
+      title: "Участники проекта управляют метками",
+      description: "Для создания и редактирования меток больше не нужно каждый раз обращаться к администратору.",
+      highlights: [
+        "Участники могут создавать метки для задач своего проекта",
+        "Существующие метки можно редактировать с учётом роли в проекте",
+        "Исправлено отображение действий в списке участников",
+        "Пользователь с ролью OG может удалять участников проекта",
+      ],
+      icon: "quality",
+      action: { label: "Открыть проекты", href: "/projects/" },
+    },
+  ],
+  fixes: [
+    "После изменения статуса карточки и счётчики корректно обновляются в колонках доски, в том числе при группировке по исполнителям.",
+    "Длинные названия задач отображаются полностью, а меню действий больше не прячется за соседними карточками.",
+    "Исправлены отображение календарных дат, выбор времени дедлайна и обработка часовых поясов.",
+    "При переходе из «Сегодня» на доску нужная карточка прокручивается в видимую область и подсвечивается.",
+    "Восстановлена загрузка представлений рабочей области и исправлена вёрстка карточки после просмотра диаграммы Ганта.",
+    "Исправлено распознавание вложений Markdown и HTML при загрузке в задачу.",
+    "Загруженные изображения корректно привязываются к комментариям. Если картинка из буфера недоступна, появляется понятная ошибка, а текст ответа сохраняется.",
+    "Исправлены окно настройки повторений внутри карточки задачи и редактирование числовых полей расписания.",
+    "Активные сессии сохраняются между обновлениями приложения — после деплоя не нужно каждый раз входить заново.",
+  ],
+  footer: {
+    title: "Патч 1.3 уже доступен",
+    description:
+      "Начните с подключения Telegram. Уведомления включаются только после подтверждения вашего аккаунта в Plane.",
+    action: { label: "Настроить уведомления", href: "/settings/profile/notifications/", scope: "profile" },
+  },
+} satisfies TProductRelease;
+
 export const PATCH_1_2 = {
   slug: "1-2",
   version: "Патч 1.2",
-  status: "Новый",
+  status: "Доступен",
   releasedAt: "15 июля 2026",
   title: "Игорь стал рабочим помощником",
   summary:
@@ -415,7 +538,7 @@ export const PATCH_1_0 = {
   },
 } satisfies TProductRelease;
 
-export const PRODUCT_RELEASES = [PATCH_1_2, PATCH_1_1, PATCH_1_0] satisfies TProductRelease[];
+export const PRODUCT_RELEASES: TProductRelease[] = [PATCH_1_3, PATCH_1_2, PATCH_1_1, PATCH_1_0];
 export const LATEST_RELEASE = PRODUCT_RELEASES[0];
 
 export const getReleaseBySlug = (releaseSlug?: string) =>
@@ -427,3 +550,8 @@ export const shouldResetReleaseScroll = (previousReleaseSlug: string | null, rel
   previousReleaseSlug !== null && previousReleaseSlug !== releaseSlug;
 
 export const WHATS_NEW_LAST_SEEN_STORAGE_KEY = "whats-new:last-seen-release";
+
+export const getReleaseActionHref = (action: TReleaseAction, workspaceSlug: string) => {
+  if (!action.href) return undefined;
+  return action.scope === "profile" || !workspaceSlug ? action.href : `/${workspaceSlug}${action.href}`;
+};

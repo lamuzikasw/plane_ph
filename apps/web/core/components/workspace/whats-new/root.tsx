@@ -38,6 +38,7 @@ import useLocalStorage from "@/hooks/use-local-storage";
 import { IgorFeature } from "@/components/ai/igor-feature";
 import {
   getReleaseBySlug,
+  getReleaseActionHref,
   LATEST_RELEASE,
   PRODUCT_RELEASES,
   shouldResetReleaseScroll,
@@ -189,7 +190,9 @@ export function WorkspaceWhatsNewRoot() {
             </div>
 
             <div className="border-t border-subtle bg-layer-1/50 p-5 sm:p-7 lg:border-t-0 lg:border-l">
-              {release.preview === "igor" ? (
+              {release.preview === "collaboration" ? (
+                <CollaborationPreview />
+              ) : release.preview === "igor" ? (
                 <IgorPreview />
               ) : release.preview === "igor-specification" ? (
                 <IgorSpecificationPreview />
@@ -215,6 +218,28 @@ export function WorkspaceWhatsNewRoot() {
             ))}
           </div>
         </section>
+
+        {release.fixes && (
+          <section
+            aria-labelledby="release-fixes-heading"
+            className="rounded-lg border border-subtle bg-layer-1/50 p-5 sm:p-6"
+          >
+            <h2 id="release-fixes-heading" className="text-xl font-semibold text-primary">
+              Исправления и удобство работы
+            </h2>
+            <p className="mt-2 text-13 leading-5 text-secondary">
+              Изменения досок, дат, вложений и повседневных действий с патча 1.2.
+            </p>
+            <ul className="mt-5 grid gap-x-8 gap-y-4 md:grid-cols-2">
+              {release.fixes.map((fix) => (
+                <li key={fix} className="flex items-start gap-2 text-13 leading-5 text-secondary">
+                  <Check className="mt-0.5 size-4 flex-none text-accent-primary" aria-hidden="true" />
+                  <span>{fix}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <aside className="flex flex-col justify-between gap-4 rounded-lg border border-subtle bg-layer-transparent px-5 py-4 sm:flex-row sm:items-center">
           <div>
@@ -398,9 +423,49 @@ function ReleaseAction({
   if (!action.href) return null;
 
   return (
-    <Link href={joinUrlPath(workspaceSlug, action.href)} className={className}>
+    <Link href={getReleaseActionHref(action, workspaceSlug)!} className={className}>
       {content}
     </Link>
+  );
+}
+
+function CollaborationPreview() {
+  return (
+    <div
+      className="flex h-full flex-col justify-center gap-4"
+      role="img"
+      aria-label="Пример: общая задача для двух команд, ответ в ветке и уведомление в Telegram"
+    >
+      <p className="text-11 font-medium text-tertiary">Пример обсуждения задачи</p>
+      <div className="rounded-lg border border-subtle bg-surface-1 p-4 sm:p-5">
+        <div className="flex flex-wrap gap-2 text-10 font-medium text-secondary">
+          <span className="rounded-sm border border-subtle px-2 py-1">Разработка</span>
+          <span className="rounded-sm border border-subtle px-2 py-1">Поддержка</span>
+        </div>
+        <p className="mt-3 text-14 font-semibold text-primary">Подготовить новый способ оплаты</p>
+        <p className="mt-1 text-11 text-tertiary">Одна задача · две команды · общее обсуждение</p>
+        <div className="mt-4 border-t border-subtle pt-4">
+          <p className="text-11 font-semibold text-primary">
+            Анна <span className="font-normal text-tertiary">· комментарий</span>
+          </p>
+          <p className="mt-1 text-12 leading-5 text-secondary">Максим, проверь, пожалуйста, сценарий оплаты.</p>
+          <div className="border-accent-primary/30 mt-3 border-l-2 pl-3">
+            <p className="text-11 font-semibold text-primary">
+              Максим <span className="font-normal text-tertiary">· ответ Анне</span>
+            </p>
+            <p className="mt-1 text-12 leading-5 text-secondary">Проверил. Результат добавил в задачу.</p>
+          </div>
+        </div>
+      </div>
+      <div className="flex items-start gap-3 rounded-lg border border-subtle bg-surface-1 p-4">
+        <Send className="mt-0.5 size-5 flex-none text-accent-primary" aria-hidden="true" />
+        <div>
+          <p className="text-12 font-semibold text-primary">Telegram · вам ответили</p>
+          <p className="mt-1 text-11 leading-5 text-secondary">Ссылка ведёт прямо к ответу в обсуждении.</p>
+          <p className="mt-2 text-10 text-tertiary">По вашему расписанию · с управлением паузой</p>
+        </div>
+      </div>
+    </div>
   );
 }
 
