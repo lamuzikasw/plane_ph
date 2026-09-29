@@ -11,7 +11,6 @@ import requests
 from bs4 import BeautifulSoup
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
 
@@ -289,6 +288,7 @@ def refresh_delivery_keyboard(connection, message_id):
 
 def event_is_valid(event, now):
     c, issue, comment = event.connection, event.issue, event.comment
+    direct = event.kind in ("mention", "reply")
     if not accessible(c, issue, comment):
         return False
     if not getattr(
@@ -310,7 +310,8 @@ def event_is_valid(event, now):
         if not (assigned or watching):
             return False
     if (
-        comment
+        not direct
+        and comment
         and IssueCommentRead.objects.filter(
             comment=comment, user_id=c.user_id, read_at__gte=comment.updated_at
         ).exists()
@@ -319,7 +320,11 @@ def event_is_valid(event, now):
     notification = Notification.objects.filter(
         receiver_id=c.user_id, entity_identifier=issue.id, data__issue_activity__id=str(event.activity_id)
     )
-    if notification.filter(Q(read_at__isnull=False) | Q(archived_at__isnull=False)).exists():
+    # Direct messages must reach Telegram even when an open Plane tab marks
+    # them read. Explicit archive and snooze actions still apply.
+    if notification.filter(archived_at__isnull=False).exists():
+        return False
+    if not direct and notification.filter(read_at__isnull=False).exists():
         return False
     snooze = notification.filter(snoozed_till__gt=now).order_by("-snoozed_till").first()
     if snooze:

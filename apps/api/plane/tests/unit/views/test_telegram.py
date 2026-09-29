@@ -188,7 +188,7 @@ def test_comment_edit_only_new_mentions_promote_unsent_digest(setup):
 
 def test_read_comments_cancel_delivery(setup):
     c, _, _, _ = setup
-    _, comment = comment_event(setup, mentioned=True)
+    _, comment = comment_event(setup)
     IssueCommentRead.objects.create(user=c.user, comment=comment)
     make_due(c)
     with patch("plane.utils.telegram.bot_request") as send:
@@ -391,7 +391,7 @@ def test_notification_read_and_snooze_are_respected(setup):
     from plane.db.models import Notification
 
     c, _, issue, _ = setup
-    activity, _ = comment_event(setup, mentioned=True)
+    activity, _ = comment_event(setup)
     notification = Notification.objects.create(
         workspace=issue.workspace,
         project=issue.project,
@@ -445,7 +445,7 @@ def test_activity_pipeline_enqueues_actual_created_comment(setup):
 
 def test_read_receipt_before_delayed_enqueue_still_suppresses(setup):
     c, _, _, _ = setup
-    _, comment = comment_event(setup, mentioned=True)
+    _, comment = comment_event(setup)
     IssueCommentRead.objects.create(user=c.user, comment=comment)
     c.events.update(created_at=timezone.now() + timedelta(seconds=5))
     make_due(c)
@@ -453,6 +453,72 @@ def test_read_receipt_before_delayed_enqueue_still_suppresses(setup):
         deliver_connection(c.pk)
     assert not send.called
     assert c.events.get().status == "skipped"
+
+
+@pytest.mark.parametrize("kind", ["mention", "reply"])
+@pytest.mark.parametrize("read_source", ["comment", "notification", "both"])
+def test_direct_events_are_delivered_even_when_read_in_plane(setup, kind, read_source):
+    from plane.db.models import Notification
+
+    c, actor, issue, _ = setup
+    root = IssueComment.objects.create(project=issue.project, issue=issue, actor=actor)
+    target = IssueComment.objects.create(project=issue.project, issue=issue, actor=c.user, parent=root)
+    activity, comment = comment_event(setup, mentioned=kind == "mention", parent=root, reply_to=target)
+    assert c.events.get().kind == kind
+    if read_source in ("comment", "both"):
+        IssueCommentRead.objects.create(user=c.user, comment=comment)
+    if read_source in ("notification", "both"):
+        Notification.objects.create(
+            workspace=issue.workspace,
+            project=issue.project,
+            receiver=c.user,
+            entity_identifier=issue.pk,
+            entity_name="issue",
+            title="Direct reply",
+            sender="commented",
+            data={"issue_activity": {"id": str(activity.pk)}},
+            read_at=timezone.now(),
+        )
+    make_due(c)
+    with patch("plane.utils.telegram.bot_request", return_value={"message_id": 92}) as send:
+        deliver_connection(c.pk)
+        deliver_connection(c.pk)
+    send.assert_called_once()
+    assert f"#comment-{comment.id}" in send.call_args.args[1]["text"]
+    assert c.events.get().status == "sent"
+
+
+@pytest.mark.parametrize("kind", ["mention", "reply"])
+@pytest.mark.parametrize("action", ["archive", "snooze"])
+def test_read_direct_events_still_respect_explicit_archive_and_snooze(setup, kind, action):
+    from plane.db.models import Notification
+
+    c, _, issue, _ = setup
+    target = IssueComment.objects.create(project=issue.project, issue=issue, actor=c.user)
+    activity, comment = comment_event(setup, mentioned=kind == "mention", parent=target, reply_to=target)
+    IssueCommentRead.objects.create(user=c.user, comment=comment)
+    until = timezone.now() + timedelta(hours=2)
+    notification = Notification.objects.create(
+        workspace=issue.workspace,
+        project=issue.project,
+        receiver=c.user,
+        entity_identifier=issue.pk,
+        entity_name="issue",
+        title="Direct reply",
+        sender="commented",
+        data={"issue_activity": {"id": str(activity.pk)}},
+        read_at=timezone.now(),
+        archived_at=timezone.now() if action == "archive" else None,
+        snoozed_till=until if action == "snooze" else None,
+    )
+    make_due(c)
+    with patch("plane.utils.telegram.bot_request") as send:
+        deliver_connection(c.pk)
+    send.assert_not_called()
+    event = c.events.get()
+    assert event.status == ("skipped" if action == "archive" else "pending")
+    if action == "snooze":
+        assert event.due_at == notification.snoozed_till
 
 
 def callback(c, action, message_id=90):
