@@ -5,18 +5,20 @@
  */
 
 import { observer } from "mobx-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 // plane constants
 import { EIssueFilterType, ISSUE_DISPLAY_FILTERS_BY_PAGE, PROJECT_VIEW_TRACKER_ELEMENTS } from "@plane/constants";
-import { EIssueLayoutTypes, EIssuesStoreType } from "@plane/types";
+import { EIssueLayoutTypes, EIssuesStoreType, type TWorkItemFilterExpression } from "@plane/types";
 import { Spinner } from "@plane/ui";
 // components
 import { ProjectLevelWorkItemFiltersHOC } from "@/components/work-item-filters/filters-hoc/project-level";
 import { WorkItemFiltersRow } from "@/components/work-item-filters/filters-row";
 // hooks
 import { useIssues } from "@/hooks/store/use-issues";
+import { useWorkItemFilters } from "@/hooks/store/work-item-filters/use-work-item-filters";
+import { useProjectFilterUrl } from "@/hooks/work-item-filters/use-project-filter-url";
 import { IssuesStoreContext } from "@/hooks/use-issue-layout-store";
 // local imports
 import { IssuePeekOverview } from "../../peek-overview";
@@ -53,6 +55,7 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
   const projectId = routerProjectId ? routerProjectId.toString() : undefined;
   // hooks
   const { issues, issuesFilter } = useIssues(EIssuesStoreType.PROJECT);
+  const { getFilter } = useWorkItemFilters();
   // derived values
   const workItemFilters = projectId ? issuesFilter?.getIssueFilters(projectId) : undefined;
   const activeLayout = workItemFilters?.displayFilters?.layout;
@@ -75,7 +78,7 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
     setAppliedRouteLayout(routeLayout);
   }, [activeLayout, appliedRouteLayout, issuesFilter, projectId, routeLayout, workspaceSlug]);
 
-  useSWR(
+  const { isLoading } = useSWR(
     workspaceSlug && projectId ? `PROJECT_ISSUES_${workspaceSlug}_${projectId}` : null,
     async () => {
       if (workspaceSlug && projectId) {
@@ -85,7 +88,32 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
     { revalidateIfStale: false, revalidateOnFocus: false }
   );
 
-  if (!workspaceSlug || !projectId || !workItemFilters) return <></>;
+  const onFiltersChange = useCallback(
+    async (expression: TWorkItemFilterExpression) => {
+      if (workspaceSlug && projectId) {
+        await issuesFilter?.updateFilterExpression(workspaceSlug, projectId, expression);
+      }
+    },
+    [issuesFilter, workspaceSlug, projectId]
+  );
+  const onRouteFiltersChange = useCallback(
+    (expression: TWorkItemFilterExpression | undefined, refetch = true) => {
+      if (workspaceSlug && projectId) {
+        issuesFilter.setTemporaryFilterExpression(workspaceSlug, projectId, expression, refetch);
+      }
+    },
+    [issuesFilter, workspaceSlug, projectId]
+  );
+  const { updateFilters, isReady } = useProjectFilterUrl({
+    ready: !isLoading && !!workItemFilters,
+    savedFilters: projectId ? issuesFilter.filters[projectId]?.richFilters : undefined,
+    activeFilters: workItemFilters?.richFilters,
+    filter: projectId ? getFilter(EIssuesStoreType.PROJECT, projectId) : undefined,
+    onChange: onFiltersChange,
+    onRouteChange: onRouteFiltersChange,
+  });
+
+  if (!workspaceSlug || !projectId || !workItemFilters || !isReady) return <></>;
   return (
     <IssuesStoreContext.Provider value={EIssuesStoreType.PROJECT}>
       <ProjectLevelWorkItemFiltersHOC
@@ -94,7 +122,7 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
         entityId={projectId}
         filtersToShowByLayout={ISSUE_DISPLAY_FILTERS_BY_PAGE.issues.filters}
         initialWorkItemFilters={workItemFilters}
-        updateFilters={issuesFilter?.updateFilterExpression.bind(issuesFilter, workspaceSlug, projectId)}
+        updateFilters={updateFilters}
         projectId={projectId}
         workspaceSlug={workspaceSlug}
       >

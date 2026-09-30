@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { isEmpty, set } from "lodash-es";
+import { isEmpty, isEqual, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 // base class
 import { computedFn } from "mobx-utils";
@@ -41,6 +41,12 @@ export interface IProjectIssuesFilter extends IBaseIssueFilterStore {
     subGroupId: string | undefined
   ) => Partial<Record<TIssueParams, string | boolean>>;
   getIssueFilters(projectId: string): IIssueFilters | undefined;
+  setTemporaryFilterExpression: (
+    workspaceSlug: string,
+    projectId: string,
+    expression: TWorkItemFilterExpression | undefined,
+    refetch?: boolean
+  ) => void;
   // action
   fetchFilters: (workspaceSlug: string, projectId: string) => Promise<void>;
   updateFilterExpression: (
@@ -59,6 +65,8 @@ export interface IProjectIssuesFilter extends IBaseIssueFilterStore {
 export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProjectIssuesFilter {
   // observables
   filters: { [projectId: string]: IIssueFilters } = {};
+  // Shared links override the active board without changing personal preferences.
+  temporaryFilters = new Map<string, TWorkItemFilterExpression>();
   // root store
   rootIssueStore: IIssueRootStore;
   // services
@@ -69,6 +77,7 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
     makeObservable(this, {
       // observables
       filters: observable,
+      temporaryFilters: observable,
       // computed
       issueFilters: computed,
       appliedFilters: computed,
@@ -76,6 +85,7 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
       fetchFilters: action,
       updateFilterExpression: action,
       updateFilters: action,
+      setTemporaryFilterExpression: action,
     });
     // root store
     this.rootIssueStore = _rootStore;
@@ -101,8 +111,26 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
     const displayFilters = this.filters[projectId] || undefined;
     if (isEmpty(displayFilters)) return undefined;
 
-    return this.computedIssueFilters(displayFilters);
+    return this.computedIssueFilters({
+      ...displayFilters,
+      richFilters: this.temporaryFilters.get(projectId) ?? displayFilters.richFilters,
+    });
   }
+
+  setTemporaryFilterExpression: IProjectIssuesFilter["setTemporaryFilterExpression"] = (
+    workspaceSlug,
+    projectId,
+    expression,
+    refetch = true
+  ) => {
+    const previousExpression = this.getIssueFilters(projectId)?.richFilters;
+    if (expression === undefined) this.temporaryFilters.delete(projectId);
+    else this.temporaryFilters.set(projectId, expression);
+
+    if (refetch && !isEqual(previousExpression, this.getIssueFilters(projectId)?.richFilters)) {
+      this.rootIssueStore.projectIssues.fetchIssuesWithExistingPagination(workspaceSlug, projectId, "mutation");
+    }
+  };
 
   getAppliedFilters(projectId: string) {
     const userFilters = this.getIssueFilters(projectId);
@@ -176,6 +204,11 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
     projectId,
     filters
   ) => {
+    // Edits made while following a shared link belong to that temporary board too.
+    if (this.temporaryFilters.has(projectId)) {
+      this.setTemporaryFilterExpression(workspaceSlug, projectId, filters);
+      return;
+    }
     try {
       runInAction(() => {
         set(this.filters, [projectId, "richFilters"], filters);
