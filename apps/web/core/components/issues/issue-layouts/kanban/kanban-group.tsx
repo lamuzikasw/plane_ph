@@ -10,6 +10,7 @@ import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
 import { dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
 import { observer } from "mobx-react";
+import { getKanbanGroupIssueIds } from "./group-issue-ids";
 // plane constants
 import { DRAG_ALLOWED_GROUPS } from "@plane/constants";
 // i18n
@@ -250,10 +251,7 @@ export const KanbanGroup = observer(function KanbanGroup(props: IKanbanGroup) {
   };
 
   const isSubGroup = !!sub_group_id && sub_group_id !== "null";
-
-  const issueIds = isSubGroup
-    ? ((groupedIssueIds as TSubGroupedIssues)?.[groupId]?.[sub_group_id] ?? [])
-    : ((groupedIssueIds as TGroupedIssues)?.[groupId] ?? []);
+  const issueIds = getKanbanGroupIssueIds(groupedIssueIds, groupId, sub_group_id);
 
   const groupIssueCount = getGroupIssueCount(groupId, sub_group_id, false) ?? 0;
 

@@ -37,6 +37,8 @@ import { getGroupByColumns, isWorkspaceLevel, getApproximateCardHeight } from ".
 import { HeaderGroupByCard } from "./headers/group-by-card";
 import { KanbanGroup } from "./kanban-group";
 
+import { getKanbanGroupIssueIds } from "./group-issue-ids";
+
 type TArchiveKanbanColumnPayload = {
   stateId?: string;
   stateGroup?: Extract<TStateGroups, "completed" | "cancelled">;
@@ -153,16 +155,13 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
 
   const isGroupByCreatedBy = group_by === "created_by";
   const approximateCardHeight = getApproximateCardHeight(displayProperties);
-  const isSubGroup = !!sub_group_id && sub_group_id !== "null";
 
   return (
     <ContentWrapper className={`relative flex-row gap-4 !pt-2 !pb-0`}>
       {list &&
         list.length > 0 &&
         list.map((subList: IGroupByColumn, groupIndex) => {
-          const issueIds = isSubGroup
-            ? ((groupedIssueIds as TSubGroupedIssues)?.[subList.id]?.[sub_group_id] ?? [])
-            : ((groupedIssueIds as TGroupedIssues)?.[subList.id] ?? []);
+          const issueIds = getKanbanGroupIssueIds(groupedIssueIds, subList.id, sub_group_id);
           const isFocusedGroup = !!focusIssueId && issueIds.includes(focusIssueId);
           const groupByVisibilityToggle = visibilityGroupBy(subList);
           if (isFocusedGroup) {
