@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import { isEmpty, set } from "lodash-es";
+import { isEmpty, isEqual, set } from "lodash-es";
 import { action, computed, makeObservable, observable, runInAction } from "mobx";
 // base class
 import { computedFn } from "mobx-utils";
@@ -41,6 +41,13 @@ export interface ICycleIssuesFilter extends IBaseIssueFilterStore {
     subGroupId: string | undefined
   ) => Partial<Record<TIssueParams, string | boolean>>;
   getIssueFilters(cycleId: string): IIssueFilters | undefined;
+  setTemporaryFilterExpression: (
+    workspaceSlug: string,
+    projectId: string,
+    cycleId: string,
+    expression: TWorkItemFilterExpression | undefined,
+    refetch?: boolean
+  ) => void;
   // action
   fetchFilters: (workspaceSlug: string, projectId: string, cycleId: string) => Promise<void>;
   updateFilterExpression: (
@@ -61,6 +68,8 @@ export interface ICycleIssuesFilter extends IBaseIssueFilterStore {
 export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleIssuesFilter {
   // observables
   filters: { [cycleId: string]: IIssueFilters } = {};
+  // Shared links override only the current cycle, preserving personal preferences.
+  temporaryFilters = new Map<string, TWorkItemFilterExpression>();
   // root store
   rootIssueStore: IIssueRootStore;
   // services
@@ -71,12 +80,14 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
     makeObservable(this, {
       // observables
       filters: observable,
+      temporaryFilters: observable,
       // computed
       issueFilters: computed,
       appliedFilters: computed,
       // actions
       fetchFilters: action,
       updateFilters: action,
+      setTemporaryFilterExpression: action,
     });
     // root store
     this.rootIssueStore = _rootStore;
@@ -102,10 +113,29 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
     const displayFilters = this.filters[cycleId] || undefined;
     if (isEmpty(displayFilters)) return undefined;
 
-    const _filters: IIssueFilters = this.computedIssueFilters(displayFilters);
+    const _filters: IIssueFilters = this.computedIssueFilters({
+      ...displayFilters,
+      richFilters: this.temporaryFilters.get(cycleId) ?? displayFilters.richFilters,
+    });
 
     return _filters;
   }
+
+  setTemporaryFilterExpression: ICycleIssuesFilter["setTemporaryFilterExpression"] = (
+    workspaceSlug,
+    projectId,
+    cycleId,
+    expression,
+    refetch = true
+  ) => {
+    const previousExpression = this.getIssueFilters(cycleId)?.richFilters;
+    if (expression === undefined) this.temporaryFilters.delete(cycleId);
+    else this.temporaryFilters.set(cycleId, expression);
+
+    if (refetch && !isEqual(previousExpression, this.getIssueFilters(cycleId)?.richFilters)) {
+      this.rootIssueStore.cycleIssues.fetchIssuesWithExistingPagination(workspaceSlug, projectId, "mutation", cycleId);
+    }
+  };
 
   getAppliedFilters(cycleId: string) {
     const userFilters = this.getIssueFilters(cycleId);
@@ -188,6 +218,10 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
     cycleId,
     filters
   ) => {
+    if (this.temporaryFilters.has(cycleId)) {
+      this.setTemporaryFilterExpression(workspaceSlug, projectId, cycleId, filters);
+      return;
+    }
     try {
       runInAction(() => {
         set(this.filters, [cycleId, "richFilters"], filters);

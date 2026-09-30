@@ -18,7 +18,7 @@ import { WorkItemFiltersRow } from "@/components/work-item-filters/filters-row";
 // hooks
 import { useIssues } from "@/hooks/store/use-issues";
 import { useWorkItemFilters } from "@/hooks/store/work-item-filters/use-work-item-filters";
-import { useProjectFilterUrl } from "@/hooks/work-item-filters/use-project-filter-url";
+import { useWorkItemFilterUrl } from "@/hooks/work-item-filters/use-work-item-filter-url";
 import { IssuesStoreContext } from "@/hooks/use-issue-layout-store";
 // local imports
 import { IssuePeekOverview } from "../../peek-overview";
@@ -104,7 +104,7 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
     },
     [issuesFilter, workspaceSlug, projectId]
   );
-  const { updateFilters, isReady } = useProjectFilterUrl({
+  const { updateFilters, isReady } = useWorkItemFilterUrl({
     ready: !isLoading && !!workItemFilters,
     savedFilters: projectId ? issuesFilter.filters[projectId]?.richFilters : undefined,
     activeFilters: workItemFilters?.richFilters,

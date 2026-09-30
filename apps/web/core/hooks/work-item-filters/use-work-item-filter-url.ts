@@ -18,8 +18,8 @@ type TProps = {
   onRouteChange: (expression: TWorkItemFilterExpression | undefined, refetch?: boolean) => void;
 };
 
-/** Synchronize project filters with shareable URLs after saved preferences have loaded. */
-export function useProjectFilterUrl({ ready, savedFilters, activeFilters, filter, onChange, onRouteChange }: TProps) {
+/** Synchronize board filters with shareable URLs after saved preferences have loaded. */
+export function useWorkItemFilterUrl({ ready, savedFilters, activeFilters, filter, onChange, onRouteChange }: TProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const rawFilters = new URLSearchParams(location.search).get(WORK_ITEM_FILTERS_QUERY_PARAM);
@@ -78,7 +78,7 @@ export function useProjectFilterUrl({ ready, savedFilters, activeFilters, filter
       pendingRoute.current = undefined;
     }
     if (!ready || lastHandledRoute.current === routeKey) return;
-    const hadRouteForThisProject = initializedPath === location.pathname;
+    const hadRouteForThisBoard = initializedPath === location.pathname;
     lastHandledRoute.current = routeKey;
     const routeFilters = parseWorkItemFilters(rawFilters);
     const expression = routeFilters ?? savedFilters ?? {};
@@ -86,7 +86,7 @@ export function useProjectFilterUrl({ ready, savedFilters, activeFilters, filter
     onRouteChange(routeFilters);
     // The issue store keeps saved and temporary expressions separate. Reset only the
     // existing chips here, suppressing their usual persistence/URL-change callback.
-    if (filter && hadRouteForThisProject && !isEqual(expression, activeFilters ?? {})) {
+    if (filter && hadRouteForThisBoard && !isEqual(expression, activeFilters ?? {})) {
       applyingRoute.current = true;
       try {
         filter.resetExpression(expression, false);

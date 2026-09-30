@@ -4,14 +4,14 @@
  * See the LICENSE file for details.
  */
 
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { isEmpty } from "lodash-es";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 // plane constants
 import { ISSUE_DISPLAY_FILTERS_BY_PAGE, PROJECT_VIEW_TRACKER_ELEMENTS } from "@plane/constants";
-import { EIssuesStoreType, EIssueLayoutTypes } from "@plane/types";
+import { EIssuesStoreType, EIssueLayoutTypes, type TWorkItemFilterExpression } from "@plane/types";
 // components
 import { TransferIssues } from "@/components/cycles/transfer-issues";
 import { TransferIssuesModal } from "@/components/cycles/transfer-issues-modal";
@@ -20,6 +20,8 @@ import { ProjectLevelWorkItemFiltersHOC } from "@/components/work-item-filters/f
 import { WorkItemFiltersRow } from "@/components/work-item-filters/filters-row";
 import { useCycle } from "@/hooks/store/use-cycle";
 import { useIssues } from "@/hooks/store/use-issues";
+import { useWorkItemFilters } from "@/hooks/store/work-item-filters/use-work-item-filters";
+import { useWorkItemFilterUrl } from "@/hooks/work-item-filters/use-work-item-filter-url";
 import { IssuesStoreContext } from "@/hooks/use-issue-layout-store";
 // local imports
 import { IssuePeekOverview } from "../../peek-overview";
@@ -57,6 +59,7 @@ export const CycleLayoutRoot = observer(function CycleLayoutRoot() {
   const cycleId = routerCycleId ? routerCycleId.toString() : undefined;
   // store hooks
   const { issuesFilter } = useIssues(EIssuesStoreType.CYCLE);
+  const { getFilter } = useWorkItemFilters();
   const { getCycleById } = useCycle();
   // state
   const [transferIssuesModal, setTransferIssuesModal] = useState(false);
@@ -64,7 +67,7 @@ export const CycleLayoutRoot = observer(function CycleLayoutRoot() {
   const workItemFilters = cycleId ? issuesFilter?.getIssueFilters(cycleId) : undefined;
   const activeLayout = workItemFilters?.displayFilters?.layout;
 
-  useSWR(
+  const { isLoading } = useSWR(
     workspaceSlug && projectId && cycleId ? `CYCLE_ISSUES_${workspaceSlug}_${projectId}_${cycleId}` : null,
     async () => {
       if (workspaceSlug && projectId && cycleId) {
@@ -73,6 +76,31 @@ export const CycleLayoutRoot = observer(function CycleLayoutRoot() {
     },
     { revalidateIfStale: false, revalidateOnFocus: false }
   );
+
+  const onFiltersChange = useCallback(
+    async (expression: TWorkItemFilterExpression) => {
+      if (workspaceSlug && projectId && cycleId) {
+        await issuesFilter.updateFilterExpression(workspaceSlug, projectId, cycleId, expression);
+      }
+    },
+    [issuesFilter, workspaceSlug, projectId, cycleId]
+  );
+  const onRouteFiltersChange = useCallback(
+    (expression: TWorkItemFilterExpression | undefined, refetch = true) => {
+      if (workspaceSlug && projectId && cycleId) {
+        issuesFilter.setTemporaryFilterExpression(workspaceSlug, projectId, cycleId, expression, refetch);
+      }
+    },
+    [issuesFilter, workspaceSlug, projectId, cycleId]
+  );
+  const { updateFilters, isReady } = useWorkItemFilterUrl({
+    ready: !isLoading && !!workItemFilters,
+    savedFilters: cycleId ? issuesFilter.filters[cycleId]?.richFilters : undefined,
+    activeFilters: workItemFilters?.richFilters,
+    filter: cycleId ? getFilter(EIssuesStoreType.CYCLE, cycleId) : undefined,
+    onChange: onFiltersChange,
+    onRouteChange: onRouteFiltersChange,
+  });
 
   const cycleDetails = cycleId ? getCycleById(cycleId) : undefined;
   const cycleStatus = cycleDetails?.status?.toLocaleLowerCase() ?? "draft";
@@ -83,7 +111,7 @@ export const CycleLayoutRoot = observer(function CycleLayoutRoot() {
     : 0;
   const canTransferIssues = isProgressSnapshotEmpty && transferableIssuesCount > 0;
 
-  if (!workspaceSlug || !projectId || !cycleId || !workItemFilters) return <></>;
+  if (!workspaceSlug || !projectId || !cycleId || !workItemFilters || !isReady) return <></>;
   return (
     <IssuesStoreContext.Provider value={EIssuesStoreType.CYCLE}>
       <ProjectLevelWorkItemFiltersHOC
@@ -92,7 +120,7 @@ export const CycleLayoutRoot = observer(function CycleLayoutRoot() {
         entityId={cycleId}
         filtersToShowByLayout={ISSUE_DISPLAY_FILTERS_BY_PAGE.issues.filters}
         initialWorkItemFilters={workItemFilters}
-        updateFilters={issuesFilter?.updateFilterExpression.bind(issuesFilter, workspaceSlug, projectId, cycleId)}
+        updateFilters={updateFilters}
         projectId={projectId}
         workspaceSlug={workspaceSlug}
       >

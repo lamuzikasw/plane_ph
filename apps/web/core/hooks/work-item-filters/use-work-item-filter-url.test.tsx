@@ -9,8 +9,9 @@ import type { IWorkItemFilterInstance } from "@plane/shared-state";
 import type { TWorkItemFilterExpression } from "@plane/types";
 import { withWorkItemFilters } from "@/helpers/work-item-filter-url";
 import { ProjectIssuesFilter } from "@/store/issue/project/filter.store";
+import { CycleIssuesFilter } from "@/store/issue/cycle/filter.store";
 import type { IIssueRootStore } from "@/store/issue/root.store";
-import { useProjectFilterUrl } from "./use-project-filter-url";
+import { useWorkItemFilterUrl } from "./use-work-item-filter-url";
 
 const saved = { priority__in: "low" };
 const shared = { and: [{ label_id__in: "label-a,label-b" }, { assignee_id__in: "user-a" }] };
@@ -19,27 +20,36 @@ const persist = vi.fn().mockResolvedValue({});
 const fetchIssues = vi.fn().mockResolvedValue(undefined);
 const reset = vi.fn();
 let issueFilters: ProjectIssuesFilter;
+let cycleFilters: CycleIssuesFilter;
 let root: ReturnType<typeof createRoot>;
 let navigate: ReturnType<typeof useNavigate>;
 
 const Board = observer(function Board({ loaded }: { loaded: boolean }) {
   const location = useLocation();
   navigate = useNavigate();
-  const projectId = location.pathname.split("/")[1];
-  const filters = issueFilters.getIssueFilters(projectId)?.richFilters;
+  const cycleId = location.pathname.match(/\/cycles\/([^/]+)/)?.[1];
+  const projectId = location.pathname.split("/")[cycleId ? 3 : 1];
+  const activeStore = cycleId ? cycleFilters : issueFilters;
+  const entityId = cycleId ?? projectId;
+  const filters = activeStore.getIssueFilters(entityId)?.richFilters;
   const [instance, setInstance] = useState<IWorkItemFilterInstance>();
   const onChange = useCallback(
-    (expression: TWorkItemFilterExpression) => issueFilters.updateFilterExpression("workspace", projectId, expression),
-    [projectId]
+    (expression: TWorkItemFilterExpression) =>
+      cycleId
+        ? cycleFilters.updateFilterExpression("workspace", projectId, cycleId, expression)
+        : issueFilters.updateFilterExpression("workspace", projectId, expression),
+    [projectId, cycleId]
   );
   const onRouteChange = useCallback(
     (expression: TWorkItemFilterExpression | undefined, refetch = true) =>
-      issueFilters.setTemporaryFilterExpression("workspace", projectId, expression, refetch),
-    [projectId]
+      cycleId
+        ? cycleFilters.setTemporaryFilterExpression("workspace", projectId, cycleId, expression, refetch)
+        : issueFilters.setTemporaryFilterExpression("workspace", projectId, expression, refetch),
+    [projectId, cycleId]
   );
-  const { updateFilters, isReady } = useProjectFilterUrl({
+  const { updateFilters, isReady } = useWorkItemFilterUrl({
     ready: loaded,
-    savedFilters: issueFilters.filters[projectId]?.richFilters,
+    savedFilters: activeStore.filters[entityId]?.richFilters,
     activeFilters: filters,
     filter: instance,
     onChange,
@@ -94,14 +104,60 @@ beforeEach(() => {
     projectIssues: { fetchIssuesWithExistingPagination: fetchIssues },
   } as unknown as IIssueRootStore);
   issueFilters.projectService.updateProjectUserProperties = persist;
+  cycleFilters = new CycleIssuesFilter({
+    cycleIssues: { fetchIssuesWithExistingPagination: fetchIssues },
+  } as unknown as IIssueRootStore);
+  cycleFilters.issueFilterService.patchCycleIssueFilters = persist;
   runInAction(() => {
     const defaults = { displayFilters: undefined, displayProperties: undefined, kanbanFilters: undefined };
     issueFilters.filters.project = { ...defaults, richFilters: saved };
     issueFilters.filters["other-project"] = { ...defaults, richFilters: { priority__in: "urgent" } };
+    cycleFilters.filters["cycle-a"] = { ...defaults, richFilters: saved };
+    cycleFilters.filters["cycle-b"] = { ...defaults, richFilters: { priority__in: "urgent" } };
   });
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+});
+
+describe("cycle filter URL synchronization", () => {
+  const cycleUrl = "/workspace/projects/project/cycles/cycle-a/";
+
+  it("shares normal cycle selections while preserving the cycle route", async () => {
+    await render(cycleUrl);
+    await act(async () => document.querySelectorAll("button")[0].click());
+    expect(currentUrl().pathname).toBe(cycleUrl);
+    expect(JSON.parse(currentUrl().searchParams.get("filters")!)).toEqual(changed);
+    expect(persist).toHaveBeenCalledExactlyOnceWith("workspace", "project", "cycle-a", { rich_filters: changed });
+  });
+
+  it("keeps shared cycle edits temporary and restores personal filters on the ordinary URL", async () => {
+    await render(`${cycleUrl}${withWorkItemFilters("", shared)}`);
+    expect(currentFilters()).toEqual(shared);
+    await act(async () => document.querySelectorAll("button")[0].click());
+    expect(currentFilters()).toEqual(changed);
+    await act(async () => document.querySelectorAll("button")[1].click());
+    expect(currentFilters()).toEqual({});
+    expect(currentUrl().searchParams.get("filters")).toBe("{}");
+    await act(async () => navigate(cycleUrl));
+    expect(currentFilters()).toEqual(saved);
+    expect(reset).toHaveBeenLastCalledWith(saved);
+    expect(cycleFilters.filters["cycle-a"].richFilters).toEqual(saved);
+    expect(issueFilters.filters.project.richFilters).toEqual(saved);
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("isolates cycle links and restores them on browser back", async () => {
+    await render(`${cycleUrl}${withWorkItemFilters("", shared)}`);
+    await act(async () => navigate("/workspace/projects/project/cycles/cycle-b/"));
+    expect(currentFilters()).toEqual({ priority__in: "urgent" });
+    expect(cycleFilters.getIssueFilters("cycle-a")?.richFilters).toEqual(saved);
+    await act(async () => navigate(-1));
+    expect(currentFilters()).toEqual(shared);
+    await act(async () => root.render(null));
+    expect(cycleFilters.getIssueFilters("cycle-a")?.richFilters).toEqual(saved);
+    expect(persist).not.toHaveBeenCalled();
+  });
 });
 afterEach(async () => {
   await act(async () => root.unmount());
