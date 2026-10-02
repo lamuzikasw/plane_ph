@@ -2,15 +2,26 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { isEqual } from "lodash-es";
 import { useLocation, useNavigate } from "react-router";
 import type { IWorkItemFilterInstance } from "@plane/shared-state";
-import type { TWorkItemFilterExpression } from "@plane/types";
+import { EIssueLayoutTypes, type TWorkItemFilterExpression } from "@plane/types";
 import {
   parseWorkItemFilters,
   withWorkItemFilters,
   WORK_ITEM_FILTERS_QUERY_PARAM,
 } from "@/helpers/work-item-filter-url";
 
+import {
+  getWorkItemDisplaySettings,
+  parseWorkItemDisplaySettings,
+  withWorkItemDisplaySettings,
+  WORK_ITEM_DISPLAY_QUERY_PARAM,
+  type TWorkItemDisplaySettings,
+} from "@/helpers/work-item-display-settings";
+
 type TProps = {
   ready: boolean;
+  savedDisplaySettings?: TWorkItemDisplaySettings;
+  activeDisplaySettings?: TWorkItemDisplaySettings;
+  onRouteDisplayChange?: (settings: TWorkItemDisplaySettings | undefined, refetch?: boolean) => void;
   savedFilters: TWorkItemFilterExpression | undefined;
   activeFilters: TWorkItemFilterExpression | undefined;
   filter: IWorkItemFilterInstance | undefined;
@@ -19,25 +30,49 @@ type TProps = {
 };
 
 /** Synchronize board filters with shareable URLs after saved preferences have loaded. */
-export function useWorkItemFilterUrl({ ready, savedFilters, activeFilters, filter, onChange, onRouteChange }: TProps) {
+export function useWorkItemFilterUrl({
+  ready,
+  savedFilters,
+  activeFilters,
+  filter,
+  onChange,
+  onRouteChange,
+  savedDisplaySettings,
+  activeDisplaySettings,
+  onRouteDisplayChange,
+}: TProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const rawFilters = new URLSearchParams(location.search).get(WORK_ITEM_FILTERS_QUERY_PARAM);
-  const routeKey = JSON.stringify([location.pathname, rawFilters]);
+  const params = new URLSearchParams(location.search);
+  const rawFilters = params.get(WORK_ITEM_FILTERS_QUERY_PARAM);
+  const rawDisplay = params.get(WORK_ITEM_DISPLAY_QUERY_PARAM);
+  const legacyLayout = params.get("layout");
+  const routeKey = JSON.stringify([location.pathname, rawFilters, rawDisplay, legacyLayout]);
+  const lastSyncedDisplay = useRef<TWorkItemDisplaySettings>();
   const lastHandledRoute = useRef<string>();
   const pendingRoute = useRef<{ from: string; to: string }>();
   const applyingRoute = useRef(false);
   const [initializedPath, setInitializedPath] = useState<string>();
 
   const writeUrl = useCallback(
-    (expression: TWorkItemFilterExpression) => {
-      const search = withWorkItemFilters(location.search, expression);
+    (expression: TWorkItemFilterExpression, display = activeDisplaySettings) => {
+      let search = withWorkItemFilters(location.search, expression);
+      if (display) {
+        search = withWorkItemDisplaySettings(search, display);
+        lastSyncedDisplay.current = display;
+      }
+      const nextParams = new URLSearchParams(search);
       if (search !== location.search) {
         // Router navigation may be deferred while MobX/state updates render immediately.
         // Do not interpret that intermediate render's old URL as a new filter selection.
         pendingRoute.current = {
           from: routeKey,
-          to: JSON.stringify([location.pathname, JSON.stringify(expression)]),
+          to: JSON.stringify([
+            location.pathname,
+            nextParams.get(WORK_ITEM_FILTERS_QUERY_PARAM),
+            nextParams.get(WORK_ITEM_DISPLAY_QUERY_PARAM),
+            nextParams.get("layout"),
+          ]),
         };
         void navigate(
           { pathname: location.pathname, search, hash: location.hash },
@@ -49,7 +84,7 @@ export function useWorkItemFilterUrl({ ready, savedFilters, activeFilters, filte
         );
       }
     },
-    [location, navigate, routeKey]
+    [location, navigate, routeKey, activeDisplaySettings]
   );
 
   const updateFilters = useCallback(
@@ -65,10 +100,12 @@ export function useWorkItemFilterUrl({ ready, savedFilters, activeFilters, filte
   useEffect(
     () => () => {
       onRouteChange(undefined, false);
+      onRouteDisplayChange?.(undefined, false);
+      lastSyncedDisplay.current = undefined;
       lastHandledRoute.current = undefined;
       pendingRoute.current = undefined;
     },
-    [onRouteChange]
+    [onRouteChange, onRouteDisplayChange]
   );
 
   useEffect(() => {
@@ -77,12 +114,30 @@ export function useWorkItemFilterUrl({ ready, savedFilters, activeFilters, filte
       if (routeKey === pendingRoute.current.to) lastHandledRoute.current = routeKey;
       pendingRoute.current = undefined;
     }
-    if (!ready || lastHandledRoute.current === routeKey) return;
+    if (!ready) return;
+    if (lastHandledRoute.current === routeKey) {
+      // Display controls update the observable issue store directly, including controls
+      // outside this component (the header). Serialize those edits through the same
+      // navigation as rich filters so neither update can erase the other's parameters.
+      if (activeDisplaySettings && !isEqual(lastSyncedDisplay.current, activeDisplaySettings)) {
+        writeUrl(activeFilters ?? {}, activeDisplaySettings);
+      }
+      return;
+    }
     const hadRouteForThisBoard = initializedPath === location.pathname;
     lastHandledRoute.current = routeKey;
     const routeFilters = parseWorkItemFilters(rawFilters);
     const expression = routeFilters ?? savedFilters ?? {};
 
+    let routeDisplay = parseWorkItemDisplaySettings(rawDisplay);
+    if (!routeDisplay && Object.values(EIssueLayoutTypes).some((layout) => layout === legacyLayout)) {
+      routeDisplay = getWorkItemDisplaySettings({
+        displayFilters: { ...savedDisplaySettings?.displayFilters, layout: legacyLayout },
+        displayProperties: savedDisplaySettings?.displayProperties,
+      });
+    }
+    const display = routeDisplay ?? savedDisplaySettings;
+    onRouteDisplayChange?.(routeDisplay);
     onRouteChange(routeFilters);
     // The issue store keeps saved and temporary expressions separate. Reset only the
     // existing chips here, suppressing their usual persistence/URL-change callback.
@@ -94,12 +149,17 @@ export function useWorkItemFilterUrl({ ready, savedFilters, activeFilters, filte
         applyingRoute.current = false;
       }
     }
-    writeUrl(expression);
+    writeUrl(expression, display);
     setInitializedPath(location.pathname);
   }, [
     ready,
     routeKey,
     rawFilters,
+    rawDisplay,
+    legacyLayout,
+    activeDisplaySettings,
+    savedDisplaySettings,
+    onRouteDisplayChange,
     savedFilters,
     activeFilters,
     filter,

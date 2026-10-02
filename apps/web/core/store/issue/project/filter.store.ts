@@ -22,6 +22,7 @@ import type {
 } from "@plane/types";
 import { EIssuesStoreType } from "@plane/types";
 import { handleIssueQueryParamsByLayout } from "@plane/utils";
+import { getWorkItemDisplaySettings, type TWorkItemDisplaySettings } from "@/helpers/work-item-display-settings";
 import type { IBaseIssueFilterStore } from "../helpers/issue-filter-helper.store";
 import { IssueFilterHelperStore } from "../helpers/issue-filter-helper.store";
 // helpers
@@ -47,6 +48,12 @@ export interface IProjectIssuesFilter extends IBaseIssueFilterStore {
     expression: TWorkItemFilterExpression | undefined,
     refetch?: boolean
   ) => void;
+  setTemporaryDisplaySettings: (
+    workspaceSlug: string,
+    projectId: string,
+    settings: TWorkItemDisplaySettings | undefined,
+    refetch?: boolean
+  ) => void;
   // action
   fetchFilters: (workspaceSlug: string, projectId: string) => Promise<void>;
   updateFilterExpression: (
@@ -67,6 +74,7 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
   filters: { [projectId: string]: IIssueFilters } = {};
   // Shared links override the active board without changing personal preferences.
   temporaryFilters = new Map<string, TWorkItemFilterExpression>();
+  temporaryDisplaySettings = new Map<string, TWorkItemDisplaySettings>();
   // root store
   rootIssueStore: IIssueRootStore;
   // services
@@ -78,6 +86,7 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
       // observables
       filters: observable,
       temporaryFilters: observable,
+      temporaryDisplaySettings: observable,
       // computed
       issueFilters: computed,
       appliedFilters: computed,
@@ -86,6 +95,7 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
       updateFilterExpression: action,
       updateFilters: action,
       setTemporaryFilterExpression: action,
+      setTemporaryDisplaySettings: action,
     });
     // root store
     this.rootIssueStore = _rootStore;
@@ -113,6 +123,7 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
 
     return this.computedIssueFilters({
       ...displayFilters,
+      ...this.temporaryDisplaySettings.get(projectId),
       richFilters: this.temporaryFilters.get(projectId) ?? displayFilters.richFilters,
     });
   }
@@ -130,6 +141,21 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
     if (refetch && !isEqual(previousExpression, this.getIssueFilters(projectId)?.richFilters)) {
       this.rootIssueStore.projectIssues.fetchIssuesWithExistingPagination(workspaceSlug, projectId, "mutation");
     }
+  };
+
+  setTemporaryDisplaySettings: IProjectIssuesFilter["setTemporaryDisplaySettings"] = (
+    workspaceSlug,
+    projectId,
+    settings,
+    refetch = true
+  ) => {
+    const previous = this.getIssueFilters(projectId)?.displayFilters;
+    if (settings === undefined) this.temporaryDisplaySettings.delete(projectId);
+    else this.temporaryDisplaySettings.set(projectId, getWorkItemDisplaySettings(settings));
+    const next = this.getIssueFilters(projectId)?.displayFilters;
+    if (!refetch || isEqual(previous, next)) return;
+    if (previous?.layout !== next?.layout) this.rootIssueStore.projectIssues.clear(true);
+    this.rootIssueStore.projectIssues.fetchIssuesWithExistingPagination(workspaceSlug, projectId, "mutation");
   };
 
   getAppliedFilters(projectId: string) {
@@ -228,10 +254,11 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
     try {
       if (isEmpty(this.filters) || isEmpty(this.filters[projectId])) return;
 
+      const displayTarget = this.temporaryDisplaySettings.get(projectId) ?? this.filters[projectId];
       const _filters = {
         richFilters: this.filters[projectId].richFilters,
-        displayFilters: this.filters[projectId].displayFilters as IIssueDisplayFilterOptions,
-        displayProperties: this.filters[projectId].displayProperties as IIssueDisplayProperties,
+        displayFilters: displayTarget.displayFilters as IIssueDisplayFilterOptions,
+        displayProperties: displayTarget.displayProperties as IIssueDisplayProperties,
         kanbanFilters: this.filters[projectId].kanbanFilters as TIssueKanbanFilters,
       };
 
@@ -262,8 +289,8 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
           runInAction(() => {
             Object.keys(updatedDisplayFilters).forEach((_key) => {
               set(
-                this.filters,
-                [projectId, "displayFilters", _key],
+                displayTarget,
+                ["displayFilters", _key],
                 updatedDisplayFilters[_key as keyof IIssueDisplayFilterOptions]
               );
             });
@@ -277,9 +304,10 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
             this.rootIssueStore.projectIssues.fetchIssuesWithExistingPagination(workspaceSlug, projectId, "mutation");
           }
 
-          await this.projectService.updateProjectUserProperties(workspaceSlug, projectId, {
-            display_filters: _filters.displayFilters,
-          });
+          if (!this.temporaryDisplaySettings.has(projectId))
+            await this.projectService.updateProjectUserProperties(workspaceSlug, projectId, {
+              display_filters: _filters.displayFilters,
+            });
 
           break;
         }
@@ -290,16 +318,17 @@ export class ProjectIssuesFilter extends IssueFilterHelperStore implements IProj
           runInAction(() => {
             Object.keys(updatedDisplayProperties).forEach((_key) => {
               set(
-                this.filters,
-                [projectId, "displayProperties", _key],
+                displayTarget,
+                ["displayProperties", _key],
                 updatedDisplayProperties[_key as keyof IIssueDisplayProperties]
               );
             });
           });
 
-          await this.projectService.updateProjectUserProperties(workspaceSlug, projectId, {
-            display_properties: _filters.displayProperties,
-          });
+          if (!this.temporaryDisplaySettings.has(projectId))
+            await this.projectService.updateProjectUserProperties(workspaceSlug, projectId, {
+              display_properties: _filters.displayProperties,
+            });
           break;
         }
 

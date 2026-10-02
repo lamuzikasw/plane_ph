@@ -5,10 +5,12 @@ import { MemoryRouter, useLocation } from "react-router";
 import { observer } from "mobx-react";
 import { runInAction } from "mobx";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
+import { EIssueFilterType } from "@plane/constants";
 import { WorkItemFilterStore } from "@plane/shared-state";
 import { EIssuesStoreType, LOGICAL_OPERATOR, type TWorkItemFilterExpression } from "@plane/types";
 import { CycleIssuesFilter } from "@/store/issue/cycle/filter.store";
 import type { IIssueRootStore } from "@/store/issue/root.store";
+import { getWorkItemDisplaySettings, type TWorkItemDisplaySettings } from "@/helpers/work-item-display-settings";
 import { useWorkItemFilterUrl } from "./use-work-item-filter-url";
 
 let instances: WorkItemFilterStore;
@@ -36,10 +38,18 @@ const Board = observer(function Board() {
       preferences.setTemporaryFilterExpression("workspace", "project", "cycle", expression, refetch),
     []
   );
+  const onRouteDisplayChange = useCallback(
+    (settings: TWorkItemDisplaySettings | undefined, refetch = true) =>
+      preferences.setTemporaryDisplaySettings("workspace", "project", "cycle", settings, refetch),
+    []
+  );
   const { updateFilters, isReady } = useWorkItemFilterUrl({
     ready: true,
     savedFilters: preferences.filters.cycle.richFilters,
     activeFilters: filters.richFilters,
+    savedDisplaySettings: getWorkItemDisplaySettings(preferences.filters.cycle),
+    activeDisplaySettings: getWorkItemDisplaySettings(filters),
+    onRouteDisplayChange,
     filter: instances.getFilter(EIssuesStoreType.CYCLE, "cycle"),
     onChange,
     onRouteChange,
@@ -118,6 +128,14 @@ it("adds, selects and clears a condition through the mounted cycle filter HOC", 
     )
   );
   await act(async () => document.querySelectorAll("button")[0].click());
+  await act(async () =>
+    preferences.updateFilters("workspace", "project", EIssueFilterType.DISPLAY_PROPERTIES, { priority: false }, "cycle")
+  );
+  expect(
+    JSON.parse(new URLSearchParams(document.querySelector("output")!.textContent!).get("display")!).displayProperties
+      .priority
+  ).toBe(false);
+  save.mockClear();
   await act(async () => document.querySelectorAll("button")[1].click());
   expect(preferences.getIssueFilters("cycle")?.richFilters).toEqual({ label_id__in: "label-a" });
   expect(new URLSearchParams(document.querySelector("output")!.textContent!).get("filters")).toBe(

@@ -22,6 +22,7 @@ import type {
 } from "@plane/types";
 import { EIssuesStoreType } from "@plane/types";
 import { handleIssueQueryParamsByLayout } from "@plane/utils";
+import { getWorkItemDisplaySettings, type TWorkItemDisplaySettings } from "@/helpers/work-item-display-settings";
 import { IssueFiltersService } from "@/services/issue_filter.service";
 import type { IBaseIssueFilterStore } from "../helpers/issue-filter-helper.store";
 import { IssueFilterHelperStore } from "../helpers/issue-filter-helper.store";
@@ -48,6 +49,13 @@ export interface ICycleIssuesFilter extends IBaseIssueFilterStore {
     expression: TWorkItemFilterExpression | undefined,
     refetch?: boolean
   ) => void;
+  setTemporaryDisplaySettings: (
+    workspaceSlug: string,
+    projectId: string,
+    cycleId: string,
+    settings: TWorkItemDisplaySettings | undefined,
+    refetch?: boolean
+  ) => void;
   // action
   fetchFilters: (workspaceSlug: string, projectId: string, cycleId: string) => Promise<void>;
   updateFilterExpression: (
@@ -70,6 +78,7 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
   filters: { [cycleId: string]: IIssueFilters } = {};
   // Shared links override only the current cycle, preserving personal preferences.
   temporaryFilters = new Map<string, TWorkItemFilterExpression>();
+  temporaryDisplaySettings = new Map<string, TWorkItemDisplaySettings>();
   // root store
   rootIssueStore: IIssueRootStore;
   // services
@@ -81,6 +90,7 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
       // observables
       filters: observable,
       temporaryFilters: observable,
+      temporaryDisplaySettings: observable,
       // computed
       issueFilters: computed,
       appliedFilters: computed,
@@ -88,6 +98,7 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
       fetchFilters: action,
       updateFilters: action,
       setTemporaryFilterExpression: action,
+      setTemporaryDisplaySettings: action,
     });
     // root store
     this.rootIssueStore = _rootStore;
@@ -115,6 +126,7 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
 
     const _filters: IIssueFilters = this.computedIssueFilters({
       ...displayFilters,
+      ...this.temporaryDisplaySettings.get(cycleId),
       richFilters: this.temporaryFilters.get(cycleId) ?? displayFilters.richFilters,
     });
 
@@ -135,6 +147,22 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
     if (refetch && !isEqual(previousExpression, this.getIssueFilters(cycleId)?.richFilters)) {
       this.rootIssueStore.cycleIssues.fetchIssuesWithExistingPagination(workspaceSlug, projectId, "mutation", cycleId);
     }
+  };
+
+  setTemporaryDisplaySettings: ICycleIssuesFilter["setTemporaryDisplaySettings"] = (
+    workspaceSlug,
+    projectId,
+    cycleId,
+    settings,
+    refetch = true
+  ) => {
+    const previous = this.getIssueFilters(cycleId)?.displayFilters;
+    if (settings === undefined) this.temporaryDisplaySettings.delete(cycleId);
+    else this.temporaryDisplaySettings.set(cycleId, getWorkItemDisplaySettings(settings));
+    const next = this.getIssueFilters(cycleId)?.displayFilters;
+    if (!refetch || isEqual(previous, next)) return;
+    if (previous?.layout !== next?.layout) this.rootIssueStore.cycleIssues.clear(true);
+    this.rootIssueStore.cycleIssues.fetchIssuesWithExistingPagination(workspaceSlug, projectId, "mutation", cycleId);
   };
 
   getAppliedFilters(cycleId: string) {
@@ -241,10 +269,11 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
     try {
       if (isEmpty(this.filters) || isEmpty(this.filters[cycleId])) return;
 
+      const displayTarget = this.temporaryDisplaySettings.get(cycleId) ?? this.filters[cycleId];
       const _filters = {
         richFilters: this.filters[cycleId].richFilters,
-        displayFilters: this.filters[cycleId].displayFilters as IIssueDisplayFilterOptions,
-        displayProperties: this.filters[cycleId].displayProperties as IIssueDisplayProperties,
+        displayFilters: displayTarget.displayFilters as IIssueDisplayFilterOptions,
+        displayProperties: displayTarget.displayProperties as IIssueDisplayProperties,
         kanbanFilters: this.filters[cycleId].kanbanFilters as TIssueKanbanFilters,
       };
 
@@ -275,8 +304,8 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
           runInAction(() => {
             Object.keys(updatedDisplayFilters).forEach((_key) => {
               set(
-                this.filters,
-                [cycleId, "displayFilters", _key],
+                displayTarget,
+                ["displayFilters", _key],
                 updatedDisplayFilters[_key as keyof IIssueDisplayFilterOptions]
               );
             });
@@ -295,9 +324,10 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
             );
           }
 
-          await this.issueFilterService.patchCycleIssueFilters(workspaceSlug, projectId, cycleId, {
-            display_filters: _filters.displayFilters,
-          });
+          if (!this.temporaryDisplaySettings.has(cycleId))
+            await this.issueFilterService.patchCycleIssueFilters(workspaceSlug, projectId, cycleId, {
+              display_filters: _filters.displayFilters,
+            });
 
           break;
         }
@@ -308,16 +338,17 @@ export class CycleIssuesFilter extends IssueFilterHelperStore implements ICycleI
           runInAction(() => {
             Object.keys(updatedDisplayProperties).forEach((_key) => {
               set(
-                this.filters,
-                [cycleId, "displayProperties", _key],
+                displayTarget,
+                ["displayProperties", _key],
                 updatedDisplayProperties[_key as keyof IIssueDisplayProperties]
               );
             });
           });
 
-          await this.issueFilterService.patchCycleIssueFilters(workspaceSlug, projectId, cycleId, {
-            display_properties: _filters.displayProperties,
-          });
+          if (!this.temporaryDisplaySettings.has(cycleId))
+            await this.issueFilterService.patchCycleIssueFilters(workspaceSlug, projectId, cycleId, {
+              display_properties: _filters.displayProperties,
+            });
           break;
         }
 

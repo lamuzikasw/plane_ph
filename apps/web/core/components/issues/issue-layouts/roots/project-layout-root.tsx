@@ -5,11 +5,11 @@
  */
 
 import { observer } from "mobx-react";
-import { useCallback, useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useCallback } from "react";
+import { useParams } from "next/navigation";
 import useSWR from "swr";
 // plane constants
-import { EIssueFilterType, ISSUE_DISPLAY_FILTERS_BY_PAGE, PROJECT_VIEW_TRACKER_ELEMENTS } from "@plane/constants";
+import { ISSUE_DISPLAY_FILTERS_BY_PAGE, PROJECT_VIEW_TRACKER_ELEMENTS } from "@plane/constants";
 import { EIssueLayoutTypes, EIssuesStoreType, type TWorkItemFilterExpression } from "@plane/types";
 import { Spinner } from "@plane/ui";
 // components
@@ -20,6 +20,7 @@ import { useIssues } from "@/hooks/store/use-issues";
 import { useWorkItemFilters } from "@/hooks/store/work-item-filters/use-work-item-filters";
 import { useWorkItemFilterUrl } from "@/hooks/work-item-filters/use-work-item-filter-url";
 import { IssuesStoreContext } from "@/hooks/use-issue-layout-store";
+import { getWorkItemDisplaySettings, type TWorkItemDisplaySettings } from "@/helpers/work-item-display-settings";
 // local imports
 import { IssuePeekOverview } from "../../peek-overview";
 import { CalendarLayout } from "../calendar/roots/project-root";
@@ -49,8 +50,6 @@ function ProjectIssueLayout(props: { activeLayout: EIssueLayoutTypes | undefined
 export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
   // router
   const { workspaceSlug: routerWorkspaceSlug, projectId: routerProjectId } = useParams();
-  const searchParams = useSearchParams();
-  const [appliedRouteLayout, setAppliedRouteLayout] = useState<EIssueLayoutTypes>();
   const workspaceSlug = routerWorkspaceSlug ? routerWorkspaceSlug.toString() : undefined;
   const projectId = routerProjectId ? routerProjectId.toString() : undefined;
   // hooks
@@ -59,25 +58,6 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
   // derived values
   const workItemFilters = projectId ? issuesFilter?.getIssueFilters(projectId) : undefined;
   const activeLayout = workItemFilters?.displayFilters?.layout;
-  const routeLayoutValue = searchParams.get("layout");
-  const routeLayout =
-    routeLayoutValue === EIssueLayoutTypes.GANTT || routeLayoutValue === EIssueLayoutTypes.KANBAN
-      ? routeLayoutValue
-      : undefined;
-
-  useEffect(() => {
-    if (!routeLayout || appliedRouteLayout === routeLayout || !workspaceSlug || !projectId) return;
-    if (activeLayout === routeLayout) {
-      setAppliedRouteLayout(routeLayout);
-      return;
-    }
-
-    issuesFilter?.updateFilters(workspaceSlug, projectId, EIssueFilterType.DISPLAY_FILTERS, {
-      layout: routeLayout,
-    });
-    setAppliedRouteLayout(routeLayout);
-  }, [activeLayout, appliedRouteLayout, issuesFilter, projectId, routeLayout, workspaceSlug]);
-
   const { isLoading } = useSWR(
     workspaceSlug && projectId ? `PROJECT_ISSUES_${workspaceSlug}_${projectId}` : null,
     async () => {
@@ -104,10 +84,21 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
     },
     [issuesFilter, workspaceSlug, projectId]
   );
+  const onRouteDisplayChange = useCallback(
+    (settings: TWorkItemDisplaySettings | undefined, refetch = true) => {
+      if (workspaceSlug && projectId) {
+        issuesFilter.setTemporaryDisplaySettings(workspaceSlug, projectId, settings, refetch);
+      }
+    },
+    [issuesFilter, workspaceSlug, projectId]
+  );
   const { updateFilters, isReady } = useWorkItemFilterUrl({
     ready: !isLoading && !!workItemFilters,
     savedFilters: projectId ? issuesFilter.filters[projectId]?.richFilters : undefined,
     activeFilters: workItemFilters?.richFilters,
+    savedDisplaySettings: getWorkItemDisplaySettings(projectId ? issuesFilter.filters[projectId] : undefined),
+    activeDisplaySettings: getWorkItemDisplaySettings(workItemFilters),
+    onRouteDisplayChange,
     filter: projectId ? getFilter(EIssuesStoreType.PROJECT, projectId) : undefined,
     onChange: onFiltersChange,
     onRouteChange: onRouteFiltersChange,

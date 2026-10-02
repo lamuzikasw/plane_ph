@@ -23,6 +23,7 @@ import { useIssues } from "@/hooks/store/use-issues";
 import { useWorkItemFilters } from "@/hooks/store/work-item-filters/use-work-item-filters";
 import { useWorkItemFilterUrl } from "@/hooks/work-item-filters/use-work-item-filter-url";
 import { IssuesStoreContext } from "@/hooks/use-issue-layout-store";
+import { getWorkItemDisplaySettings, type TWorkItemDisplaySettings } from "@/helpers/work-item-display-settings";
 // local imports
 import { IssuePeekOverview } from "../../peek-overview";
 import { CycleCalendarLayout } from "../calendar/roots/cycle-root";
@@ -93,10 +94,21 @@ export const CycleLayoutRoot = observer(function CycleLayoutRoot() {
     },
     [issuesFilter, workspaceSlug, projectId, cycleId]
   );
+  const onRouteDisplayChange = useCallback(
+    (settings: TWorkItemDisplaySettings | undefined, refetch = true) => {
+      if (workspaceSlug && projectId && cycleId) {
+        issuesFilter.setTemporaryDisplaySettings(workspaceSlug, projectId, cycleId, settings, refetch);
+      }
+    },
+    [issuesFilter, workspaceSlug, projectId, cycleId]
+  );
   const { updateFilters, isReady } = useWorkItemFilterUrl({
     ready: !isLoading && !!workItemFilters,
     savedFilters: cycleId ? issuesFilter.filters[cycleId]?.richFilters : undefined,
     activeFilters: workItemFilters?.richFilters,
+    savedDisplaySettings: getWorkItemDisplaySettings(cycleId ? issuesFilter.filters[cycleId] : undefined),
+    activeDisplaySettings: getWorkItemDisplaySettings(workItemFilters),
+    onRouteDisplayChange,
     filter: cycleId ? getFilter(EIssuesStoreType.CYCLE, cycleId) : undefined,
     onChange: onFiltersChange,
     onRouteChange: onRouteFiltersChange,
