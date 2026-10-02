@@ -21,6 +21,7 @@ import { useWorkItemFilters } from "@/hooks/store/work-item-filters/use-work-ite
 import { useWorkItemFilterUrl } from "@/hooks/work-item-filters/use-work-item-filter-url";
 import { IssuesStoreContext } from "@/hooks/use-issue-layout-store";
 import { getWorkItemDisplaySettings, type TWorkItemDisplaySettings } from "@/helpers/work-item-display-settings";
+import { useSharedBoardLink } from "@/hooks/work-item-filters/use-shared-board-link";
 // local imports
 import { IssuePeekOverview } from "../../peek-overview";
 import { CalendarLayout } from "../calendar/roots/project-root";
@@ -92,8 +93,10 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
     },
     [issuesFilter, workspaceSlug, projectId]
   );
+  const sharedBoard = useSharedBoardLink();
   const { updateFilters, isReady } = useWorkItemFilterUrl({
-    ready: !isLoading && !!workItemFilters,
+    sharedLink: sharedBoard.link,
+    ready: !isLoading && !!workItemFilters && sharedBoard.ready,
     savedFilters: projectId ? issuesFilter.filters[projectId]?.richFilters : undefined,
     activeFilters: workItemFilters?.richFilters,
     savedDisplaySettings: getWorkItemDisplaySettings(projectId ? issuesFilter.filters[projectId] : undefined),
@@ -104,6 +107,12 @@ export const ProjectLayoutRoot = observer(function ProjectLayoutRoot() {
     onRouteChange: onRouteFiltersChange,
   });
 
+  if (sharedBoard.error)
+    return (
+      <p role="alert" className="p-6">
+        Ссылка недоступна. Проверьте доступ к проекту или обновите страницу.
+      </p>
+    );
   if (!workspaceSlug || !projectId || !workItemFilters || !isReady) return <></>;
   return (
     <IssuesStoreContext.Provider value={EIssuesStoreType.PROJECT}>

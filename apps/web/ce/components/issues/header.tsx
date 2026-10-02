@@ -26,6 +26,7 @@ import { Breadcrumbs, Header } from "@plane/ui";
 import { BreadcrumbLink } from "@/components/common/breadcrumb-link";
 import { CountChip } from "@/components/common/count-chip";
 // constants
+import { CopyBoardLink } from "@/components/work-item-filters/copy-board-link";
 import { HeaderFilters } from "@/components/issues/filters";
 // helpers
 // hooks
@@ -45,6 +46,7 @@ export const IssuesHeader = observer(function IssuesHeader() {
   // store hooks
   const {
     issues: { getGroupIssueCount },
+    issuesFilter: { issueFilters },
   } = useIssues(EIssuesStoreType.PROJECT);
   // i18n
   const { t } = useTranslation();
@@ -116,6 +118,7 @@ export const IssuesHeader = observer(function IssuesHeader() {
             canUserCreateIssue={canUserCreateIssue}
           />
         </div>
+        <CopyBoardLink filters={issueFilters} />
         {canUserCreateIssue && (
           <Button
             className="payholder-header-primary-action"

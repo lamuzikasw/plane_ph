@@ -17,7 +17,10 @@ import {
   type TWorkItemDisplaySettings,
 } from "@/helpers/work-item-display-settings";
 
+import type { TBoardLink } from "@/services/board-link.service";
+
 type TProps = {
+  sharedLink?: TBoardLink;
   ready: boolean;
   savedDisplaySettings?: TWorkItemDisplaySettings;
   activeDisplaySettings?: TWorkItemDisplaySettings;
@@ -32,6 +35,7 @@ type TProps = {
 /** Synchronize board filters with shareable URLs after saved preferences have loaded. */
 export function useWorkItemFilterUrl({
   ready,
+  sharedLink,
   savedFilters,
   activeFilters,
   filter,
@@ -47,7 +51,8 @@ export function useWorkItemFilterUrl({
   const rawFilters = params.get(WORK_ITEM_FILTERS_QUERY_PARAM);
   const rawDisplay = params.get(WORK_ITEM_DISPLAY_QUERY_PARAM);
   const legacyLayout = params.get("layout");
-  const routeKey = JSON.stringify([location.pathname, rawFilters, rawDisplay, legacyLayout]);
+  const shareToken = params.get("share");
+  const routeKey = JSON.stringify([location.pathname, rawFilters, rawDisplay, legacyLayout, shareToken]);
   const lastSyncedDisplay = useRef<TWorkItemDisplaySettings>();
   const lastHandledRoute = useRef<string>();
   const pendingRoute = useRef<{ from: string; to: string }>();
@@ -56,9 +61,13 @@ export function useWorkItemFilterUrl({
 
   const writeUrl = useCallback(
     (expression: TWorkItemFilterExpression, display = activeDisplaySettings) => {
-      let search = withWorkItemFilters(location.search, expression);
+      const sourceParams = new URLSearchParams(location.search);
+      const keepShortLink =
+        sharedLink && isEqual(expression, sharedLink.filters) && isEqual(display, sharedLink.display);
+      if (!keepShortLink) sourceParams.delete("share");
+      let search = keepShortLink ? location.search : withWorkItemFilters(sourceParams.toString(), expression);
       if (display) {
-        search = withWorkItemDisplaySettings(search, display);
+        if (!keepShortLink) search = withWorkItemDisplaySettings(search, display);
         lastSyncedDisplay.current = display;
       }
       const nextParams = new URLSearchParams(search);
@@ -72,6 +81,7 @@ export function useWorkItemFilterUrl({
             nextParams.get(WORK_ITEM_FILTERS_QUERY_PARAM),
             nextParams.get(WORK_ITEM_DISPLAY_QUERY_PARAM),
             nextParams.get("layout"),
+            nextParams.get("share"),
           ]),
         };
         void navigate(
@@ -84,7 +94,7 @@ export function useWorkItemFilterUrl({
         );
       }
     },
-    [location, navigate, routeKey, activeDisplaySettings]
+    [location, navigate, routeKey, activeDisplaySettings, sharedLink]
   );
 
   const updateFilters = useCallback(
@@ -126,10 +136,10 @@ export function useWorkItemFilterUrl({
     }
     const hadRouteForThisBoard = initializedPath === location.pathname;
     lastHandledRoute.current = routeKey;
-    const routeFilters = parseWorkItemFilters(rawFilters);
+    const routeFilters = sharedLink?.filters ?? parseWorkItemFilters(rawFilters);
     const expression = routeFilters ?? savedFilters ?? {};
 
-    let routeDisplay = parseWorkItemDisplaySettings(rawDisplay);
+    let routeDisplay = sharedLink?.display ?? parseWorkItemDisplaySettings(rawDisplay);
     if (!routeDisplay && Object.values(EIssueLayoutTypes).some((layout) => layout === legacyLayout)) {
       routeDisplay = getWorkItemDisplaySettings({
         displayFilters: { ...savedDisplaySettings?.displayFilters, layout: legacyLayout },
@@ -156,6 +166,7 @@ export function useWorkItemFilterUrl({
     routeKey,
     rawFilters,
     rawDisplay,
+    sharedLink,
     legacyLayout,
     activeDisplaySettings,
     savedDisplaySettings,

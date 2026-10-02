@@ -24,6 +24,7 @@ import { useWorkItemFilters } from "@/hooks/store/work-item-filters/use-work-ite
 import { useWorkItemFilterUrl } from "@/hooks/work-item-filters/use-work-item-filter-url";
 import { IssuesStoreContext } from "@/hooks/use-issue-layout-store";
 import { getWorkItemDisplaySettings, type TWorkItemDisplaySettings } from "@/helpers/work-item-display-settings";
+import { useSharedBoardLink } from "@/hooks/work-item-filters/use-shared-board-link";
 // local imports
 import { IssuePeekOverview } from "../../peek-overview";
 import { CycleCalendarLayout } from "../calendar/roots/cycle-root";
@@ -102,8 +103,10 @@ export const CycleLayoutRoot = observer(function CycleLayoutRoot() {
     },
     [issuesFilter, workspaceSlug, projectId, cycleId]
   );
+  const sharedBoard = useSharedBoardLink();
   const { updateFilters, isReady } = useWorkItemFilterUrl({
-    ready: !isLoading && !!workItemFilters,
+    sharedLink: sharedBoard.link,
+    ready: !isLoading && !!workItemFilters && sharedBoard.ready,
     savedFilters: cycleId ? issuesFilter.filters[cycleId]?.richFilters : undefined,
     activeFilters: workItemFilters?.richFilters,
     savedDisplaySettings: getWorkItemDisplaySettings(cycleId ? issuesFilter.filters[cycleId] : undefined),
@@ -123,6 +126,12 @@ export const CycleLayoutRoot = observer(function CycleLayoutRoot() {
     : 0;
   const canTransferIssues = isProgressSnapshotEmpty && transferableIssuesCount > 0;
 
+  if (sharedBoard.error)
+    return (
+      <p role="alert" className="p-6">
+        Ссылка недоступна. Проверьте доступ к проекту или обновите страницу.
+      </p>
+    );
   if (!workspaceSlug || !projectId || !cycleId || !workItemFilters || !isReady) return <></>;
   return (
     <IssuesStoreContext.Provider value={EIssuesStoreType.CYCLE}>

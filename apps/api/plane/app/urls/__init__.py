@@ -24,7 +24,10 @@ from .timezone import urlpatterns as timezone_urls
 from .exporter import urlpatterns as exporter_urls
 from .recurring_issue import urlpatterns as recurring_issue_urls
 
+from .board_link import urlpatterns as board_link_urls
+
 urlpatterns = [
+    *board_link_urls,
     *analytic_urls,
     *asset_urls,
     *cycle_urls,
