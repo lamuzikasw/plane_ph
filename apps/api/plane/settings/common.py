@@ -352,6 +352,7 @@ CELERY_IMPORTS = (
     "plane.bgtasks.igor_capture_task",
     "plane.bgtasks.recurring_issue_task",
     "plane.bgtasks.telegram_task",
+    "plane.bgtasks.gitlab_task",
 )
 
 TELEGRAM_ENABLED = os.environ.get("TELEGRAM_ENABLED", "0") == "1"

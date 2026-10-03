@@ -3,6 +3,17 @@
 # See the LICENSE file for details.
 
 from .base import Integration, WorkspaceIntegration
+from .gitlab import (
+    GitLabIntegration,
+    GitLabRepository,
+    GitLabUserConnection,
+    GitLabOAuthAttempt,
+    GitLabObject,
+    GitLabObjectRelation,
+    GitLabIssueLink,
+    GitLabWebhookEvent,
+    GitLabDiagnostic,
+)
 from .github import (
     GithubRepository,
     GithubRepositorySync,

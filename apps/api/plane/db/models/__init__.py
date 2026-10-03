@@ -97,3 +97,7 @@ from .issue_placement import IssuePlacement
 from .telegram import TelegramConnection, TelegramDelivery, TelegramEvent, TelegramMute, TelegramBotState
 
 from .board_link import BoardLink
+from .integration.gitlab import (
+    GitLabIntegration, GitLabRepository, GitLabUserConnection, GitLabObject,
+    GitLabObjectRelation, GitLabIssueLink, GitLabWebhookEvent, GitLabDiagnostic, GitLabOAuthAttempt,
+)

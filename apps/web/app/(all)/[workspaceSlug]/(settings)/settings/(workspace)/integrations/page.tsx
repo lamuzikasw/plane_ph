@@ -11,6 +11,7 @@ import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { NotAuthorizedView } from "@/components/auth-screens/not-authorized-view";
 import { PageHead } from "@/components/core/page-title";
 import { SingleIntegrationCard } from "@/components/integration/single-integration-card";
+import { GitLabSettings } from "@/components/integration/gitlab-settings";
 import { IntegrationAndImportExportBanner } from "@/components/ui/integration-and-import-export-banner";
 import { IntegrationsSettingsLoader } from "@/components/ui/loader/settings/integration";
 // constants
@@ -42,6 +43,7 @@ function WorkspaceIntegrationsPage() {
       <PageHead title={pageTitle} />
       <section className="w-full overflow-y-auto">
         <IntegrationAndImportExportBanner bannerName="Integrations" />
+        {currentWorkspace?.slug && <GitLabSettings workspaceSlug={currentWorkspace.slug} />}
         <div>
           {appIntegrations ? (
             appIntegrations.map((integration) => (

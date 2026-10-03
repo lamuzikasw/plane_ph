@@ -18,6 +18,7 @@ import { AttachmentsCollapsible } from "./attachments";
 import { LinksCollapsible } from "./links";
 import { RelationsCollapsible } from "./relations";
 import { SubIssuesCollapsible } from "./sub-issues";
+import { IssueDevelopmentSection } from "./development";
 
 type Props = {
   workspaceSlug: string;
@@ -54,6 +55,12 @@ export const IssueDetailWidgetCollapsibles = observer(function IssueDetailWidget
 
   return (
     <div className="flex flex-col">
+      <IssueDevelopmentSection
+        workspaceSlug={workspaceSlug}
+        projectId={projectId}
+        issueId={issueId}
+        disabled={disabled}
+      />
       {shouldRenderSubIssues && (
         <SubIssuesCollapsible
           workspaceSlug={workspaceSlug}

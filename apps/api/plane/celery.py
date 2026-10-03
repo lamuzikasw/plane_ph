@@ -42,6 +42,14 @@ app = Celery("plane")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 
 app.conf.beat_schedule = {
+    "gitlab-event-recovery": {
+        "task": "plane.bgtasks.gitlab_task.recover_gitlab_events",
+        "schedule": 60.0,
+    },
+    "gitlab-reconciliation": {
+        "task": "plane.bgtasks.gitlab_task.reconcile_gitlab",
+        "schedule": 300.0,
+    },
     "telegram-notifications": {
         "task": "plane.bgtasks.telegram_task.dispatch_telegram",
         "schedule": 30.0,

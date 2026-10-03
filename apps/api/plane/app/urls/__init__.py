@@ -25,8 +25,10 @@ from .exporter import urlpatterns as exporter_urls
 from .recurring_issue import urlpatterns as recurring_issue_urls
 
 from .board_link import urlpatterns as board_link_urls
+from .gitlab import urlpatterns as gitlab_urls
 
 urlpatterns = [
+    *gitlab_urls,
     *board_link_urls,
     *analytic_urls,
     *asset_urls,
