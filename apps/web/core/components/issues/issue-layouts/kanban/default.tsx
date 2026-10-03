@@ -72,6 +72,7 @@ export interface IKanBan {
   disableIssueCreation?: boolean;
   addIssuesToView?: (issueIds: string[]) => Promise<TIssue>;
   canEditProperties: (projectId: string | undefined) => boolean;
+  canChangeCycle?: (projectId: string | undefined) => boolean;
   scrollableContainerRef?: MutableRefObject<HTMLDivElement | null>;
   handleOnDrop: (source: GroupDropLocation, destination: GroupDropLocation) => Promise<void>;
   archiveColumn?: (payload: TArchiveKanbanColumnPayload) => Promise<number | undefined>;
@@ -100,6 +101,7 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
     disableIssueCreation,
     addIssuesToView,
     canEditProperties,
+    canChangeCycle,
     scrollableContainerRef,
     handleOnDrop,
     archiveColumn,
@@ -261,6 +263,7 @@ export const KanBan = observer(function KanBan(props: IKanBan) {
                     quickAddCallback={quickAddCallback}
                     disableIssueCreation={disableIssueCreation}
                     canEditProperties={canEditProperties}
+                    canChangeCycle={canChangeCycle}
                     scrollableContainerRef={scrollableContainerRef}
                     loadMoreIssues={loadMoreIssues}
                     handleOnDrop={handleOnDrop}

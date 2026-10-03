@@ -21,6 +21,7 @@ interface IssueBlocksListProps {
   updateIssue: ((projectId: string | null, issueId: string, data: Partial<TIssue>) => Promise<void>) | undefined;
   quickActions: TRenderQuickActions;
   canEditProperties: (projectId: string | undefined) => boolean;
+  canChangeCycle?: (projectId: string | undefined) => boolean;
   canDropOverIssue: boolean;
   canDragIssuesInCurrentGrouping: boolean;
   scrollableContainerRef?: MutableRefObject<HTMLDivElement | null>;
@@ -39,6 +40,7 @@ export const KanbanIssueBlocksList = observer(function KanbanIssueBlocksList(pro
     updateIssue,
     quickActions,
     canEditProperties,
+    canChangeCycle,
     scrollableContainerRef,
     isEpic = false,
   } = props;
@@ -69,6 +71,7 @@ export const KanbanIssueBlocksList = observer(function KanbanIssueBlocksList(pro
                 canDropOverIssue={canDropOverIssue}
                 canDragIssuesInCurrentGrouping={canDragIssuesInCurrentGrouping}
                 canEditProperties={canEditProperties}
+                canChangeCycle={canChangeCycle}
                 scrollableContainerRef={scrollableContainerRef}
                 isEpic={isEpic}
               />

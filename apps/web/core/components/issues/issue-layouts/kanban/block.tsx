@@ -53,6 +53,7 @@ interface IssueBlockProps {
   updateIssue: ((projectId: string | null, issueId: string, data: Partial<TIssue>) => Promise<void>) | undefined;
   quickActions: TRenderQuickActions;
   canEditProperties: (projectId: string | undefined) => boolean;
+  canChangeCycle?: (projectId: string | undefined) => boolean;
   scrollableContainerRef?: MutableRefObject<HTMLDivElement | null>;
   shouldRenderByDefault?: boolean;
   isEpic?: boolean;
@@ -65,6 +66,7 @@ interface IssueDetailsBlockProps {
   updateIssue: ((projectId: string | null, issueId: string, data: Partial<TIssue>) => Promise<void>) | undefined;
   quickActions: TRenderQuickActions;
   isReadOnly: boolean;
+  isCycleReadOnly: boolean;
   isEpic?: boolean;
 }
 
@@ -78,7 +80,16 @@ const stopEventPropagation = (event: React.SyntheticEvent) => {
 };
 
 const KanbanIssueDetailsBlock = observer(function KanbanIssueDetailsBlock(props: IssueDetailsBlockProps) {
-  const { cardRef, issue, updateIssue, quickActions, isReadOnly, displayProperties, isEpic = false } = props;
+  const {
+    cardRef,
+    issue,
+    updateIssue,
+    quickActions,
+    isReadOnly,
+    isCycleReadOnly,
+    displayProperties,
+    isEpic = false,
+  } = props;
   // refs
   const menuActionRef = useRef<HTMLButtonElement | null>(null);
   // states
@@ -149,6 +160,7 @@ const KanbanIssueDetailsBlock = observer(function KanbanIssueDetailsBlock(props:
         activeLayout="Kanban"
         updateIssue={updateIssue}
         isReadOnly={isReadOnly}
+        isCycleReadOnly={isCycleReadOnly}
         isEpic={isEpic}
       />
 
@@ -177,6 +189,7 @@ export const KanbanIssueBlock = observer(function KanbanIssueBlock(props: IssueB
     updateIssue,
     quickActions,
     canEditProperties,
+    canChangeCycle,
     scrollableContainerRef,
     shouldRenderByDefault,
     isEpic = false,
@@ -187,7 +200,7 @@ export const KanbanIssueBlock = observer(function KanbanIssueBlock(props: IssueB
   const { workspaceSlug: routerWorkspaceSlug } = useParams();
   const workspaceSlug = routerWorkspaceSlug?.toString();
   // hooks
-  const { getProjectIdentifierById } = useProject();
+  const { getProjectIdentifierById, getProjectById } = useProject();
   const { getIsIssuePeeked } = useIssueDetail(isEpic ? EIssueServiceType.EPICS : EIssueServiceType.ISSUES);
   const { handleRedirection } = useIssuePeekOverviewRedirection(isEpic);
   const { isMobile } = usePlatformOS();
@@ -203,6 +216,10 @@ export const KanbanIssueBlock = observer(function KanbanIssueBlock(props: IssueB
   const [isCurrentBlockDragging, setIsCurrentBlockDragging] = useState(false);
 
   const canEditIssueProperties = canEditProperties(issue?.project_id ?? undefined);
+  const canChangeIssueCycle =
+    (canChangeCycle ?? canEditProperties)(issue?.project_id ?? undefined) &&
+    !issue?.archived_at &&
+    !getProjectById(issue?.project_id)?.archived_at;
   const isIssuePeeked = getIsIssuePeeked(issueId);
 
   const isDragAllowed = canDragIssuesInCurrentGrouping && !issue?.tempId && canEditIssueProperties;
@@ -314,6 +331,7 @@ export const KanbanIssueBlock = observer(function KanbanIssueBlock(props: IssueB
               updateIssue={updateIssue}
               quickActions={quickActions}
               isReadOnly={!canEditIssueProperties}
+              isCycleReadOnly={!canChangeIssueCycle}
               isEpic={isEpic}
             />
           </RenderIfVisible>

@@ -66,6 +66,7 @@ interface IKanbanGroup {
   loadMoreIssues: (groupId?: string, subGroupId?: string) => void;
   disableIssueCreation?: boolean;
   canEditProperties: (projectId: string | undefined) => boolean;
+  canChangeCycle?: (projectId: string | undefined) => boolean;
   groupByVisibilityToggle?: boolean;
   scrollableContainerRef?: MutableRefObject<HTMLDivElement | null>;
   handleOnDrop: (source: GroupDropLocation, destination: GroupDropLocation) => Promise<void>;
@@ -88,6 +89,7 @@ export const KanbanGroup = observer(function KanbanGroup(props: IKanbanGroup) {
     updateIssue,
     quickActions,
     canEditProperties,
+    canChangeCycle,
     loadMoreIssues,
     enableQuickIssueCreate,
     disableIssueCreation,
@@ -306,6 +308,7 @@ export const KanbanGroup = observer(function KanbanGroup(props: IKanbanGroup) {
         updateIssue={updateIssue}
         quickActions={quickActions}
         canEditProperties={canEditProperties}
+        canChangeCycle={canChangeCycle}
         scrollableContainerRef={scrollableContainerRef}
         canDropOverIssue={!canOverlayBeVisible}
         canDragIssuesInCurrentGrouping={canDragIssuesInCurrentGrouping}

@@ -5,7 +5,7 @@
  */
 
 import type { SyntheticEvent } from "react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { xor } from "lodash-es";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
@@ -15,6 +15,7 @@ import { Paperclip } from "lucide-react";
 import { useTranslation } from "@plane/i18n";
 import { LinkIcon, StartDatePropertyIcon, ViewsIcon, DueDatePropertyIcon } from "@plane/propel/icons";
 import { Tooltip } from "@plane/propel/tooltip";
+import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { TIssue, IIssueDisplayProperties, TIssuePriorities } from "@plane/types";
 // ui
 import {
@@ -56,6 +57,7 @@ export interface IIssueProperties {
   updateIssue: ((projectId: string | null, issueId: string, data: Partial<TIssue>) => Promise<void>) | undefined;
   displayProperties: IIssueDisplayProperties | undefined;
   isReadOnly: boolean;
+  isCycleReadOnly?: boolean;
   className: string;
   activeLayout: string;
   isEpic?: boolean;
@@ -67,9 +69,19 @@ const handleEventPropagation = (e: SyntheticEvent<HTMLElement>) => {
 };
 
 export const IssueProperties = observer(function IssueProperties(props: IIssueProperties) {
-  const { issue, updateIssue, displayProperties, isReadOnly, className, isEpic = false } = props;
+  const {
+    issue,
+    updateIssue,
+    displayProperties,
+    isReadOnly,
+    isCycleReadOnly = isReadOnly,
+    className,
+    isEpic = false,
+  } = props;
   // i18n
   const { t } = useTranslation();
+  const [isUpdatingCycle, setIsUpdatingCycle] = useState(false);
+  const cycleChangePending = useRef(false);
   // store hooks
   const { getProjectById } = useProject();
   const { labelMap } = useLabel();
@@ -149,12 +161,25 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
   );
 
   const handleCycle = useCallback(
-    (cycleId: string | null) => {
-      if (!issue || issue.cycle_id === cycleId) return;
-      if (cycleId) issueOperations.addIssueToCycle?.(cycleId);
-      else issueOperations.removeIssueFromCycle?.();
+    async (cycleId: string | null) => {
+      if (isCycleReadOnly || cycleChangePending.current || !issue || issue.cycle_id === cycleId) return;
+      cycleChangePending.current = true;
+      setIsUpdatingCycle(true);
+      try {
+        if (cycleId) await issueOperations.addIssueToCycle?.(cycleId);
+        else await issueOperations.removeIssueFromCycle?.();
+      } catch (_error) {
+        setToast({
+          type: TOAST_TYPE.ERROR,
+          title: t("common.error.label"),
+          message: t(cycleId ? "issue.add.cycle.failed" : "issue.remove.cycle.failed"),
+        });
+      } finally {
+        cycleChangePending.current = false;
+        setIsUpdatingCycle(false);
+      }
     },
-    [issue, issueOperations]
+    [isCycleReadOnly, issue, issueOperations, t]
   );
 
   const handleStartDate = async (date: Date | null) => {
@@ -426,7 +451,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
                     projectId={issue?.project_id}
                     value={issue?.cycle_id}
                     onChange={handleCycle}
-                    disabled={isReadOnly}
+                    disabled={isCycleReadOnly || isUpdatingCycle}
                     buttonVariant="border-with-text"
                     renderByDefault={isMobile}
                     showTooltip

@@ -940,7 +940,14 @@ class CycleIssueListCreateAPIEndpoint(BaseAPIView):
             )
 
         # Get all CycleWorkItems already created
-        cycle_issues = list(CycleIssue.objects.filter(~Q(cycle_id=cycle_id), issue_id__in=issues))
+        cycle_issues = list(
+            CycleIssue.objects.filter(
+                ~Q(cycle_id=cycle_id),
+                workspace__slug=slug,
+                project_id=project_id,
+                issue_id__in=issues,
+            )
+        )
         existing_issues = [
             str(cycle_issue.issue_id) for cycle_issue in cycle_issues if str(cycle_issue.issue_id) in issues
         ]

@@ -188,6 +188,25 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
     [canEditPropertiesBasedOnProject, enableInlineEditing, isEditingAllowed]
   );
 
+  const canChangeCycle = useCallback(
+    (targetProjectId: string | undefined) => {
+      if (storeType !== EIssuesStoreType.CYCLE || !isCompletedCycle) return canEditProperties(targetProjectId);
+      // Moving a single work item out is independent of editing a completed cycle.
+      // Keep the general capability false so its cards cannot be dragged or otherwise edited.
+      return (
+        !!enableInlineEditing &&
+        !!targetProjectId &&
+        allowPermissions(
+          [EUserPermissions.ADMIN, EUserPermissions.MEMBER],
+          EUserPermissionsLevel.PROJECT,
+          workspaceSlug?.toString(),
+          targetProjectId
+        )
+      );
+    },
+    [storeType, isCompletedCycle, canEditProperties, enableInlineEditing, allowPermissions, workspaceSlug]
+  );
+
   // Enable Auto Scroll for Main Kanban
   useEffect(() => {
     const element = scrollableContainerRef.current;
@@ -356,6 +375,7 @@ export const BaseKanBanRoot = observer(function BaseKanBanRoot(props: IBaseKanBa
                 quickAddCallback={quickAddIssue}
                 disableIssueCreation={!enableIssueCreation || !isEditingAllowed || isCompletedCycle}
                 canEditProperties={canEditProperties}
+                canChangeCycle={canChangeCycle}
                 addIssuesToView={addIssuesToView}
                 scrollableContainerRef={scrollableContainerRef}
                 handleOnDrop={handleOnDrop}
