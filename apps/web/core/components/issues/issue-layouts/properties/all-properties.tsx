@@ -68,6 +68,10 @@ const handleEventPropagation = (e: SyntheticEvent<HTMLElement>) => {
   e.preventDefault();
 };
 
+const stopEventPropagation = (e: SyntheticEvent<HTMLElement>) => {
+  e.stopPropagation();
+};
+
 export const IssueProperties = observer(function IssueProperties(props: IIssueProperties) {
   const {
     issue,
@@ -241,7 +245,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
           role="presentation"
           onFocus={handleEventPropagation}
           onClick={handleEventPropagation}
-          onKeyDown={handleEventPropagation}
+          onKeyDown={stopEventPropagation}
         >
           <StateDropdown
             buttonContainerClassName="truncate max-w-40"
@@ -263,7 +267,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
           role="presentation"
           onFocus={handleEventPropagation}
           onClick={handleEventPropagation}
-          onKeyDown={handleEventPropagation}
+          onKeyDown={stopEventPropagation}
         >
           <PriorityDropdown
             value={issue?.priority}
@@ -287,7 +291,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
           role="presentation"
           onFocus={handleEventPropagation}
           onClick={handleEventPropagation}
-          onKeyDown={handleEventPropagation}
+          onKeyDown={stopEventPropagation}
         >
           <DateRangeDropdown
             value={{
@@ -327,7 +331,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
           role="presentation"
           onFocus={handleEventPropagation}
           onClick={handleEventPropagation}
-          onKeyDown={handleEventPropagation}
+          onKeyDown={stopEventPropagation}
         >
           <DateDropdown
             value={issue.start_date ?? null}
@@ -357,7 +361,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
           role="presentation"
           onFocus={handleEventPropagation}
           onClick={handleEventPropagation}
-          onKeyDown={handleEventPropagation}
+          onKeyDown={stopEventPropagation}
         >
           <DateDropdown
             value={issue?.target_date ?? null}
@@ -388,7 +392,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
           role="presentation"
           onFocus={handleEventPropagation}
           onClick={handleEventPropagation}
-          onKeyDown={handleEventPropagation}
+          onKeyDown={stopEventPropagation}
         >
           <MemberDropdown
             projectId={issue?.project_id}
@@ -418,7 +422,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
                   role="presentation"
                   onFocus={handleEventPropagation}
                   onClick={handleEventPropagation}
-                  onKeyDown={handleEventPropagation}
+                  onKeyDown={stopEventPropagation}
                 >
                   <ModuleDropdown
                     buttonContainerClassName="truncate max-w-40"
@@ -444,7 +448,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
                   role="presentation"
                   onFocus={handleEventPropagation}
                   onClick={handleEventPropagation}
-                  onKeyDown={handleEventPropagation}
+                  onKeyDown={stopEventPropagation}
                 >
                   <CycleDropdown
                     buttonContainerClassName="truncate max-w-40"
@@ -471,7 +475,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
             role="presentation"
             onFocus={handleEventPropagation}
             onClick={handleEventPropagation}
-            onKeyDown={handleEventPropagation}
+            onKeyDown={stopEventPropagation}
           >
             <EstimateDropdown
               value={issue.estimate_point ?? undefined}
@@ -508,7 +512,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
                 e.preventDefault();
                 if (subIssueCount) redirectToIssueDetail();
               }}
-              onKeyDown={handleEventPropagation}
+              onKeyDown={stopEventPropagation}
               className={cn(
                 "flex h-5 flex-shrink-0 items-center justify-center gap-2 overflow-hidden rounded-sm border-[0.5px] border-strong px-2.5 py-1",
                 {
@@ -546,7 +550,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
             role="presentation"
             onFocus={handleEventPropagation}
             onClick={handleEventPropagation}
-            onKeyDown={handleEventPropagation}
+            onKeyDown={stopEventPropagation}
           >
             <Paperclip className="h-3 w-3 flex-shrink-0" strokeWidth={2} />
             <div className="text-caption-sm-regular">{issue.attachment_count}</div>
@@ -571,7 +575,7 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
             role="presentation"
             onFocus={handleEventPropagation}
             onClick={handleEventPropagation}
-            onKeyDown={handleEventPropagation}
+            onKeyDown={stopEventPropagation}
           >
             <LinkIcon className="h-3 w-3 flex-shrink-0" strokeWidth={2} />
             <div className="text-caption-sm-regular">{issue.link_count}</div>
