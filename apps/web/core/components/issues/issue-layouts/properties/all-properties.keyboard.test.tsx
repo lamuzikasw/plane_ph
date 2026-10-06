@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { act, type ReactNode } from "react";
+import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IUserLite, TIssue } from "@plane/types";
@@ -27,10 +27,6 @@ const issue = {
 
 vi.mock("next/navigation", () => ({ useParams: () => ({ workspaceSlug: "payholder", projectId: "project-1" }) }));
 vi.mock("@plane/i18n", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-vi.mock("@plane/propel/tooltip", () => ({ Tooltip: ({ children }: { children: ReactNode }) => <>{children}</> }));
-vi.mock("@/components/dropdowns/buttons", () => ({
-  DropdownButton: ({ children }: { children: ReactNode }) => <span>{children}</span>,
-}));
 vi.mock("react-popper", () => ({ usePopper: () => ({ styles: {}, attributes: {} }) }));
 vi.mock("@/hooks/use-platform-os", () => ({ usePlatformOS: () => ({ isMobile: false }) }));
 vi.mock("@/hooks/store/use-member", () => ({
@@ -83,12 +79,12 @@ describe("searching assignees from issue card properties", () => {
     container.remove();
   });
 
-  async function renderCard(readOnly = false) {
+  async function renderCard(readOnly = false, assigneeIds: string[] = []) {
     await act(async () =>
       root.render(
         <div onKeyDown={mocks.cardKeyDown} onClick={mocks.cardClick} role="presentation">
           <IssueProperties
-            issue={issue}
+            issue={{ ...issue, assignee_ids: assigneeIds }}
             updateIssue={mocks.updateIssue}
             displayProperties={{ assignee: true }}
             isReadOnly={readOnly}
@@ -100,11 +96,23 @@ describe("searching assignees from issue card properties", () => {
     );
   }
 
-  async function openAssignees() {
+  async function clickElement(element: HTMLElement) {
+    const mouseDown = new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true });
+    await act(async () => {
+      element.dispatchEvent(mouseDown);
+      element.dispatchEvent(new MouseEvent("mouseup", { button: 0, bubbles: true, cancelable: true }));
+      element.click();
+    });
+    return mouseDown;
+  }
+
+  async function openAssignees(clickAvatar = false) {
     const trigger = container.querySelector<HTMLButtonElement>("button")!;
     // Desktop cards mount their real ComboDropDown on hover.
     await act(async () => trigger.parentElement!.dispatchEvent(new MouseEvent("mouseenter")));
-    await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+    const mountedTrigger = container.querySelector<HTMLButtonElement>("button")!;
+    const clickTarget = clickAvatar ? mountedTrigger.querySelector<HTMLElement>('[tabindex="-1"]')! : mountedTrigger;
+    await clickElement(clickTarget);
     return document.body.querySelector<HTMLInputElement>('input[role="combobox"]')!;
   }
 
@@ -183,6 +191,40 @@ describe("searching assignees from issue card properties", () => {
       assignee_ids: ["maria-id"],
     });
     expect(mocks.cardKeyDown).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: "one assigned avatar", assigneeIds: ["alex-id"] },
+    { name: "multiple assigned avatars", assigneeIds: ["alex-id", "maria-id"] },
+  ])("keeps search focused after clicking it from $name without changing assignees", async ({ assigneeIds }) => {
+    await renderCard(false, assigneeIds);
+    const input = await openAssignees(true);
+
+    // Exercise the actual DropdownButton, native Button and Avatar/Tooltip tree.
+    // No helper calls focus(): MemberOptions is responsible for focusing search.
+    expect(document.activeElement).toBe(input);
+    expect(container.contains(input)).toBe(false);
+    expect(document.body.querySelectorAll('[role="option"][aria-selected="true"]')).toHaveLength(assigneeIds.length);
+
+    const mouseDown = await clickElement(input);
+
+    expect(mouseDown.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(input);
+    expect((await keyDown(input, "М")).defaultPrevented).toBe(false);
+    await changeInput(input, "Мария");
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("Мария");
+    const matchingOptions = document.body.querySelectorAll('[role="option"]');
+    expect(matchingOptions).toHaveLength(1);
+    expect(matchingOptions[0].textContent).toContain("Мария");
+
+    expect((await keyDown(input, "Backspace")).defaultPrevented).toBe(false);
+    await changeInput(input, "");
+
+    expect(document.body.querySelectorAll('[role="option"][aria-selected="true"]')).toHaveLength(assigneeIds.length);
+    expect(mocks.updateIssue).not.toHaveBeenCalled();
+    expect(mocks.cardKeyDown).not.toHaveBeenCalled();
+    expect(mocks.cardClick).not.toHaveBeenCalled();
   });
 
   it("keeps read-only assignees disabled and does not open the portal", async () => {
