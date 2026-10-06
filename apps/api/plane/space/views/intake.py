@@ -24,6 +24,7 @@ from plane.app.serializers import (
     IssueStateIntakeSerializer,
 )
 from plane.utils.content_validator import validate_html_content
+from plane.utils.issue_activity import serialize_issue_creation_activity
 from plane.utils.issue_filters import issue_filters
 from plane.bgtasks.issue_activities_task import issue_activity
 from plane.db.models.intake import SourceType
@@ -160,7 +161,7 @@ class IntakeIssuePublicViewSet(BaseViewSet):
         # Create an Issue Activity
         issue_activity.delay(
             type="issue.activity.created",
-            requested_data=json.dumps(request.data, cls=DjangoJSONEncoder),
+            requested_data=serialize_issue_creation_activity(issue, request.data),
             actor_id=str(request.user.id),
             issue_id=str(issue.id),
             project_id=str(project_deploy_board.project_id),

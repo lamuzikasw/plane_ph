@@ -85,6 +85,7 @@ from plane.utils.order_queryset import ACTIVITY_ORDER_BY_ALLOWLIST, sanitize_ord
 from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
 from .base import BaseAPIView
 from plane.utils.host import base_host
+from plane.utils.issue_activity import serialize_issue_creation_activity
 from plane.utils.issue_relation_mapper import get_actual_relation
 from plane.utils.issue_move import IssueMoveConflict, move_issue_to_project
 from plane.utils.exception_logger import log_exception
@@ -477,7 +478,7 @@ class IssueListCreateAPIEndpoint(BaseAPIView):
             # Track the issue
             issue_activity.delay(
                 type="issue.activity.created",
-                requested_data=json.dumps(self.request.data, cls=DjangoJSONEncoder),
+                requested_data=serialize_issue_creation_activity(issue, self.request.data),
                 actor_id=str(request.user.id),
                 issue_id=str(serializer.data.get("id", None)),
                 project_id=str(project_id),
@@ -696,7 +697,7 @@ class IssueDetailAPIEndpoint(BaseAPIView):
 
                     issue_activity.delay(
                         type="issue.activity.created",
-                        requested_data=json.dumps(self.request.data, cls=DjangoJSONEncoder),
+                        requested_data=serialize_issue_creation_activity(issue, self.request.data),
                         actor_id=str(request.user.id),
                         issue_id=str(serializer.data.get("id", None)),
                         project_id=str(project_id),

@@ -8,7 +8,6 @@ import json
 # Django imports
 from django.utils import timezone
 from django.core import serializers
-from django.core.serializers.json import DjangoJSONEncoder
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
 from django.db.models import Q, UUIDField, Value, Subquery, OuterRef
@@ -39,6 +38,7 @@ from plane.db.models import (
 )
 from .. import BaseViewSet
 from plane.bgtasks.issue_activities_task import issue_activity
+from plane.utils.issue_activity import serialize_issue_creation_activity
 from plane.utils.issue_filters import issue_filters
 from plane.utils.host import base_host
 
@@ -227,7 +227,7 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
 
             issue_activity.delay(
                 type="issue.activity.created",
-                requested_data=json.dumps(self.request.data, cls=DjangoJSONEncoder),
+                requested_data=serialize_issue_creation_activity(serializer.instance, self.request.data),
                 actor_id=str(request.user.id),
                 issue_id=str(serializer.data.get("id", None)),
                 project_id=str(draft_issue.project_id),

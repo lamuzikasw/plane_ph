@@ -44,6 +44,7 @@ from plane.app.serializers import (
     IssueDescriptionVersionDetailSerializer,
 )
 from plane.utils.issue_filters import issue_filters
+from plane.utils.issue_activity import serialize_issue_creation_activity
 from plane.utils.order_queryset import INTAKE_ISSUE_ORDER_BY_ALLOWLIST, sanitize_order_by
 from plane.bgtasks.issue_activities_task import issue_activity
 from plane.bgtasks.issue_description_version_task import issue_description_version_task
@@ -280,7 +281,7 @@ class IntakeIssueViewSet(BaseViewSet):
             # Create an Issue Activity
             issue_activity.delay(
                 type="issue.activity.created",
-                requested_data=json.dumps(request.data, cls=DjangoJSONEncoder),
+                requested_data=serialize_issue_creation_activity(serializer.instance, request.data),
                 actor_id=str(request.user.id),
                 issue_id=str(serializer.data["id"]),
                 project_id=str(project_id),

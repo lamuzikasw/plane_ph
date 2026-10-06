@@ -12,6 +12,7 @@ from plane.db.models import (
     IssueAssignee,
     IssueComment,
     IssueCommentRead,
+    IssueSubscriber,
     Project,
     ProjectMember,
     State,
@@ -614,3 +615,222 @@ def test_dated_pause_button_matches_exact_time_and_old_buttons_do_not_shift_date
         handle_update(callback(c, button["callback_data"]))
     c.refresh_from_db()
     assert c.paused_until == old_pause
+
+
+def capture_app_issue_creation(setup, payload, creator=None):
+    c, actor, issue, client = setup
+    client.force_authenticate(creator or actor)
+    path = f"/api/workspaces/{issue.workspace.slug}/projects/{issue.project_id}/issues/"
+    with patch("plane.app.views.issue.base.issue_activity.delay") as activity:
+        response = client.post(path, payload, format="json")
+    assert response.status_code == 201, response.data
+    assert activity.call_count == 1
+    arguments = activity.call_args.kwargs
+    assert arguments["type"] == "issue.activity.created"
+    return Issue.objects.get(pk=response.data["id"]), arguments
+
+
+def run_captured_issue_activity(arguments):
+    from plane.bgtasks.issue_activities_task import issue_activity
+
+    with (
+        patch("plane.bgtasks.issue_activities_task.notifications.delay"),
+        patch("plane.bgtasks.issue_activities_task.redis_instance"),
+        patch("plane.bgtasks.issue_activities_task.log_exception") as failure,
+        patch("plane.utils.telegram.bot_request") as send,
+    ):
+        issue_activity(**arguments)
+    failure.assert_not_called()
+    send.assert_not_called()
+
+
+@pytest.mark.parametrize("raw_assignees", ["omitted", "empty", "filtered", "explicit"])
+def test_creation_assignment_uses_saved_assignees_and_deduplicates_retries(setup, raw_assignees):
+    import json
+
+    c, actor, source, _ = setup
+    source.project.default_assignee = c.user
+    source.project.save(update_fields=["default_assignee"])
+    payload = {"name": "Created with an initial assignee"}
+    if raw_assignees == "empty":
+        payload["assignee_ids"] = []
+    elif raw_assignees == "filtered":
+        outsider = UserFactory(username=str(uuid4()))
+        payload["assignee_ids"] = [str(outsider.pk)]
+    elif raw_assignees == "explicit":
+        payload["assignee_ids"] = [str(c.user_id)]
+    created, arguments = capture_app_issue_creation(setup, payload)
+    assert list(created.issue_assignee.values_list("assignee_id", flat=True)) == [c.user_id]
+    before = timezone.now()
+    run_captured_issue_activity(arguments)
+    after = timezone.now()
+    event = c.events.get(issue=created)
+    assert event.kind == "assignment"
+    assert event.status == "pending"
+    assert event.activity.field == "assignees"
+    assert event.activity.new_identifier == c.user_id
+    assert event.activity.actor_id == actor.pk
+    assert before + timedelta(seconds=60) <= event.due_at <= after + timedelta(seconds=60)
+    assert json.loads(arguments["requested_data"])["assignee_ids"] == [str(c.user_id)]
+    assert IssueSubscriber.objects.filter(issue=created, subscriber_id=c.user_id).count() == 1
+    run_captured_issue_activity(arguments)
+    assert c.events.filter(issue=created).count() == 1
+    assert c.events.get(issue=created).pk == event.pk
+    assert IssueSubscriber.objects.filter(issue=created, subscriber_id=c.user_id).count() == 1
+
+
+@pytest.mark.parametrize("assigned", [False, True])
+def test_creation_assignment_does_not_notify_self_or_unassigned_issue(setup, assigned):
+    c, actor, source, _ = setup
+    source.project.default_assignee = c.user if assigned else None
+    source.project.save(update_fields=["default_assignee"])
+    created, arguments = capture_app_issue_creation(
+        setup, {"name": "Self-assigned or unassigned creation"}, creator=c.user if assigned else actor
+    )
+    assert created.issue_assignee.exists() == assigned
+    run_captured_issue_activity(arguments)
+    assert not c.events.filter(issue=created).exists()
+
+
+def test_creation_assignment_snapshot_excludes_later_assignee_and_later_assignment_is_distinct(setup, settings):
+    import json
+
+    c, actor, source, _ = setup
+    later_user = UserFactory(username=str(uuid4()))
+    WorkspaceMember.objects.create(workspace=source.workspace, member=later_user, role=20)
+    ProjectMember.objects.create(project=source.project, member=later_user, role=20)
+    later_connection = TelegramConnection.objects.create(
+        user=later_user, telegram_id=5678, confirmed_at=timezone.now(), scheduled=False
+    )
+    settings.TELEGRAM_DELIVERY_USER_IDS = ["*"]
+    source.project.default_assignee = c.user
+    source.project.save(update_fields=["default_assignee"])
+    created, creation = capture_app_issue_creation(setup, {"name": "Queued initial assignment"})
+    initial = json.loads(creation["requested_data"])
+    # A later edit commits before the asynchronous creation activity is consumed.
+    created.issue_assignee.all().delete()
+    IssueAssignee.objects.create(project=created.project, issue=created, assignee=later_user)
+    run_captured_issue_activity(creation)
+    assert initial["assignee_ids"] == [str(c.user_id)]
+    assert not later_connection.events.filter(issue=created).exists()
+    assert not c.events.filter(issue=created).exists()
+    assert list(created.issue_activity.filter(field="assignees").values_list("new_identifier", flat=True)) == [
+        c.user_id
+    ]
+    later_assignment = {
+        **creation,
+        "type": "issue.activity.updated",
+        "current_instance": json.dumps({"assignee_ids": [str(c.user_id)]}),
+        "requested_data": json.dumps({"assignee_ids": [str(later_user.pk)]}),
+        "epoch": creation["epoch"] + 1,
+    }
+    run_captured_issue_activity(later_assignment)
+    event = later_connection.events.get(issue=created)
+    assert event.kind == "assignment"
+    assert event.activity.new_identifier == later_user.pk
+    run_captured_issue_activity(later_assignment)
+    assert later_connection.events.filter(issue=created).count() == 1
+
+
+def test_creation_assignment_and_later_reassignment_have_distinct_events(setup):
+    c, actor, _, client = setup
+    created, creation = capture_app_issue_creation(
+        setup, {"name": "Initial and later assignment", "assignee_ids": [str(c.user_id)]}
+    )
+    run_captured_issue_activity(creation)
+    initial = c.events.get(issue=created)
+    client.force_authenticate(actor)
+    path = f"/api/workspaces/{created.workspace.slug}/projects/{created.project_id}/issues/{created.pk}/"
+    with patch("plane.app.views.issue.base.issue_activity.delay") as activity:
+        response = client.patch(path, {"assignee_ids": []}, format="json")
+    assert response.status_code == 204, response.data
+    assert not created.issue_assignee.exists()
+    run_captured_issue_activity(activity.call_args.kwargs)
+    with (
+        patch("plane.app.views.issue.base.timezone.now", return_value=timezone.now() + timedelta(seconds=2)),
+        patch("plane.app.views.issue.base.issue_activity.delay") as activity,
+    ):
+        response = client.patch(path, {"assignee_ids": [str(c.user_id)]}, format="json")
+    assert response.status_code == 204, response.data
+    reassignment = activity.call_args.kwargs
+    run_captured_issue_activity(reassignment)
+    assert c.events.filter(issue=created).count() == 2
+    assert c.events.filter(issue=created).exclude(pk=initial.pk).get().kind == "assignment"
+
+
+def test_creation_assignment_notifies_each_saved_assignee_once(setup, settings):
+    import json
+
+    c, actor, source, _ = setup
+    teammate = UserFactory(username=str(uuid4()))
+    WorkspaceMember.objects.create(workspace=source.workspace, member=teammate, role=20)
+    ProjectMember.objects.create(project=source.project, member=teammate, role=20)
+    teammate_connection = TelegramConnection.objects.create(
+        user=teammate, telegram_id=6789, confirmed_at=timezone.now(), scheduled=False
+    )
+    actor_connection = TelegramConnection.objects.create(
+        user=actor, telegram_id=7890, confirmed_at=timezone.now(), scheduled=False
+    )
+    settings.TELEGRAM_DELIVERY_USER_IDS = ["*"]
+    recipients = [str(c.user_id), str(teammate.pk), str(actor.pk)]
+    created, arguments = capture_app_issue_creation(
+        setup, {"name": "Multiple initial assignees", "assignee_ids": recipients}
+    )
+    assert set(json.loads(arguments["requested_data"])["assignee_ids"]) == set(recipients)
+    run_captured_issue_activity(arguments)
+    run_captured_issue_activity(arguments)
+    assert c.events.get(issue=created).kind == "assignment"
+    assert teammate_connection.events.get(issue=created).kind == "assignment"
+    assert not actor_connection.events.filter(issue=created).exists()
+    assert IssueSubscriber.objects.filter(issue=created).count() == 3
+
+
+def test_creation_assignment_snapshot_preserves_payload_and_excludes_deleted_membership(setup):
+    import json
+    from datetime import date
+    from copy import deepcopy
+    from plane.utils.issue_activity import serialize_issue_creation_activity
+
+    c, actor, issue, _ = setup
+    removed = IssueAssignee.objects.create(project=issue.project, issue=issue, assignee=actor)
+    removed.delete()
+    payload = {
+        "name": "Snapshot payload",
+        "assignees": [actor.pk],
+        "target_date": date(2026, 10, 20),
+        "issue": {"name": "Nested intake payload"},
+    }
+    original = deepcopy(payload)
+    serialized = serialize_issue_creation_activity(issue, payload)
+    assert payload == original
+    assert "assignee_ids" not in payload
+    # Snapshot remains fixed after the request boundary despite later edits.
+    IssueAssignee.objects.filter(issue=issue).delete()
+    IssueAssignee.objects.create(project=issue.project, issue=issue, assignee=actor)
+    result = json.loads(serialized)
+    assert result["assignee_ids"] == [str(c.user_id)]
+    assert result["assignees"] == [str(actor.pk)]
+    assert result["target_date"] == "2026-10-20"
+    assert result["issue"] == original["issue"]
+
+
+def test_public_creation_assignment_supports_assignees_alias(setup):
+    import json
+    from plane.db.models.api import APIToken
+
+    c, actor, source, _ = setup
+    client = APIClient()
+    token = APIToken.objects.create(user=actor, label="Telegram assignment regression", token=f"test-{uuid4()}")
+    client.credentials(HTTP_X_API_KEY=token.token)
+    path = f"/api/v1/workspaces/{source.workspace.slug}/projects/{source.project_id}/work-items/"
+    with patch("plane.api.views.issue.issue_activity.delay") as activity:
+        response = client.post(
+            path, {"name": "Public initial assignment", "assignees": [str(c.user_id)]}, format="json"
+        )
+    assert response.status_code == 201, response.data
+    assert activity.call_count == 1
+    arguments = activity.call_args.kwargs
+    run_captured_issue_activity(arguments)
+    created = Issue.objects.get(pk=response.data["id"])
+    assert c.events.get(issue=created).kind == "assignment"
+    assert json.loads(arguments["requested_data"])["assignee_ids"] == [str(c.user_id)]

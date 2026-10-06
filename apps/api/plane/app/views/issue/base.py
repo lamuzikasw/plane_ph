@@ -76,6 +76,7 @@ from plane.utils.grouper import (
     issue_queryset_grouper,
 )
 from plane.utils.host import base_host
+from plane.utils.issue_activity import serialize_issue_creation_activity
 from plane.utils.issue_filters import issue_filters
 from plane.utils.issue_comment_counts import with_comment_count
 from plane.utils.issue_move import IssueMoveConflict, move_issue_to_project
@@ -432,7 +433,7 @@ class IssueViewSet(IssuePlacementContextMixin, BaseViewSet):
             # Track the issue
             issue_activity.delay(
                 type="issue.activity.created",
-                requested_data=json.dumps(self.request.data, cls=DjangoJSONEncoder),
+                requested_data=serialize_issue_creation_activity(serializer.instance, self.request.data),
                 actor_id=str(request.user.id),
                 issue_id=str(serializer.data.get("id", None)),
                 project_id=str(project_id),
@@ -1357,7 +1358,10 @@ class IssueDetailIdentifierEndpoint(BaseAPIView):
             return Response(
                 status=307,
                 headers={
-                    "Location": f"/api/workspaces/{slug}/projects/{project.id}/issues/{entry.id}/?{request.query_params.urlencode()}"
+                    "Location": (
+                        f"/api/workspaces/{slug}/projects/{project.id}/issues/{entry.id}/"
+                        f"?{request.query_params.urlencode()}"
+                    )
                 },
             )
 

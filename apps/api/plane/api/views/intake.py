@@ -29,6 +29,7 @@ from plane.app.permissions import ProjectLitePermission
 from plane.bgtasks.issue_activities_task import issue_activity
 from plane.db.models import Intake, IntakeIssue, Issue, Project, ProjectMember, State, StateGroup
 from plane.utils.host import base_host
+from plane.utils.issue_activity import serialize_issue_creation_activity
 from plane.utils.content_validator import validate_html_content
 from .base import BaseAPIView
 from plane.db.models.intake import SourceType
@@ -211,7 +212,7 @@ class IntakeIssueListCreateAPIEndpoint(BaseAPIView):
         # Create an Issue Activity
         issue_activity.delay(
             type="issue.activity.created",
-            requested_data=json.dumps(request.data, cls=DjangoJSONEncoder),
+            requested_data=serialize_issue_creation_activity(issue, request.data),
             actor_id=str(request.user.id),
             issue_id=str(issue.id),
             project_id=str(project_id),

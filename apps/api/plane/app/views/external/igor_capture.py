@@ -23,6 +23,7 @@ from plane.bgtasks.issue_description_version_task import issue_description_versi
 from plane.bgtasks.webhook_task import model_activity
 from plane.db.models import Issue, ProjectMember, WorkspaceMember
 from plane.utils.host import base_host
+from plane.utils.issue_activity import serialize_issue_creation_activity
 
 
 class IgorCaptureMixin:
@@ -5156,11 +5157,13 @@ class IgorCaptureMixin:
         return issue
 
     def _schedule_capture_issue_events(self, request, issue, payload, workspace):
+        creation_activity_data = serialize_issue_creation_activity(issue, payload)
+
         def schedule_events():
             safe_payload = json.dumps(payload, ensure_ascii=False)
             issue_activity.delay(
                 type="issue.activity.created",
-                requested_data=safe_payload,
+                requested_data=creation_activity_data,
                 actor_id=str(request.user.id),
                 issue_id=str(issue.id),
                 project_id=str(issue.project_id),

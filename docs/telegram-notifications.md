@@ -37,6 +37,7 @@ The emitter creates an assignment, mention, reply to a selected comment inside a
 ## Delivery rules
 
 - Assignment, new comment mention and direct reply: 60-second grace period.
+- Assignments made when a task is created, including the project's default assignee, use the same delivery rules as later assignments. Self-assignment does not trigger a notification. The creation request records the saved assignees before background processing, and delivery rechecks that each recipient is still assigned.
 - Ordinary comments: first event opens a 10-minute collection window per person/task; later comments join it, with at least a 60-second grace period.
 - Mentions take precedence over replies, which take precedence over ordinary discussions. One person gets at most one alert for a given comment, including subsequent edits. Adding a new recipient by editing a comment can notify that recipient.
 - Only assignments to the recipient, their explicit mentions/replies and comments on assigned tasks are enabled initially. Created/subscribed task discussions are opt-in. Telegram never uses automatic mention subscriptions unless the user enables this wider scope.
