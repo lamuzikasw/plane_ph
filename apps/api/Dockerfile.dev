@@ -1,4 +1,5 @@
-FROM python:3.12.5-alpine AS backend
+ARG PYTHON_BASE_IMAGE=python:3.12.5-alpine
+FROM ${PYTHON_BASE_IMAGE} AS backend
 
 # set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1

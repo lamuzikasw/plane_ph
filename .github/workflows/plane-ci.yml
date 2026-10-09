@@ -15,6 +15,8 @@ jobs:
     name: API tests
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      COMPOSE_FILE: docker-compose-test.yml:.github/docker-compose-ci.yml
     steps:
       - uses: actions/checkout@v6
       - name: Create isolated test configuration
@@ -25,15 +27,15 @@ jobs:
         # Unit tests use local/mocked storage, so they need no MinIO image.
         # The full integration stack in docker-compose-test.yml remains available.
         run: |
-          docker compose -f docker-compose-test.yml up -d --wait test-db test-redis test-mq
-          docker compose -f docker-compose-test.yml run --rm --no-deps --build -e USE_MINIO=0 api-tests pytest plane/tests/unit --tb=short -q
+          docker compose up -d --wait test-db test-redis test-mq
+          docker compose run --rm --no-deps --build -e USE_MINIO=0 api-tests pytest plane/tests/unit --tb=short -q
       - name: Check migrations
         run: |
-          docker compose -f docker-compose-test.yml run --rm --no-deps -e USE_MINIO=0 api-tests python manage.py makemigrations --check --dry-run
-          docker compose -f docker-compose-test.yml run --rm --no-deps -e USE_MINIO=0 api-tests python manage.py migrate --noinput
+          docker compose run --rm --no-deps -e USE_MINIO=0 api-tests python manage.py makemigrations --check --dry-run
+          docker compose run --rm --no-deps -e USE_MINIO=0 api-tests python manage.py migrate --noinput
       - name: Clean up test services
         if: always()
-        run: docker compose -f docker-compose-test.yml down -v
+        run: docker compose down -v
 
   web:
     name: Web tests and build

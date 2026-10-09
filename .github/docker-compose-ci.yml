@@ -1,0 +1,12 @@
+# Use the same image versions through public mirrors on shared CI runners.
+services:
+  test-db:
+    image: public.ecr.aws/docker/library/postgres:15.7-alpine
+  test-redis:
+    image: mirror.gcr.io/valkey/valkey:7.2.11-alpine
+  test-mq:
+    image: public.ecr.aws/docker/library/rabbitmq:3.13.6-management-alpine
+  api-tests:
+    build:
+      args:
+        PYTHON_BASE_IMAGE: public.ecr.aws/docker/library/python:3.12.5-alpine

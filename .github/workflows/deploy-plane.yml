@@ -34,8 +34,8 @@ jobs:
         run: |
           cp apps/web/nginx/nginx.conf .release/web/nginx.conf
           cp deploy/Dockerfile.web .release/web/Dockerfile
-          docker build --label "org.opencontainers.image.revision=$REVISION" -t "local/plane-backend:ci-$REVISION" -f apps/api/Dockerfile.api apps/api
-          docker build --label "org.opencontainers.image.revision=$REVISION" -t "local/plane-frontend:ci-$REVISION" .release/web
+          docker build --build-arg PYTHON_BASE_IMAGE=public.ecr.aws/docker/library/python:3.12.10-alpine --label "org.opencontainers.image.revision=$REVISION" -t "local/plane-backend:ci-$REVISION" -f apps/api/Dockerfile.api apps/api
+          docker build --build-arg NGINX_BASE_IMAGE=public.ecr.aws/docker/library/nginx:1.29-alpine --label "org.opencontainers.image.revision=$REVISION" -t "local/plane-frontend:ci-$REVISION" .release/web
           sha256sum .release/web/client/index.html | cut -d ' ' -f 1 > .release/index.sha256
           docker save "local/plane-backend:ci-$REVISION" "local/plane-frontend:ci-$REVISION" | gzip -1 > .release/images.tar.gz
       - uses: actions/upload-artifact@v4
