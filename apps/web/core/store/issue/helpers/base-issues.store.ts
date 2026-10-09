@@ -420,6 +420,20 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
       subGroupId: string | undefined,
       isSubGroupCumulative: boolean
     ): number | undefined => {
+      const loadedIssueIds = new Set<string>();
+      const loadedSubGroupIdFilter = subGroupId === "null" ? undefined : subGroupId;
+      Object.entries(this.groupedIssueIds ?? {}).forEach(([loadedGroupId, group]) => {
+        if (!isSubGroupCumulative && groupId && groupId !== loadedGroupId) return;
+        if (Array.isArray(group)) {
+          if (!loadedSubGroupIdFilter) group.forEach((issueId) => loadedIssueIds.add(issueId));
+        } else {
+          Object.entries(group as TGroupedIssues).forEach(([loadedSubGroupId, ids]) => {
+            if (loadedSubGroupIdFilter && loadedSubGroupIdFilter !== loadedSubGroupId) return;
+            ids.forEach((issueId) => loadedIssueIds.add(issueId));
+          });
+        }
+      });
+
       if (isSubGroupCumulative && subGroupId) {
         const groupIssuesKeys = Object.keys(this.groupedIssueCount);
         let subGroupCumulativeCount = 0;
@@ -428,10 +442,13 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
           if (groupKey.includes(`_${subGroupId}`)) subGroupCumulativeCount += this.groupedIssueCount[groupKey];
         }
 
-        return subGroupCumulativeCount;
+        return Math.max(subGroupCumulativeCount, loadedIssueIds.size);
       }
 
-      return get(this.groupedIssueCount, [getGroupKey(groupId, subGroupId)]);
+      const issueCount = get(this.groupedIssueCount, [getGroupKey(groupId, subGroupId)]);
+      // A pagination response or local mutation can leave the server count
+      // behind the loaded cards. Keep those cards visible until counts catch up.
+      return issueCount === undefined ? loadedIssueIds.size || undefined : Math.max(issueCount, loadedIssueIds.size);
     }
   );
 
