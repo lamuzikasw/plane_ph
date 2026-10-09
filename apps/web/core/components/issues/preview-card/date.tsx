@@ -8,7 +8,13 @@ import { CalendarDays } from "lucide-react";
 // plane imports
 import { DueDatePropertyIcon, StartDatePropertyIcon } from "@plane/propel/icons";
 import type { TStateGroups } from "@plane/types";
-import { cn, renderFormattedDate, shouldHighlightIssueDueDate } from "@plane/utils";
+import {
+  cn,
+  getLocalCalendarDate,
+  renderFormattedDate,
+  renderFormattedPayloadDate,
+  shouldHighlightIssueDueDate,
+} from "@plane/utils";
 
 type Props = {
   startDate: string | null;
@@ -20,7 +26,10 @@ export function WorkItemPreviewCardDate(props: Props) {
   const { startDate, stateGroup, targetDate } = props;
   // derived values
   const isDateRangeEnabled = Boolean(startDate && targetDate);
-  const shouldHighlightDate = shouldHighlightIssueDueDate(targetDate, stateGroup);
+  const shouldHighlightDate = shouldHighlightIssueDueDate(
+    renderFormattedPayloadDate(getLocalCalendarDate(targetDate)) ?? null,
+    stateGroup
+  );
 
   if (!startDate && !targetDate) return null;
 
@@ -34,13 +43,14 @@ export function WorkItemPreviewCardDate(props: Props) {
         >
           <CalendarDays className="size-3 shrink-0" />
           <span>
-            {renderFormattedDate(startDate)} - {renderFormattedDate(targetDate)}
+            {renderFormattedDate(getLocalCalendarDate(startDate))} -{" "}
+            {renderFormattedDate(getLocalCalendarDate(targetDate))}
           </span>
         </div>
       ) : startDate ? (
         <div className="flex h-full items-center gap-1">
           <StartDatePropertyIcon className="size-3 shrink-0" />
-          <span>{renderFormattedDate(startDate)}</span>
+          <span>{renderFormattedDate(getLocalCalendarDate(startDate))}</span>
         </div>
       ) : (
         <div
@@ -49,7 +59,7 @@ export function WorkItemPreviewCardDate(props: Props) {
           })}
         >
           <DueDatePropertyIcon className="size-3 shrink-0" />
-          <span>{renderFormattedDate(targetDate)}</span>
+          <span>{renderFormattedDate(getLocalCalendarDate(targetDate))}</span>
         </div>
       )}
     </div>

@@ -4,8 +4,9 @@
  * See the LICENSE file for details.
  */
 
+import { differenceInCalendarDays } from "date-fns";
 import type { ChartDataType, IGanttBlock } from "@plane/types";
-import { addDaysToDate, findTotalDaysInRange, getDate } from "@plane/utils";
+import { addDaysToDate, getLocalCalendarDate } from "@plane/utils";
 import { DEFAULT_BLOCK_WIDTH } from "../constants";
 
 /**
@@ -75,8 +76,6 @@ export const getDateFromPositionOnGantt = (position: number, chartData: ChartDat
 
   const newDate = addDaysToDate(chartData.data.startDate, numberOfDaysSinceStart);
 
-  if (!newDate) undefined;
-
   return newDate;
 };
 
@@ -90,15 +89,10 @@ export const getItemPositionWidth = (chartData: ChartDataType, itemData: IGanttB
   let scrollPosition: number = 0;
   let scrollWidth: number = DEFAULT_BLOCK_WIDTH;
 
-  const { startDate: chartStartDate } = chartData.data;
   const { start_date, target_date } = itemData;
 
-  const itemStartDate = getDate(start_date);
-  const itemTargetDate = getDate(target_date);
-
-  chartStartDate.setHours(0, 0, 0, 0);
-  itemStartDate?.setHours(0, 0, 0, 0);
-  itemTargetDate?.setHours(0, 0, 0, 0);
+  const itemStartDate = getLocalCalendarDate(start_date);
+  const itemTargetDate = getLocalCalendarDate(target_date);
 
   if (!itemStartDate && !itemTargetDate) return;
 
@@ -109,8 +103,7 @@ export const getItemPositionWidth = (chartData: ChartDataType, itemData: IGanttB
 
   if (itemStartDate && itemTargetDate) {
     // get width of block
-    const widthTimeDifference: number = itemStartDate.getTime() - itemTargetDate.getTime();
-    const widthDaysDifference: number = Math.abs(Math.floor(widthTimeDifference / (1000 * 60 * 60 * 24)));
+    const widthDaysDifference = Math.abs(differenceInCalendarDays(itemTargetDate, itemStartDate));
     scrollWidth = (widthDaysDifference + 1) * chartData.data.dayWidth;
   }
 
@@ -118,17 +111,14 @@ export const getItemPositionWidth = (chartData: ChartDataType, itemData: IGanttB
 };
 
 export const getPositionFromDate = (chartData: ChartDataType, date: string | Date, offsetWidth: number) => {
-  const currDate = getDate(date);
+  const currDate = getLocalCalendarDate(date);
 
-  const { startDate: chartStartDate } = chartData.data;
+  const chartStartDate = getLocalCalendarDate(chartData.data.startDate);
 
   if (!currDate || !chartStartDate) return 0;
 
-  chartStartDate.setHours(0, 0, 0, 0);
-  currDate.setHours(0, 0, 0, 0);
-
   // get number of days from chart start date to block's start date
-  const positionDaysDifference = Math.round(findTotalDaysInRange(chartStartDate, currDate, false) ?? 0);
+  const positionDaysDifference = differenceInCalendarDays(currDate, chartStartDate);
 
   if (!positionDaysDifference) return 0;
 

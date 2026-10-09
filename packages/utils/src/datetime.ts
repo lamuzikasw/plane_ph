@@ -329,6 +329,16 @@ export const getDateTime = (date: string | Date | undefined | null): Date | unde
   }
 };
 
+/** Calendar day in the viewer's timezone; date-only values retain their local day. */
+export const getLocalCalendarDate = (date: string | Date | undefined | null): Date | undefined => {
+  const parsedDate = getDateTime(date);
+  if (!parsedDate || !isValid(parsedDate)) return;
+
+  const calendarDate = new Date(parsedDate);
+  calendarDate.setHours(0, 0, 0, 0);
+  return calendarDate;
+};
+
 export const isInDateFormat = (date: string) => {
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   return datePattern.test(date);

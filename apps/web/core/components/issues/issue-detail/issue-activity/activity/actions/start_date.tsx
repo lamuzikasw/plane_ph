@@ -7,7 +7,7 @@
 import { observer } from "mobx-react";
 import { CalendarDays } from "lucide-react";
 // hooks
-import { renderFormattedDate } from "@plane/utils";
+import { getDateTime, renderFormattedDate } from "@plane/utils";
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
 // components
 import { IssueActivityBlockComponent, IssueLink } from "./";
@@ -35,7 +35,7 @@ export const IssueStartDateActivity = observer(function IssueStartDateActivity(p
         {activity.new_value ? `set the start date to ` : `removed the start date `}
         {activity.new_value && (
           <>
-            <span className="font-medium text-primary">{renderFormattedDate(activity.new_value)}</span>
+            <span className="font-medium text-primary">{renderFormattedDate(getDateTime(activity.new_value))}</span>
           </>
         )}
         {showIssue && (activity.new_value ? ` for ` : ` from `)}

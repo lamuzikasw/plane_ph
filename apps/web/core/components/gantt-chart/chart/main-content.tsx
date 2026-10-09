@@ -15,7 +15,7 @@ import type {
   IGanttBlock,
   TGanttViews,
 } from "@plane/types";
-import { cn, getDate } from "@plane/utils";
+import { cn, getLocalCalendarDate } from "@plane/utils";
 // components
 import { MultipleSelectGroup } from "@/components/core/multiple-select";
 import { GanttChartSidebar, MonthChartView, QuarterChartView, WeekChartView } from "@/components/gantt-chart";
@@ -130,7 +130,9 @@ export const GanttChartMainContent = observer(function GanttChartMainContent(pro
   const handleScrollToBlock = (block: IGanttBlock) => {
     const scrollContainer = ganttContainerRef.current as HTMLDivElement;
     const scrollToEndDate = !block.start_date && block.target_date;
-    const scrollToDate = block.start_date ? getDate(block.start_date) : getDate(block.target_date);
+    const scrollToDate = block.start_date
+      ? getLocalCalendarDate(block.start_date)
+      : getLocalCalendarDate(block.target_date);
     let chartData;
 
     if (!scrollContainer || !currentViewData || !scrollToDate) return;

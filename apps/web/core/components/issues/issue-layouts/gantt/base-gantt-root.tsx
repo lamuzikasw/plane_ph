@@ -13,7 +13,7 @@ import { useTranslation } from "@plane/i18n";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { IBlockUpdateData, TIssue, TIssueRelationTypes } from "@plane/types";
 import { EIssueLayoutTypes, EIssuesStoreType, GANTT_TIMELINE_TYPE } from "@plane/types";
-import { getDate, renderFormattedPayloadDate } from "@plane/utils";
+import { getLocalCalendarDate, renderFormattedPayloadDate } from "@plane/utils";
 // components
 import { TimeLineTypeContext } from "@/components/gantt-chart/contexts";
 import { GanttChartRoot } from "@/components/gantt-chart/root";
@@ -54,7 +54,7 @@ const visibleRelationTypes = new Set<TIssueRelationTypes>(["blocking", "blocked_
 const isIssueUnscheduled = (issue: TIssue | undefined) => !!issue && !issue.start_date && !issue.target_date;
 
 const isIssueOverdue = (issue: TIssue | undefined) => {
-  const targetDate = getDate(issue?.target_date);
+  const targetDate = getLocalCalendarDate(issue?.target_date);
   if (!issue || !targetDate) return false;
 
   const today = new Date();
@@ -274,7 +274,9 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
       return;
     }
 
-    const dates = issueRows.flatMap((issue) => [getDate(issue.start_date), getDate(issue.target_date)]).filter(Boolean);
+    const dates = issueRows
+      .flatMap((issue) => [getLocalCalendarDate(issue.start_date), getLocalCalendarDate(issue.target_date)])
+      .filter(Boolean);
     const minDate = new Date(Math.min(...dates.map((date) => date!.getTime())));
     const maxDate = new Date(Math.max(...dates.map((date) => date!.getTime())));
     minDate.setHours(0, 0, 0, 0);
@@ -318,8 +320,8 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
 
     issueRows.forEach((issue, index) => {
       const y = headerHeight + index * rowHeight;
-      const startDate = getDate(issue.start_date) ?? getDate(issue.target_date);
-      const rowTargetDate = getDate(issue.target_date) ?? getDate(issue.start_date);
+      const startDate = getLocalCalendarDate(issue.start_date) ?? getLocalCalendarDate(issue.target_date);
+      const rowTargetDate = getLocalCalendarDate(issue.target_date) ?? getLocalCalendarDate(issue.start_date);
       if (!startDate || !rowTargetDate) return;
 
       const startOffset = Math.max(0, Math.round((startDate.getTime() - minDate.getTime()) / dayMs));

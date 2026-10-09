@@ -12,7 +12,7 @@ import { Tooltip } from "@plane/propel/tooltip";
 import type { TIssueRelationTypes } from "@plane/types";
 import { EIssuesStoreType } from "@plane/types";
 import { ControlLink } from "@plane/ui";
-import { cn, findTotalDaysInRange, generateWorkItemLink, getDate } from "@plane/utils";
+import { cn, findTotalDaysInRange, generateWorkItemLink, getLocalCalendarDate } from "@plane/utils";
 // components
 import { SIDEBAR_WIDTH } from "@/components/gantt-chart/constants";
 // hooks
@@ -91,8 +91,12 @@ export const IssueGanttBlock = observer(function IssueGanttBlock(props: Props) {
 
   const handleIssuePeekOverview = () => handleRedirection(workspaceSlug, issueDetails, isMobile);
 
-  const duration = findTotalDaysInRange(issueDetails?.start_date, issueDetails?.target_date) || 0;
-  const targetDate = getDate(issueDetails?.target_date);
+  const duration =
+    findTotalDaysInRange(
+      getLocalCalendarDate(issueDetails?.start_date),
+      getLocalCalendarDate(issueDetails?.target_date)
+    ) || 0;
+  const targetDate = getLocalCalendarDate(issueDetails?.target_date);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   targetDate?.setHours(0, 0, 0, 0);
