@@ -5,7 +5,14 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import type { ChartDataType, IGanttBlock } from "@plane/types";
 import { getLocalCalendarDate } from "@plane/utils";
-import { getDateFromPositionOnGantt, getItemPositionWidth, getPositionFromDate } from "./helpers";
+import {
+  getDateFromPositionOnGantt,
+  getItemPositionWidth,
+  getPositionFromDate,
+  renderTimelineDatePayload,
+} from "./helpers";
+import { BaseTimeLineStore } from "@/plane-web/store/timeline/base-timeline.store";
+import type { RootStore } from "@/plane-web/store/root.store";
 import { IssueStartDateActivity } from "@/components/issues/issue-detail/issue-activity/activity/actions/start_date";
 import { IssueTargetDateActivity } from "@/components/issues/issue-detail/issue-activity/activity/actions/target_date";
 
@@ -98,4 +105,40 @@ describe("work item date activity", () => {
       }
     }
   );
+});
+
+describe("timeline date updates", () => {
+  it("keeps the local dates and precise times after a drag/save/render round trip", () => {
+    const store = new BaseTimeLineStore({} as RootStore, true);
+    const item = block(new Date(2026, 9, 12, 0, 0), new Date(2026, 9, 13, 18, 45, 30, 500));
+    store.updateCurrentViewData(chart());
+    store.setBlockIds([item.id]);
+    store.updateBlocks(() => ({ ...item, sort_order: item.sort_order ?? null, project_id: "project" }));
+    store.updateBlockPosition(item.id, 40, 0);
+    const [update] = store.getUpdatedPositionAfterDrag(item.id, false);
+    expect(update.start_date).toBe(new Date(2026, 9, 13, 0, 0).toISOString());
+    expect(update.target_date).toBe(new Date(2026, 9, 14, 18, 45, 30, 500).toISOString());
+    expect(getItemPositionWidth(chart(), { ...item, ...update })).toEqual({ marginLeft: 80, width: 80 });
+  });
+
+  it("retains the date-only API contract for module timelines", () => {
+    const store = new BaseTimeLineStore({} as RootStore);
+    const item = block("2026-10-12", "2026-10-13");
+    store.updateCurrentViewData(chart());
+    store.setBlockIds([item.id]);
+    store.updateBlocks(() => ({ ...item, sort_order: item.sort_order ?? null, project_id: "project" }));
+    store.updateBlockPosition(item.id, 40, 0);
+    const [update] = store.getUpdatedPositionAfterDrag(item.id, false);
+    expect(update.start_date).toBe("2026-10-13");
+    expect(update.target_date).toBe("2026-10-14");
+  });
+
+  it("creates timezone-aware start and due values with a chronological same-day range", () => {
+    const day = new Date(2026, 9, 12);
+    expect(renderTimelineDatePayload(day, undefined, true)).toBe(day.toISOString());
+    expect(renderTimelineDatePayload(day, undefined, true, "end-of-day")).toBe(
+      new Date(2026, 9, 12, 23, 59).toISOString()
+    );
+    expect(renderTimelineDatePayload(day, undefined, false)).toBe("2026-10-12");
+  });
 });

@@ -15,12 +15,12 @@ import type {
   TGanttViews,
   EGanttBlockType,
 } from "@plane/types";
-import { renderFormattedPayloadDate } from "@plane/utils";
 import { getScaledCurrentViewData, normalizeTimelineScale } from "@/components/gantt-chart/data";
 import {
   getDateFromPositionOnGantt,
   getItemPositionWidth,
   getPositionFromDate,
+  renderTimelineDatePayload,
 } from "@/components/gantt-chart/views/helpers";
 // helpers
 // store
@@ -102,7 +102,10 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
   isDependencyEnabled = false;
   dependencyDrag: TDependencyDrag | null = null;
 
-  constructor(_rootStore: RootStore) {
+  constructor(
+    _rootStore: RootStore,
+    private readonly includeTime = false
+  ) {
     makeObservable(this, {
       // observables
       blocksMap: observable,
@@ -364,14 +367,19 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
 
     // If shouldUpdateHalfBlock or the start date is available then update start date
     if (shouldUpdateHalfBlock || currBlock.start_date) {
-      updatePayload.start_date = renderFormattedPayloadDate(
-        getDateFromPositionOnGantt(currBlock.position.marginLeft, this.currentViewData)
+      updatePayload.start_date = renderTimelineDatePayload(
+        getDateFromPositionOnGantt(currBlock.position.marginLeft, this.currentViewData),
+        currBlock.start_date,
+        this.includeTime
       );
     }
     // If shouldUpdateHalfBlock or the target date is available then update target date
     if (shouldUpdateHalfBlock || currBlock.target_date) {
-      updatePayload.target_date = renderFormattedPayloadDate(
-        getDateFromPositionOnGantt(currBlock.position.marginLeft + currBlock.position.width, this.currentViewData, -1)
+      updatePayload.target_date = renderTimelineDatePayload(
+        getDateFromPositionOnGantt(currBlock.position.marginLeft + currBlock.position.width, this.currentViewData, -1),
+        currBlock.target_date,
+        this.includeTime,
+        "end-of-day"
       );
     }
 

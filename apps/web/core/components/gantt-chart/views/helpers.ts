@@ -6,8 +6,35 @@
 
 import { differenceInCalendarDays } from "date-fns";
 import type { ChartDataType, IGanttBlock } from "@plane/types";
-import { addDaysToDate, getLocalCalendarDate } from "@plane/utils";
+import {
+  addDaysToDate,
+  getDateTime,
+  getLocalCalendarDate,
+  renderFormattedPayloadDate,
+  renderFormattedPayloadDateTime,
+} from "@plane/utils";
 import { DEFAULT_BLOCK_WIDTH } from "../constants";
+
+/** Keep the existing local time when moving a work item to a new calendar day. */
+export const renderTimelineDatePayload = (
+  date: Date | undefined,
+  previousValue: string | null | undefined,
+  includeTime: boolean,
+  defaultTime: "start-of-day" | "end-of-day" = "start-of-day"
+): string | undefined => {
+  if (!date) return;
+  if (!includeTime) return renderFormattedPayloadDate(date);
+
+  const previousDate = getDateTime(previousValue);
+  const updatedDate = new Date(date);
+  updatedDate.setHours(
+    previousDate?.getHours() ?? (defaultTime === "end-of-day" ? 23 : 0),
+    previousDate?.getMinutes() ?? (defaultTime === "end-of-day" ? 59 : 0),
+    previousDate?.getSeconds() ?? 0,
+    previousDate?.getMilliseconds() ?? 0
+  );
+  return renderFormattedPayloadDateTime(updatedDate);
+};
 
 /**
  * Generates Date by using Day, month and Year

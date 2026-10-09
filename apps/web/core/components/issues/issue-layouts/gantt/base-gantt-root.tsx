@@ -13,7 +13,8 @@ import { useTranslation } from "@plane/i18n";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { IBlockUpdateData, TIssue, TIssueRelationTypes } from "@plane/types";
 import { EIssueLayoutTypes, EIssuesStoreType, GANTT_TIMELINE_TYPE } from "@plane/types";
-import { getLocalCalendarDate, renderFormattedPayloadDate } from "@plane/utils";
+import { getLocalCalendarDate } from "@plane/utils";
+import { renderTimelineDatePayload } from "@/components/gantt-chart/views/helpers";
 // components
 import { TimeLineTypeContext } from "@/components/gantt-chart/contexts";
 import { GanttChartRoot } from "@/components/gantt-chart/root";
@@ -252,8 +253,8 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
         QuickAddButton={GanttQuickAddIssueButton}
         containerClassName="sticky bottom-0 z-[1]"
         prePopulatedData={{
-          start_date: renderFormattedPayloadDate(new Date()),
-          target_date: renderFormattedPayloadDate(targetDate),
+          start_date: renderTimelineDatePayload(new Date(), undefined, true),
+          target_date: renderTimelineDatePayload(targetDate, undefined, true, "end-of-day"),
         }}
         quickAddCallback={quickAddIssue}
         isEpic={isEpic}

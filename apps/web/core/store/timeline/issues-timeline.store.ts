@@ -16,7 +16,7 @@ export interface IIssuesTimeLineStore extends IBaseTimelineStore {
 
 export class IssuesTimeLineStore extends BaseTimeLineStore implements IIssuesTimeLineStore {
   constructor(_rootStore: RootStore) {
-    super(_rootStore);
+    super(_rootStore, true);
 
     autorun(() => {
       const getIssueById = this.rootStore.issue.issues.getIssueById;

@@ -11,8 +11,11 @@ import { PlusIcon } from "@plane/propel/icons";
 // ui
 import { Tooltip } from "@plane/propel/tooltip";
 import type { IBlockUpdateData, IGanttBlock } from "@plane/types";
+import { GANTT_TIMELINE_TYPE } from "@plane/types";
 // helpers
-import { renderFormattedDate, renderFormattedPayloadDate } from "@plane/utils";
+import { renderFormattedDate } from "@plane/utils";
+import { useTimeLineType } from "../contexts";
+import { renderTimelineDatePayload } from "../views/helpers";
 // hooks
 import { usePlatformOS } from "@/hooks/use-platform-os";
 import { useTimeLineChartStore } from "@/hooks/use-timeline-chart";
@@ -35,6 +38,7 @@ export const ChartAddBlock = observer(function ChartAddBlock(props: Props) {
   const { isMobile } = usePlatformOS();
   // chart hook
   const { currentViewData, currentView } = useTimeLineChartStore();
+  const includeTime = useTimeLineType() === GANTT_TIMELINE_TYPE.ISSUE;
 
   const handleButtonClick = () => {
     if (!currentViewData) return;
@@ -50,8 +54,8 @@ export const ChartAddBlock = observer(function ChartAddBlock(props: Props) {
     const endDate = addDays(startDate, numberOfDays);
 
     blockUpdateHandler(block.data, {
-      start_date: renderFormattedPayloadDate(startDate) ?? undefined,
-      target_date: renderFormattedPayloadDate(endDate) ?? undefined,
+      start_date: renderTimelineDatePayload(startDate, undefined, includeTime),
+      target_date: renderTimelineDatePayload(endDate, undefined, includeTime, "end-of-day"),
       meta: block.meta,
     });
   };
