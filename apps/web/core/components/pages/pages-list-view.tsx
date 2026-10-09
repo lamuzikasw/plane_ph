@@ -13,6 +13,7 @@ import { usePageStore } from "@/hooks/store";
 // local imports
 import { PagesListHeaderRoot } from "./header";
 import { PagesListMainContent } from "./pages-list-main-content";
+import { FolderBrowser } from "./folders/folder-browser";
 
 type TPageView = {
   children: React.ReactNode;
@@ -44,9 +45,11 @@ export const PagesListView = observer(function PagesListView(props: TPageView) {
           workspaceSlug={workspaceSlug}
         />
       )}
-      <PagesListMainContent pageType={pageType} storeType={storeType}>
-        {children}
-      </PagesListMainContent>
+      <FolderBrowser workspaceSlug={workspaceSlug} projectId={projectId} pageType={pageType}>
+        <PagesListMainContent pageType={pageType} storeType={storeType}>
+          {children}
+        </PagesListMainContent>
+      </FolderBrowser>
     </div>
   );
 });

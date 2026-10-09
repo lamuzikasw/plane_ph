@@ -9,6 +9,9 @@ import { makeObservable, observable, runInAction, action, reaction, computed } f
 import { computedFn } from "mobx-utils";
 // types
 import { EUserPermissions } from "@plane/constants";
+import { API_BASE_URL } from "@plane/constants";
+import { PageFolderService } from "@plane/services";
+import { PageFolderStore } from "@plane/shared-state";
 import type { TPage, TPageFilters, TPageNavigationTabs } from "@plane/types";
 import { EUserProjectRoles } from "@plane/types";
 // helpers
@@ -35,6 +38,7 @@ export const ROLE_PERMISSIONS_TO_CREATE_PAGE = [
 ];
 
 export interface IProjectPageStore {
+  folders: PageFolderStore;
   // observables
   loader: TLoader;
   data: Record<string, TProjectPage>; // pageId => Page
@@ -68,6 +72,7 @@ export interface IProjectPageStore {
 }
 
 export class ProjectPageStore implements IProjectPageStore {
+  folders = new PageFolderStore(new PageFolderService(API_BASE_URL));
   // observables
   loader: TLoader = "init-loader";
   data: Record<string, TProjectPage> = {}; // pageId => Page
@@ -307,7 +312,10 @@ export class ProjectPageStore implements IProjectPageStore {
 
       const page = await this.service.create(workspaceSlug, projectId, pageData);
       runInAction(() => {
-        if (page?.id) set(this.data, [page.id], new ProjectPage(this.store, page));
+        if (page?.id) {
+          set(this.data, [page.id], new ProjectPage(this.store, page));
+          this.folders.recordLocation(projectId, page.id, { folder_id: pageData.folder_id ?? null, sort_order: 65535 });
+        }
         this.loader = undefined;
       });
 

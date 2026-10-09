@@ -3,6 +3,7 @@
 # See the LICENSE file for details.
 
 from django.urls import path
+from plane.app.views.page.folder import PageFolderEndpoint, PageFolderMoveEndpoint
 
 
 from plane.app.views import (
@@ -14,6 +15,21 @@ from plane.app.views import (
 )
 
 urlpatterns = [
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/page-folders/",
+        PageFolderEndpoint.as_view(),
+        name="page-folders",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/page-folders/<uuid:folder_id>/",
+        PageFolderEndpoint.as_view(),
+        name="page-folder-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/pages/<uuid:page_id>/folder/",
+        PageFolderMoveEndpoint.as_view(),
+        name="page-folder-move",
+    ),
     path(
         "workspaces/<str:slug>/projects/<uuid:project_id>/pages-summary/",
         PageViewSet.as_view({"get": "summary"}),

@@ -219,7 +219,7 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
   }
 
   // computed
-  get asJSON() {
+  get asJSON(): TPage {
     return {
       id: this.id,
       name: this.name,

@@ -8,7 +8,7 @@ from datetime import datetime
 from django.core.serializers.json import DjangoJSONEncoder
 
 # Django imports
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import (
     Exists,
     OuterRef,
@@ -126,7 +126,10 @@ class PageViewSet(BaseViewSet):
             .distinct()
         )
 
+    @transaction.atomic
     def create(self, request, slug, project_id):
+        # Serialize folder assignment against concurrent folder moves/deletions.
+        Project.objects.select_for_update().get(pk=project_id, workspace__slug=slug)
         serializer = PageSerializer(
             data=request.data,
             context={
@@ -141,10 +144,12 @@ class PageViewSet(BaseViewSet):
         if serializer.is_valid():
             serializer.save()
             # capture the page transaction
-            page_transaction.delay(
-                new_description_html=request.data.get("description_html", "<p></p>"),
-                old_description_html=None,
-                page_id=serializer.data["id"],
+            transaction.on_commit(
+                lambda page_id=serializer.data["id"]: page_transaction.delay(
+                    new_description_html=request.data.get("description_html", "<p></p>"),
+                    old_description_html=None,
+                    page_id=page_id,
+                )
             )
             page = self.get_queryset().get(pk=serializer.data["id"])
             serializer = PageDetailSerializer(page)

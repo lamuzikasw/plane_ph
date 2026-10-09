@@ -9,6 +9,7 @@ import type { EPageAccess } from "../enums";
 import type { TPageExtended } from "./extended";
 
 export type TPage = {
+  folder_id?: string | null;
   access: EPageAccess | undefined;
   archived_at: string | null | undefined;
   color: string | undefined;

@@ -6,3 +6,4 @@
 
 export * from "./store";
 export * from "./utils";
+export * from "./pages/page-folder.store";

@@ -21,6 +21,7 @@ import { PageHead } from "@/components/core/page-title";
 import { IssuePeekOverview } from "@/components/issues/peek-overview";
 import type { TPageRootConfig, TPageRootHandlers } from "@/components/pages/editor/page-root";
 import { PageRoot } from "@/components/pages/editor/page-root";
+import { FolderBrowser } from "@/components/pages/folders/folder-browser";
 // hooks
 import { useEditorConfig } from "@/hooks/editor";
 import { useEditorAsset } from "@/hooks/store/use-editor-asset";
@@ -79,20 +80,20 @@ function PageDetailsPage({ params }: Route.ComponentProps) {
   const pageRootHandlers: TPageRootHandlers = useMemo(
     () => ({
       create: createPage,
-      fetchAllVersions: async (pageId) =>
-        await projectPageVersionService.fetchAllVersions(workspaceSlug, projectId, pageId),
+      fetchAllVersions: async (targetPageId) =>
+        await projectPageVersionService.fetchAllVersions(workspaceSlug, projectId, targetPageId),
       fetchDescriptionBinary: async () => {
         if (!id) return;
         return await projectPageService.fetchDescriptionBinary(workspaceSlug, projectId, id);
       },
       fetchEntity: fetchEntityCallback,
-      fetchVersionDetails: async (pageId, versionId) =>
-        await projectPageVersionService.fetchVersionById(workspaceSlug, projectId, pageId, versionId),
-      restoreVersion: async (pageId, versionId) =>
-        await projectPageVersionService.restoreVersion(workspaceSlug, projectId, pageId, versionId),
-      getRedirectionLink: (pageId) => {
-        if (pageId) {
-          return `/${workspaceSlug}/projects/${projectId}/pages/${pageId}`;
+      fetchVersionDetails: async (targetPageId, versionId) =>
+        await projectPageVersionService.fetchVersionById(workspaceSlug, projectId, targetPageId, versionId),
+      restoreVersion: async (targetPageId, versionId) =>
+        await projectPageVersionService.restoreVersion(workspaceSlug, projectId, targetPageId, versionId),
+      getRedirectionLink: (targetPageId) => {
+        if (targetPageId) {
+          return `/${workspaceSlug}/projects/${projectId}/pages/${targetPageId}`;
         } else {
           return `/${workspaceSlug}/projects/${projectId}/pages`;
         }
@@ -179,20 +180,27 @@ function PageDetailsPage({ params }: Route.ComponentProps) {
   return (
     <>
       <PageHead title={name} />
-      <div className="flex h-full flex-col justify-between">
-        <div className="relative flex h-full w-full flex-shrink-0 flex-col overflow-hidden">
-          <PageRoot
-            config={pageRootConfig}
-            handlers={pageRootHandlers}
-            storeType={storeType}
-            page={page}
-            webhookConnectionParams={webhookConnectionParams}
-            workspaceSlug={workspaceSlug}
-            projectId={projectId}
-          />
-          <IssuePeekOverview />
+      <FolderBrowser
+        workspaceSlug={workspaceSlug}
+        projectId={projectId}
+        pageId={pageId}
+        pageType={page.archived_at ? "archived" : page.access === 1 ? "private" : "public"}
+      >
+        <div className="flex h-full flex-col justify-between">
+          <div className="relative flex h-full w-full flex-shrink-0 flex-col overflow-hidden">
+            <PageRoot
+              config={pageRootConfig}
+              handlers={pageRootHandlers}
+              storeType={storeType}
+              page={page}
+              webhookConnectionParams={webhookConnectionParams}
+              workspaceSlug={workspaceSlug}
+              projectId={projectId}
+            />
+            <IssuePeekOverview />
+          </div>
         </div>
-      </div>
+      </FolderBrowser>
     </>
   );
 }

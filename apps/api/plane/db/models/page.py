@@ -132,10 +132,27 @@ class PageLabel(BaseModel):
         return f"{self.page.name} {self.label.name}"
 
 
+class PageFolder(BaseModel):
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="page_folders")
+    project = models.ForeignKey("db.Project", on_delete=models.CASCADE, related_name="page_folders")
+    parent = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="children")
+    name = models.CharField(max_length=255)
+    sort_order = models.FloatField(default=65535)
+
+    class Meta:
+        db_table = "page_folders"
+        ordering = ("sort_order", "name", "id")
+        indexes = [models.Index(fields=["project", "parent"], name="page_folder_project_parent_idx")]
+
+
 class ProjectPage(BaseModel):
     project = models.ForeignKey("db.Project", on_delete=models.CASCADE, related_name="project_pages")
     page = models.ForeignKey("db.Page", on_delete=models.CASCADE, related_name="project_pages")
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="project_pages")
+    folder = models.ForeignKey(
+        "db.PageFolder", on_delete=models.SET_NULL, null=True, blank=True, related_name="project_pages"
+    )
+    sort_order = models.FloatField(default=65535)
 
     class Meta:
         unique_together = ["project", "page", "deleted_at"]

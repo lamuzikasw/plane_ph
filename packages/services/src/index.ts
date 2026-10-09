@@ -19,3 +19,4 @@ export * from "./file";
 export * from "./label";
 export * from "./state";
 export * from "./issue";
+export * from "./page-folders/page-folder.service";

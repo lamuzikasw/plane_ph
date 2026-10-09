@@ -111,5 +111,34 @@
       "success_message": "Page removed from collection.",
       "error_message": "Page could not be removed from the collection. Please try again."
     }
+  },
+  "page_folders": {
+    "navigation": "Documents",
+    "all": "All documents",
+    "root": "Without a folder",
+    "create": "New folder",
+    "create_subfolder": "New subfolder",
+    "create_document": "New document",
+    "edit": "Rename or move folder",
+    "delete": "Delete folder",
+    "delete_description": "Documents and subfolders will move to the parent folder. Documents will be preserved.",
+    "name": "Folder name",
+    "parent": "Parent folder",
+    "destination": "Destination folder",
+    "move_document": "Move document to folder",
+    "search": "Search folders",
+    "move": "Move",
+    "save": "Save",
+    "cancel": "Cancel",
+    "error": "Could not update folders. Please try again.",
+    "retry": "Try again",
+    "loading": "Loading folders…",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "path": "Document location",
+    "not_found": "This folder no longer exists.",
+    "empty": "This folder has no documents yet.",
+    "search_empty": "No documents match your search.",
+    "path_unknown": "Without a folder"
   }
 }

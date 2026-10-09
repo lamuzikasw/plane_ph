@@ -25,6 +25,9 @@ import { MovePageModal } from "@/plane-web/components/pages";
 // plane web hooks
 import type { EPageStoreType } from "@/hooks/store";
 import { usePageFlag } from "@/hooks/use-page-flag";
+import { useTranslation } from "@plane/i18n";
+import { MoveDocumentModal } from "../folders/move-document-modal";
+import { usePageStore } from "@/hooks/store";
 // store types
 import type { TPageInstance } from "@/store/pages/base-page";
 
@@ -41,7 +44,8 @@ export type TPageActions =
   | "delete"
   | "version-history"
   | "export"
-  | "move";
+  | "move"
+  | "move-to-folder";
 
 type Props = {
   extraOptions?: (TContextMenuItem & { key: TPageActions })[];
@@ -56,6 +60,9 @@ export const PageActions = observer(function PageActions(props: Props) {
   // states
   const [deletePageModal, setDeletePageModal] = useState(false);
   const [movePageModal, setMovePageModal] = useState(false);
+  const [moveFolderModal, setMoveFolderModal] = useState(false);
+  const { t } = useTranslation();
+  const { canCurrentUserCreatePage } = usePageStore(storeType);
   // params
   const { workspaceSlug } = useParams();
   // page flag
@@ -82,6 +89,13 @@ export const PageActions = observer(function PageActions(props: Props) {
   const MENU_ITEMS = useMemo(
     function MENU_ITEMS() {
       const menuItems: (TContextMenuItem & { key: TPageActions })[] = [
+        {
+          key: "move-to-folder",
+          action: () => setMoveFolderModal(true),
+          title: t("page_folders.move_document"),
+          icon: FileOutput,
+          shouldRender: canCurrentUserCreatePage && page.canCurrentUserEditPage && !is_locked && !archived_at,
+        },
         {
           key: "toggle-lock",
           action: () => {
@@ -167,6 +181,9 @@ export const PageActions = observer(function PageActions(props: Props) {
       canCurrentUserMovePage,
       isMovePageEnabled,
       pageOperations,
+      page.canCurrentUserEditPage,
+      canCurrentUserCreatePage,
+      t,
     ]
   );
   // arrange options
@@ -180,6 +197,7 @@ export const PageActions = observer(function PageActions(props: Props) {
 
   return (
     <>
+      {moveFolderModal && page.id && <MoveDocumentModal pageId={page.id} onClose={() => setMoveFolderModal(false)} />}
       <MovePageModal isOpen={movePageModal} onClose={() => setMovePageModal(false)} page={page} />
       <DeletePageModal
         isOpen={deletePageModal}

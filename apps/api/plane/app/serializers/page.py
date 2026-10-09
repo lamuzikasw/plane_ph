@@ -19,10 +19,12 @@ from plane.db.models import (
     ProjectPage,
     Project,
     PageVersion,
+    PageFolder,
 )
 
 
 class PageSerializer(BaseSerializer):
+    folder_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
     is_favorite = serializers.BooleanField(read_only=True)
     labels = serializers.ListField(
         child=serializers.PrimaryKeyRelatedField(queryset=Label.objects.all()),
@@ -36,6 +38,7 @@ class PageSerializer(BaseSerializer):
     class Meta:
         model = Page
         fields = [
+            "folder_id",
             "id",
             "name",
             "owned_by",
@@ -59,6 +62,7 @@ class PageSerializer(BaseSerializer):
         read_only_fields = ["workspace", "owned_by"]
 
     def create(self, validated_data):
+        folder_id = validated_data.pop("folder_id", None)
         labels = validated_data.pop("labels", None)
         project_id = self.context["project_id"]
         owned_by_id = self.context["owned_by_id"]
@@ -84,6 +88,7 @@ class PageSerializer(BaseSerializer):
             workspace_id=page.workspace_id,
             project_id=project_id,
             page_id=page.id,
+            folder_id=folder_id,
             created_by_id=page.created_by_id,
             updated_by_id=page.updated_by_id,
         )
@@ -104,6 +109,14 @@ class PageSerializer(BaseSerializer):
                 batch_size=10,
             )
         return page
+
+    def validate_folder_id(self, value):
+        project_id = self.context.get("project_id")
+        if self.instance is not None:
+            raise serializers.ValidationError("Use the page folder endpoint to move a page.")
+        if value is not None and not PageFolder.objects.filter(id=value, project_id=project_id).exists():
+            raise serializers.ValidationError("Folder does not belong to this project.")
+        return value
 
     def update(self, instance, validated_data):
         labels = validated_data.pop("labels", None)
