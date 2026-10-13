@@ -5,7 +5,7 @@
 # Django imports
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
-from django.db.models import Q, UUIDField, Value, QuerySet, OuterRef, Subquery
+from django.db.models import F, FilteredRelation, Q, UUIDField, Value, QuerySet, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 
 # Module imports
@@ -38,10 +38,18 @@ def issue_queryset_grouper(
     }
 
     GROUP_FILTER_MAPPER: Dict[str, Q] = {
-        "assignees__id": Q(issue_assignee__deleted_at__isnull=True),
         "labels__id": Q(label_issue__deleted_at__isnull=True),
         "issue_module__module_id": Q(issue_module__deleted_at__isnull=True),
     }
+
+    if "assignees__id" in {group_by, sub_group_by}:
+        # Filter the join, not the issue: removing the last assignee leaves a
+        # soft-deleted relation, and the issue must still belong to None.
+        queryset = queryset.annotate(
+            active_group_assignees=FilteredRelation(
+                "issue_assignee", condition=Q(issue_assignee__deleted_at__isnull=True)
+            ),
+        ).annotate(**{"assignees__id": F("active_group_assignees__assignee_id")})
 
     for group_key in [group_by, sub_group_by]:
         if group_key in GROUP_FILTER_MAPPER:
@@ -169,10 +177,10 @@ def issue_group_values(
                 ProjectMember.objects.filter(workspace__slug=slug, project_id=project_id, is_active=True).values_list(
                     "member_id", flat=True
                 )
-            )
+            ) + ["None"]
         return list(
             WorkspaceMember.objects.filter(workspace__slug=slug, is_active=True).values_list("member_id", flat=True)
-        )
+        ) + ["None"]
 
     if field == "issue_module__module_id":
         queryset = Module.objects.filter(workspace__slug=slug).values_list("id", flat=True)
