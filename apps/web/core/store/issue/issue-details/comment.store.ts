@@ -20,7 +20,8 @@ export interface IIssueCommentStoreActions {
     workspaceSlug: string,
     projectId: string,
     issueId: string,
-    loaderType?: TCommentLoader
+    loaderType?: TCommentLoader,
+    canApply?: () => boolean
   ) => Promise<TIssueComment[]>;
   createComment: (
     workspaceSlug: string,
@@ -103,13 +104,28 @@ export class IssueCommentStore implements IIssueCommentStore {
     workspaceSlug: string,
     projectId: string,
     issueId: string,
-    loaderType: TCommentLoader = "fetch"
+    loaderType: TCommentLoader = "fetch",
+    canApply: () => boolean = () => true
   ) => {
     this.loader = loaderType;
 
     // Reload the complete discussion so edits/deletions from other placements
     // cannot leave stale IDs or an inflated card count in this cache.
-    const comments = await this.issueCommentService.getIssueComments(workspaceSlug, projectId, issueId);
+    const comments = await this.issueCommentService
+      .getIssueComments(workspaceSlug, projectId, issueId)
+      .catch((error: unknown) => {
+        runInAction(() => {
+          this.loader = undefined;
+        });
+        throw error;
+      });
+
+    if (!canApply()) {
+      runInAction(() => {
+        this.loader = undefined;
+      });
+      return comments;
+    }
 
     const commentIds = comments.map((comment) => comment.id);
     runInAction(() => {

@@ -283,6 +283,8 @@ export abstract class IssueDetail implements IIssueDetail {
   // issue
   fetchIssue = async (workspaceSlug: string, projectId: string, issueId: string) =>
     this.issue.fetchIssue(workspaceSlug, projectId, issueId);
+  refreshIssue = async (workspaceSlug: string, projectId: string, issueId: string, canApply: () => boolean) =>
+    this.issue.refreshIssue(workspaceSlug, projectId, issueId, canApply);
   fetchIssueWithIdentifier = async (workspaceSlug: string, projectIdentifier: string, sequenceId: string) =>
     this.issue.fetchIssueWithIdentifier(workspaceSlug, projectIdentifier, sequenceId);
   updateIssue = async (workspaceSlug: string, projectId: string, issueId: string, data: Partial<TIssue>) =>
@@ -350,6 +352,8 @@ export abstract class IssueDetail implements IIssueDetail {
   // sub issues
   fetchSubIssues = async (workspaceSlug: string, projectId: string, issueId: string) =>
     this.subIssues.fetchSubIssues(workspaceSlug, projectId, issueId);
+  refreshSubIssues = async (workspaceSlug: string, projectId: string, issueId: string, canApply: () => boolean) =>
+    this.subIssues.refreshSubIssues(workspaceSlug, projectId, issueId, canApply);
   createSubIssues = async (workspaceSlug: string, projectId: string, parentIssueId: string, data: string[]) =>
     this.subIssues.createSubIssues(workspaceSlug, projectId, parentIssueId, data);
   updateSubIssue = async (

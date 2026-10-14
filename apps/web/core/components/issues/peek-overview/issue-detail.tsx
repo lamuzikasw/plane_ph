@@ -21,6 +21,7 @@ import { useMember } from "@/hooks/store/use-member";
 import { useProject } from "@/hooks/store/use-project";
 import { useUser } from "@/hooks/store/user";
 import useReloadConfirmations from "@/hooks/use-reload-confirmation";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 // plane web components
 import { DeDupeIssuePopoverRoot } from "@/plane-web/components/de-dupe/duplicate-popover";
 import { IssueTypeSwitcher } from "@/plane-web/components/issues/issue-details/issue-type-switcher";
@@ -55,6 +56,7 @@ export const PeekOverviewIssueDetails = observer(function PeekOverviewIssueDetai
   const { data: currentUser } = useUser();
   const {
     issue: { getIssueById },
+    refreshIssue,
   } = useIssueDetail();
   const { getProjectById } = useProject();
   const { getUserDetails } = useMember();
@@ -74,6 +76,11 @@ export const PeekOverviewIssueDetails = observer(function PeekOverviewIssueDetai
 
   // derived values
   const issue = issueId ? getIssueById(issueId) : undefined;
+  useLiveRefresh(
+    issue?.project_id ? `peek:${workspaceSlug}:${issue.project_id}:${issueId}` : undefined,
+    (canApply) => refreshIssue(workspaceSlug, issue!.project_id!, issueId, canApply),
+    !!issue && isSubmitting !== "submitting"
+  );
   const projectDetails = issue?.project_id ? getProjectById(issue?.project_id) : undefined;
   // debounced duplicate issues swr
   const { duplicateIssues } = useDebouncedDuplicateIssues(
@@ -97,7 +104,7 @@ export const PeekOverviewIssueDetails = observer(function PeekOverviewIssueDetai
       : undefined;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-live-refresh-paused={isSubmitting === "submitting"}>
       {issue.parent_id && (
         <IssueParentDetail
           workspaceSlug={workspaceSlug}

@@ -130,6 +130,7 @@ export const DescriptionInput = observer(function DescriptionInput(props: Props)
   });
   // ref to track if there are unsaved changes
   const hasUnsavedChanges = useRef(false);
+  const lastEntityId = useRef(entityId);
   // ref to track last saved content (to skip onChange when content hasn't actually changed)
   const lastSavedContent = useRef(initialValue?.trim() === "" ? "<p></p>" : (initialValue ?? "<p></p>"));
   // store hooks
@@ -167,6 +168,8 @@ export const DescriptionInput = observer(function DescriptionInput(props: Props)
   // reset form values
   useEffect(() => {
     if (!entityId) return;
+    if (hasUnsavedChanges.current && lastEntityId.current === entityId) return;
+    lastEntityId.current = entityId;
     const normalizedValue = initialValue?.trim() === "" ? "<p></p>" : (initialValue ?? "<p></p>");
     // Update last saved content when entity/initialValue changes
     lastSavedContent.current = normalizedValue;
@@ -237,7 +240,7 @@ export const DescriptionInput = observer(function DescriptionInput(props: Props)
           issueSequenceId={issueSequenceId}
           disabledExtensions={disabledExtensions}
           initialValue={localDescription.description_html ?? "<p></p>"}
-          value={swrDescription ?? null}
+          value={hasUnsavedChanges.current ? null : (swrDescription ?? initialValue ?? null)}
           workspaceSlug={workspaceSlug}
           workspaceId={workspaceDetails.id}
           projectId={projectId}

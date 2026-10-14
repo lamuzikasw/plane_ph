@@ -15,6 +15,7 @@ import { ContentWrapper } from "@plane/ui";
 import { useProjectInbox } from "@/hooks/store/use-project-inbox";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
 import { useAppRouter } from "@/hooks/use-app-router";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 // local imports
 import { InboxIssueActionsHeader } from "./inbox-issue-header";
 import { InboxIssueMainContent } from "./issue-root";
@@ -45,12 +46,19 @@ export const InboxContentRoot = observer(function InboxContentRoot(props: TInbox
   const [isSubmitting, setIsSubmitting] = useState<TNameDescriptionLoader>("saved");
   // hooks
   const { data: currentUser } = useUser();
-  const { currentTab, fetchInboxIssueById, getIssueInboxByIssueId, getIsIssueAvailable } = useProjectInbox();
+  const { currentTab, fetchInboxIssueById, refreshInboxIssue, getIssueInboxByIssueId, getIsIssueAvailable } =
+    useProjectInbox();
   const inboxIssue = getIssueInboxByIssueId(inboxIssueId);
   const { allowPermissions, getProjectRoleByWorkspaceSlugAndProjectId } = useUserPermissions();
 
   // derived values
   const isIssueAvailable = getIsIssueAvailable(inboxIssueId?.toString() || "");
+
+  useLiveRefresh(
+    `intake-detail:${workspaceSlug}:${projectId}:${inboxIssueId}`,
+    (canApply) => refreshInboxIssue(workspaceSlug, projectId, inboxIssueId, canApply),
+    !!inboxIssue && isSubmitting !== "submitting"
+  );
 
   useEffect(() => {
     if (!isIssueAvailable && inboxIssueId && !isNotificationEmbed) {
@@ -86,7 +94,10 @@ export const InboxContentRoot = observer(function InboxContentRoot(props: TInbox
 
   return (
     <>
-      <div className="relative flex h-full w-full flex-col overflow-hidden">
+      <div
+        className="relative flex h-full w-full flex-col overflow-hidden"
+        data-live-refresh-paused={isSubmitting === "submitting"}
+      >
         <div className="z-[11] min-h-[52px] flex-shrink-0">
           <InboxIssueActionsHeader
             setIsMobileSidebar={setIsMobileSidebar}

@@ -20,6 +20,7 @@ import type { TFileSignedURLResponse, TIssueComment } from "@plane/types";
 import { CommentCreate } from "@/components/comments/comment-create";
 // hooks
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { useProject } from "@/hooks/store/use-project";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
 // plane web components
@@ -59,9 +60,23 @@ export const IssueActivity = observer(function IssueActivity(props: TIssueActivi
   // store hooks
   const {
     issue: { getIssueById },
-    comment: { getCommentsByIssueId },
-    activity: { getActivityAndCommentsByIssueId },
+    comment: { getCommentsByIssueId, fetchComments },
+    activity: { getActivityAndCommentsByIssueId, fetchActivities },
   } = useIssueDetail();
+
+  useLiveRefresh(
+    `discussion:${workspaceSlug}:${projectId}:${issueId}`,
+    async (canApply) => {
+      const results = await Promise.allSettled([
+        fetchComments(workspaceSlug, projectId, issueId, "mutate", canApply),
+        fetchActivities(workspaceSlug, projectId, issueId, "mutate", canApply),
+      ]);
+      for (const result of results)
+        if (result.status === "rejected") console.error("Unable to refresh discussion", result.reason);
+    },
+    true,
+    { protectEdits: false }
+  );
 
   const { getProjectRoleByWorkspaceSlugAndProjectId } = useUserPermissions();
   const { getProjectById } = useProject();

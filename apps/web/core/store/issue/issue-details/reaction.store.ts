@@ -17,7 +17,12 @@ import type { IIssueDetail } from "./root.store";
 export interface IIssueReactionStoreActions {
   // actions
   addReactions: (issueId: string, reactions: TIssueReaction[]) => void;
-  fetchReactions: (workspaceSlug: string, projectId: string, issueId: string) => Promise<TIssueReaction[]>;
+  fetchReactions: (
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    canApply?: () => boolean
+  ) => Promise<TIssueReaction[]>;
   createReaction: (workspaceSlug: string, projectId: string, issueId: string, reaction: string) => Promise<any>;
   removeReaction: (
     workspaceSlug: string,
@@ -112,9 +117,14 @@ export class IssueReactionStore implements IIssueReactionStore {
   };
 
   // actions
-  fetchReactions = async (workspaceSlug: string, projectId: string, issueId: string) => {
+  fetchReactions = async (
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    canApply: () => boolean = () => true
+  ) => {
     const response = await this.issueReactionService.listIssueReactions(workspaceSlug, projectId, issueId);
-    this.addReactions(issueId, response);
+    if (canApply()) this.addReactions(issueId, response);
     return response;
   };
 

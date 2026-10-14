@@ -57,6 +57,7 @@ export interface IWorkspaceNotificationStore {
     loader?: TNotificationLoader,
     queryCursorType?: TNotificationQueryParamType
   ) => Promise<TNotificationPaginatedInfo | undefined>;
+  refreshNotifications: (workspaceSlug: string, workspaceId: string, canApply: () => boolean) => Promise<void>;
   markAllNotificationsAsRead: (workspaceId: string) => Promise<void>;
 }
 
@@ -360,6 +361,45 @@ export class WorkspaceNotificationStore implements IWorkspaceNotificationStore {
     } finally {
       runInAction(() => (this.loader = undefined));
     }
+  };
+
+  refreshNotifications = async (workspaceSlug: string, workspaceId: string, canApply: () => boolean) => {
+    if (this.loader) return;
+    const params = this.generateNotificationQueryParams(ENotificationQueryParamType.INIT);
+    const snapshot = JSON.stringify(params);
+    const pages = Math.max(
+      1,
+      Math.ceil((this.notificationIdsByWorkspaceId(workspaceId)?.length ?? 0) / this.paginatedCount)
+    );
+    const notifications: TNotification[] = [];
+    let paginationInfo: Omit<TNotificationPaginatedInfo, "results"> | undefined;
+    const isCurrent = () =>
+      canApply() &&
+      !this.loader &&
+      snapshot === JSON.stringify(this.generateNotificationQueryParams(ENotificationQueryParamType.INIT));
+    for (let page = 0; page < pages; page++) {
+      const response = await workspaceNotificationService.fetchNotifications(workspaceSlug, {
+        ...params,
+        cursor: page === 0 ? params.cursor : paginationInfo?.next_cursor,
+      });
+      if (!response || !isCurrent()) return;
+      const { results, ...info } = response;
+      notifications.push(...(results ?? []));
+      paginationInfo = info;
+      if (!info.next_page_results) break;
+    }
+    if (!isCurrent()) return;
+    runInAction(() => {
+      const ids = new Set(notifications.map((notification) => notification.id));
+      Object.values(this.notifications).forEach((notification) => {
+        if (notification.workspace === workspaceId && !ids.has(notification.id))
+          delete this.notifications[notification.id];
+      });
+      this.mutateNotifications(notifications);
+      this.paginationInfo = paginationInfo;
+      if (this.currentSelectedNotificationId && !this.notifications[this.currentSelectedNotificationId])
+        this.currentSelectedNotificationId = undefined;
+    });
   };
 
   /**

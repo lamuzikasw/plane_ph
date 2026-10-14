@@ -16,6 +16,7 @@ import type { TActivityEntityData, THomeWidgetProps, TRecentActivityFilterKeys }
 import { ContentOverflowWrapper } from "@/components/core/content-overflow-HOC";
 // plane web services
 import { WorkspaceService } from "@/services/workspace.service";
+import { LIVE_REFRESH_INTERVAL } from "@/hooks/use-live-refresh";
 import { RecentsEmptyState } from "../empty-states";
 import { EWidgetKeys, WidgetLoader } from "../loaders";
 import { FiltersDropdown } from "./filters";
@@ -56,8 +57,9 @@ export const RecentActivityWidget = observer(function RecentActivityWidget(props
       : null,
     {
       revalidateIfStale: false,
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      refreshInterval: LIVE_REFRESH_INTERVAL,
     }
   );
 

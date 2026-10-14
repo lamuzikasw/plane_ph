@@ -21,6 +21,7 @@ import type {
   TIssuesResponse,
   TIssues,
   TIssuePaginationData,
+  TIssueParams,
   TGroupedIssueCount,
   TPaginationData,
   TBulkOperationsPayload,
@@ -55,6 +56,16 @@ export enum EIssueGroupedAction {
   REORDER = "REORDER",
 }
 export interface IBaseIssuesStore {
+  refreshIssues: (
+    workspaceSlug: string,
+    projectId: string,
+    getParams: (options: IssuePaginationOptions, cursor: string) => Partial<Record<TIssueParams, string | boolean>>,
+    canApply: () => boolean,
+    fetchPage?: (
+      params: Partial<Record<TIssueParams, string | boolean>>,
+      signal: AbortSignal
+    ) => Promise<TIssuesResponse>
+  ) => Promise<void>;
   // observable
   loader: Record<string, TLoader>;
 
@@ -510,6 +521,71 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
     // store Pagination options for next subsequent calls and data like next cursor etc
     this.storePreviousPaginationValues(issuesResponse, options);
   }
+
+  /** Reload the loaded range and replace cards and groups together after all pages succeed. */
+  refreshIssues = async (
+    workspaceSlug: string,
+    projectId: string,
+    getParams: (options: IssuePaginationOptions, cursor: string) => Partial<Record<TIssueParams, string | boolean>>,
+    canApply: () => boolean,
+    fetchPage?: (
+      params: Partial<Record<TIssueParams, string | boolean>>,
+      signal: AbortSignal
+    ) => Promise<TIssuesResponse>
+  ) => {
+    if (!this.paginationOptions || Object.values(this.loader).some(Boolean)) return;
+    const options = this.paginationOptions;
+    const signal = this.controller.signal;
+    const snapshot = JSON.stringify([
+      this.groupedIssueIds,
+      this.issuePaginationData,
+      this.issueFilterStore.issueFilters,
+    ]);
+    const isCurrent = () =>
+      canApply() &&
+      !signal.aborted &&
+      !Object.values(this.loader).some(Boolean) &&
+      snapshot === JSON.stringify([this.groupedIssueIds, this.issuePaginationData, this.issueFilterStore.issueFilters]);
+    const currentGroups = (this.groupedIssueIds ?? {}) as Record<string, string[] | Record<string, string[]>>;
+    const lengths = Object.values(currentGroups).flatMap((group) =>
+      Array.isArray(group) ? [group.length] : Object.values(group).map((ids) => ids.length)
+    );
+    const pages = Math.max(1, Math.ceil(Math.max(0, ...lengths) / options.perPageCount));
+    const items: TIssue[] = [];
+    const groups: Record<string, string[] | Record<string, string[]>> = {};
+    let counts: TGroupedIssueCount = {};
+    let lastResponse: TIssuesResponse | undefined;
+    for (let page = 0; page < pages; page++) {
+      const params = getParams(options, `${options.perPageCount}:${page}:0`);
+      const response = await (fetchPage
+        ? fetchPage(params, signal)
+        : this.issueService.getIssues(workspaceSlug, projectId, params, { signal }));
+      if (!isCurrent()) return;
+      const { issueList, groupedIssues, groupedIssueCount } = this.processIssueResponse(response);
+      items.push(...issueList);
+      counts = groupedIssueCount;
+      for (const [groupId, group] of Object.entries(
+        groupedIssues as Record<string, string[] | Record<string, string[]>>
+      )) {
+        if (Array.isArray(group)) {
+          const previous = groups[groupId];
+          set(groups, [groupId], uniq([...(Array.isArray(previous) ? previous : []), ...group]));
+        } else
+          for (const [subGroupId, ids] of Object.entries(group))
+            set(groups, [groupId, subGroupId], uniq([...(get(groups, [groupId, subGroupId]) ?? []), ...ids]));
+      }
+      lastResponse = response;
+      if (!response.next_page_results) break;
+    }
+    if (!lastResponse || !isCurrent()) return;
+    runInAction(() => {
+      this.clear(false);
+      this.rootIssueStore.issues.addIssue(items);
+      this.updateGroupedIssueIds(groups as TIssues, counts);
+      this.storePreviousPaginationValues(lastResponse!, options);
+      this.rootIssueStore.issueDetail.relation.extractRelationsFromIssues(items);
+    });
+  };
 
   /**
    * This Method is called on the subsequent pagination calls after the first initial call

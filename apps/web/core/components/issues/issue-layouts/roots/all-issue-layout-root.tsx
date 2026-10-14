@@ -25,6 +25,7 @@ import { useIssues } from "@/hooks/store/use-issues";
 import { useAppRouter } from "@/hooks/use-app-router";
 import { IssuesStoreContext } from "@/hooks/use-issue-layout-store";
 import { useWorkspaceIssueProperties } from "@/hooks/use-workspace-issue-properties";
+import { useLiveIssues } from "@/hooks/use-live-issues";
 import { runWorkspaceViewLoad } from "./all-issue-layout-root.utils";
 
 type Props = {
@@ -35,6 +36,7 @@ type Props = {
 
 export const AllIssueLayoutRoot = observer(function AllIssueLayoutRoot(props: Props) {
   const { isDefaultView, isLoading = false, toggleLoading } = props;
+  useLiveIssues(EIssuesStoreType.GLOBAL);
   // router
   const router = useAppRouter();
   const { workspaceSlug: routerWorkspaceSlug, globalViewId: routerGlobalViewId } = useParams();

@@ -15,6 +15,7 @@ import { IssueArchiveService, WorkspaceDraftService, IssueService } from "@/serv
 import type { IIssueDetail } from "./root.store";
 
 export interface IIssueStoreActions {
+  refreshIssue: (workspaceSlug: string, projectId: string, issueId: string, canApply: () => boolean) => Promise<void>;
   // actions
   fetchIssue: (workspaceSlug: string, projectId: string, issueId: string) => Promise<TIssue>;
   updateIssue: (workspaceSlug: string, projectId: string, issueId: string, data: Partial<TIssue>) => Promise<void>;
@@ -84,6 +85,25 @@ export class IssueStore implements IIssueStore {
   });
 
   // actions
+  refreshIssue = async (workspaceSlug: string, projectId: string, issueId: string, canApply: () => boolean) => {
+    const issue = await this.issueService.retrieve(workspaceSlug, projectId, issueId, {
+      expand: "issue_reactions,issue_attachments,issue_link,parent",
+    });
+    if (!canApply()) return;
+    runInAction(() => {
+      this.addIssueToStore(issue);
+      if (issue.issue_reactions) this.rootIssueDetailStore.addReactions(issueId, issue.issue_reactions);
+      if (issue.issue_attachments) {
+        this.rootIssueDetailStore.attachment.attachments[issueId] = issue.issue_attachments.map(
+          (attachment) => attachment.id
+        );
+        this.rootIssueDetailStore.addAttachments(issueId, issue.issue_attachments);
+      }
+      if (issue.issue_link) this.rootIssueDetailStore.addLinks(issueId, issue.issue_link);
+      this.rootIssueDetailStore.addSubscription(issueId, issue.is_subscribed);
+    });
+  };
+
   fetchIssue = async (workspaceSlug: string, projectId: string, issueId: string) => {
     const query = {
       expand: "issue_reactions,issue_attachments,issue_link,parent",

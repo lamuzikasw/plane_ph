@@ -18,24 +18,33 @@ import { AppSidebarItem } from "@/components/sidebar/sidebar-item";
 import { InboxIcon } from "@plane/propel/icons";
 import useSWR from "swr";
 import { useWorkspaceNotifications } from "@/hooks/store/notifications";
+import { LIVE_REFRESH_INTERVAL, useLiveRefresh } from "@/hooks/use-live-refresh";
+import { useProject } from "@/hooks/store/use-project";
 // local imports
 import { StarUsOnGitHubLink } from "@/app/(all)/[workspaceSlug]/(projects)/star-us-link";
 
 export const TopNavigationRoot = observer(function TopNavigationRoot() {
   // router
-  const { workspaceSlug } = useParams();
+  const { workspaceSlug, projectId } = useParams();
   const pathname = usePathname();
 
   // store hooks
   const { unreadNotificationsCount, getUnreadNotificationsCount } = useWorkspaceNotifications();
   const { preferences } = useAppRailPreferences();
+  const { getProjectById, refreshProjectDetails } = useProject();
+  useLiveRefresh(
+    workspaceSlug && projectId ? `project:${workspaceSlug}:${projectId}` : undefined,
+    (canApply) => refreshProjectDetails(workspaceSlug!.toString(), projectId!.toString(), canApply),
+    !!projectId && !!getProjectById(projectId.toString())
+  );
 
   const showLabel = preferences.displayMode === "icon_with_label";
 
   // Fetch notification count
   useSWR(
-    workspaceSlug ? "WORKSPACE_UNREAD_NOTIFICATION_COUNT" : null,
-    workspaceSlug ? () => getUnreadNotificationsCount(workspaceSlug.toString()) : null
+    workspaceSlug ? `WORKSPACE_UNREAD_NOTIFICATION_COUNT_${workspaceSlug}` : null,
+    workspaceSlug ? () => getUnreadNotificationsCount(workspaceSlug.toString()) : null,
+    { refreshInterval: LIVE_REFRESH_INTERVAL }
   );
 
   // Calculate notification count

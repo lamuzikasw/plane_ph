@@ -25,6 +25,12 @@ import type { IWorkItemSubIssueFiltersStore } from "./sub_issues_filter.store";
 import { WorkItemSubIssueFiltersStore } from "./sub_issues_filter.store";
 
 export interface IIssueSubIssuesStoreActions {
+  refreshSubIssues: (
+    workspaceSlug: string,
+    projectId: string,
+    parentIssueId: string,
+    canApply: () => boolean
+  ) => Promise<void>;
   fetchSubIssues: (workspaceSlug: string, projectId: string, parentIssueId: string) => Promise<TIssueSubIssues>;
   createSubIssues: (
     workspaceSlug: string,
@@ -116,6 +122,54 @@ export class IssueSubIssuesStore implements IIssueSubIssuesStore {
   });
 
   // actions
+  refreshSubIssues = async (
+    workspaceSlug: string,
+    projectId: string,
+    parentIssueId: string,
+    canApply: () => boolean
+  ) => {
+    if (this.loader || this.subIssueHelpersByIssueId(parentIssueId).issue_loader.length) return;
+    const previousIds = this.subIssuesByIssueId(parentIssueId);
+    if (!previousIds) return;
+    const currentSnapshot = () =>
+      JSON.stringify(
+        this.subIssuesByIssueId(parentIssueId)?.map((id) => [
+          id,
+          this.rootIssueDetailStore.rootIssueStore.issues.getIssueById(id)?.updated_at,
+        ])
+      );
+    const snapshot = currentSnapshot();
+    const knownProjects = new Set(
+      this.rootIssueDetailStore.rootIssueStore.issues
+        .getIssuesByIds(previousIds, "un-archived")
+        .map((issue) => issue.project_id)
+    );
+    const response = await this.issueService.subIssues(workspaceSlug, projectId, parentIssueId);
+    if (
+      !canApply() ||
+      this.loader ||
+      this.subIssueHelpersByIssueId(parentIssueId).issue_loader.length ||
+      snapshot !== currentSnapshot()
+    )
+      return;
+    const issues = (response.sub_issues ?? []) as TIssue[];
+    runInAction(() => {
+      this.rootIssueDetailStore.rootIssueStore.issues.addIssue(issues);
+      this.subIssues[parentIssueId] = issues.map((issue) => issue.id);
+      this.subIssuesStateDistribution[parentIssueId] = response.state_distribution ?? {};
+      const parent = this.rootIssueDetailStore.rootIssueStore.issues.getIssueById(parentIssueId);
+      if (parent)
+        this.rootIssueDetailStore.rootIssueStore.issues.updateIssue(parentIssueId, {
+          sub_issues_count: issues.length,
+          updated_at: parent.updated_at,
+        });
+    });
+    const newProjects = uniq(
+      issues.map((issue) => issue.project_id).filter((id) => !!id && id !== projectId && !knownProjects.has(id))
+    ) as string[];
+    if (newProjects.length) await this.fetchOtherProjectProperties(workspaceSlug, newProjects);
+  };
+
   setSubIssueHelpers = (parentIssueId: string, key: TSubIssueHelpersKeys, value: string) => {
     if (!parentIssueId || !key || !value) return;
 

@@ -6,7 +6,7 @@
 
 import { observer } from "mobx-react";
 // plane imports
-import { EIssueLayoutTypes } from "@plane/types";
+import { EIssueLayoutTypes, EIssuesStoreType } from "@plane/types";
 // components
 import { CalendarLayoutLoader } from "@/components/ui/loader/layouts/calendar-layout-loader";
 import { GanttLayoutLoader } from "@/components/ui/loader/layouts/gantt-layout-loader";
@@ -16,6 +16,7 @@ import { SpreadsheetLayoutLoader } from "@/components/ui/loader/layouts/spreadsh
 // hooks
 import { useIssues } from "@/hooks/store/use-issues";
 import { useIssueStoreType } from "@/hooks/use-issue-layout-store";
+import { useLiveIssues } from "@/hooks/use-live-issues";
 // local imports
 import { IssueLayoutEmptyState } from "./empty-states";
 
@@ -46,6 +47,8 @@ export const IssueLayoutHOC = observer(function IssueLayoutHOC(props: Props) {
   const { layout } = props;
 
   const storeType = useIssueStoreType();
+  // Workspace views own their refresh in AllIssueLayoutRoot.
+  useLiveIssues(storeType, storeType !== EIssuesStoreType.GLOBAL);
   const { issues } = useIssues(storeType);
 
   const issueCount = issues.getGroupIssueCount(undefined, undefined, false);
