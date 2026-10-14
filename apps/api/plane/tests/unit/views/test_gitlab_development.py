@@ -1,7 +1,9 @@
 from datetime import timedelta
+from threading import Event, Thread
 from unittest.mock import Mock, patch
 
 import pytest
+from django.db import DatabaseError, close_old_connections, connection, connections, transaction
 from django.utils import timezone
 
 from plane.db.models import (
@@ -83,6 +85,81 @@ def test_markers_have_boundaries_and_deduplicate(text, expected):
     assert markers(text) == expected
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("operation", ["reconcile", "manual_link"])
+def test_repository_sync_allows_oauth_and_webhook_inserts_without_unlocking_repository(pilot, operation):
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL row-lock regression")
+    _, user, _, _, _, _, integration, repository = pilot
+    obj = object_for(pilot)
+    entered, release = Event(), Event()
+    failures = []
+
+    def hold_network_operation(*args, **kwargs):
+        entered.set()
+        assert release.wait(10), "The test did not release the in-flight synchronization"
+        return obj
+
+    def synchronize():
+        close_old_connections()
+        try:
+            if operation == "reconcile":
+                sync_repository(repository.id)
+            else:
+                response = pilot[0].post(
+                    endpoint(pilot),
+                    {"url": f"https://gitlab.example.com/team/pilot/-/commit/{SHA}"},
+                    format="json",
+                )
+                assert response.status_code == 200, response.data
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            connections["default"].close()
+
+    with (
+        patch.object(RepositorySync, "reconcile", side_effect=hold_network_operation),
+        patch.object(RepositorySync, "object", side_effect=hold_network_operation),
+        patch("plane.app.views.gitlab.capabilities", return_value={"commit"}),
+        patch("plane.utils.gitlab.presentation.capabilities", return_value={"commit"}),
+    ):
+        worker = Thread(target=synchronize)
+        worker.start()
+        try:
+            assert entered.wait(5), "The synchronization did not acquire its repository lock"
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '750ms'")
+                # A joined integration must remain writable while GitLab is slow.
+                GitLabIntegration.objects.select_for_update(nowait=True).get(pk=integration.id)
+                GitLabOAuthAttempt.objects.create(
+                    integration=integration,
+                    user=user,
+                    nonce_hash="lock-test-nonce",
+                    session_hash="lock-test-session",
+                    verifier_encrypted=encrypt_data("verifier"),
+                    expires_at=timezone.now() + timedelta(minutes=10),
+                )
+                GitLabWebhookEvent.objects.create(
+                    integration=integration,
+                    repository=repository,
+                    fingerprint="lock-test-webhook",
+                    event_type="Push Hook",
+                    payload={"project_id": repository.gitlab_id},
+                )
+                # Django defers foreign-key checks; force them while the worker holds its lock.
+                with connection.cursor() as cursor:
+                    cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            # Competing updates still serialize on the same repository.
+            with pytest.raises(DatabaseError), transaction.atomic():
+                GitLabRepository.objects.select_for_update(nowait=True).get(pk=repository.id)
+        finally:
+            release.set()
+            worker.join(timeout=10)
+        assert not worker.is_alive()
+        assert not failures, failures
+
+
 def test_markers_link_multiple_issues_and_unknown_is_diagnostic(pilot):
     obj = object_for(pilot)
     for _ in range(2):
@@ -148,6 +225,46 @@ def test_unconnected_user_sees_no_repository_metadata(pilot):
     assert data["access_errors"] == ["user_not_connected"]
     assert "private message" not in str(data)
     assert "service-secret" not in str(data) and "app-secret" not in str(data)
+
+
+def test_development_checks_only_repositories_linked_to_the_requested_issue(pilot):
+    obj = object_for(pilot, message="linked commit")
+    associate(pilot[4], obj, "manual")
+    unrelated = GitLabRepository.objects.create(
+        integration=pilot[-2], gitlab_id=84, path="team/unrelated", web_url="https://gitlab.example.com/team/unrelated"
+    )
+    GitLabObject.objects.create(
+        repository=unrelated, kind="commit", external_id=SHA, data={"message": "unrelated secret"}
+    )
+    GitLabRepository.objects.bulk_create(
+        [GitLabRepository(integration=pilot[-2], gitlab_id=key, path=f"team/repo-{key}") for key in range(85, 152)]
+    )
+    with patch("plane.utils.gitlab.presentation.capabilities", return_value={"commit"}) as check:
+        result = development_data(pilot[4], pilot[1])
+    assert [call.args[0].id for call in check.call_args_list] == [pilot[-1].id]
+    assert len(result["objects"]) == 1
+    assert "unrelated secret" not in str(result)
+
+
+def test_unlinked_issue_needs_no_gitlab_permission_requests(pilot):
+    object_for(pilot, message="unrelated secret")
+    with patch("plane.utils.gitlab.presentation.capabilities") as check:
+        result = development_data(pilot[4], pilot[1])
+    check.assert_not_called()
+    assert result["objects"] == [] and result["links"] == []
+    assert "unrelated secret" not in str(result)
+
+
+def test_disabled_repository_stays_hidden_without_permission_requests(pilot):
+    associate(pilot[4], object_for(pilot, message="disabled secret"), "manual")
+    repository = pilot[-1]
+    repository.enabled = False
+    repository.save(update_fields=["enabled"])
+    with patch("plane.utils.gitlab.presentation.capabilities") as check:
+        result = development_data(pilot[4], pilot[1])
+    check.assert_not_called()
+    assert result["objects"] == [] and result["links"] == []
+    assert "disabled secret" not in str(result)
 
 
 @pytest.mark.parametrize("code", ["access_denied", "token_invalid", "unavailable"])
@@ -459,8 +576,8 @@ def test_all_pipeline_runs_for_a_sha_are_fetched(pilot):
 
 def test_mr_inherits_commits_without_markers(pilot):
     sync = RepositorySync(pilot[-1])
-    sync.client.one = (
-        lambda path: {"id": 1, "iid": 1, "title": "plane:DEV-1"}
+    sync.client.one = lambda path: (
+        {"id": 1, "iid": 1, "title": "plane:DEV-1"}
         if path.endswith("merge_requests/1")
         else {"id": SHA, "message": "no marker"}
     )

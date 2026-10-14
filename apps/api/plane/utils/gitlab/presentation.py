@@ -21,17 +21,18 @@ def integration_info(integration, user) -> dict:
 
 def development_data(issue, user) -> dict:
     integrations = list(GitLabIntegration.objects.filter(workspace=issue.workspace))
+    # Check personal access only for this issue's data, not every configured repository.
+    issue_links = list(GitLabIssueLink.objects.filter(issue=issue).select_related("object"))
+    repository_ids = {link.object.repository_id for link in issue_links if not link.suppressed and link.origins}
     allowed = {}
     access_errors = set()
     for integration in integrations:
-        for repository in integration.repositories.filter(enabled=True):
+        for repository in integration.repositories.filter(enabled=True, id__in=repository_ids):
             try:
                 allowed[repository.id] = capabilities(repository, user)
             except GitLabError as error:
                 access_errors.add(error.code)
-    links = list(
-        GitLabIssueLink.objects.filter(issue=issue, object__repository_id__in=allowed).select_related("object")
-    )
+    links = [link for link in issue_links if link.object.repository_id in allowed]
     blocked = {link.object_id for link in links if link.suppressed}
     roots = {link.object_id for link in links if not link.suppressed and link.origins}
     objects = {

@@ -444,8 +444,11 @@ def sync_repository(repository_id, *, event: dict | None = None, event_type: str
         return
     try:
         with transaction.atomic():
+            # Serialize this repository without locking its shared integration or blocking webhook foreign keys.
             repository = (
-                GitLabRepository.objects.select_for_update().select_related("integration").get(pk=repository_id)
+                GitLabRepository.objects.select_for_update(of=("self",), no_key=True)
+                .select_related("integration")
+                .get(pk=repository_id)
             )
             # Configuration may have been paused while this worker waited for
             # the row lock. The pre-lock snapshot is no longer authoritative.

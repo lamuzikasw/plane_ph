@@ -353,9 +353,11 @@ class GitLabDevelopmentEndpoint(GitLabAPIView):
         if kind not in capabilities(repository, request.user):
             raise PermissionDenied("GitLab does not grant access to this object.")
         with transaction.atomic():
-            # The same lock as webhook processing prevents late snapshots overwriting new ones.
+            # Match the sync lock, allowing OAuth and webhook inserts during GitLab requests.
             repository = (
-                GitLabRepository.objects.select_for_update().select_related("integration").get(pk=repository.id)
+                GitLabRepository.objects.select_for_update(of=("self",), no_key=True)
+                .select_related("integration")
+                .get(pk=repository.id)
             )
             action = data["action"]
             if action in ("add", "pin", "restore"):
