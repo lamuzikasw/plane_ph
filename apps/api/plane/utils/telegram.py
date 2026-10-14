@@ -11,6 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
 
@@ -23,6 +24,7 @@ from plane.db.models import (
     TelegramDelivery,
     TelegramEvent,
     TelegramMute,
+    TelegramQuietPeriod,
 )
 from plane.utils.issue_placements import require_project_access
 
@@ -94,6 +96,24 @@ def accessible(connection, issue, comment=None):
     return True
 
 
+def is_quiet_activity(activity, recipient_id):
+    # epoch is captured by the request, before asynchronous activity processing.
+    # Existing producers use integer seconds, so activation rounds down to the
+    # same precision. Stopping retains the last partial second as quiet.
+    occurred_at = (
+        datetime.fromtimestamp(activity.epoch, tz=datetime_timezone.utc)
+        if activity.epoch is not None
+        else activity.created_at
+    )
+    return TelegramQuietPeriod.objects.filter(
+        workspace_id=activity.workspace_id,
+        actor_id=activity.actor_id,
+        recipient_id=recipient_id,
+        started_at__lte=occurred_at,
+        expires_at__gt=occurred_at,
+    ).filter(Q(stopped_at__isnull=True) | Q(stopped_at__gt=occurred_at)).exists()
+
+
 def enqueue_activities(activities):
     """Called in the transaction that stores activities; no network calls here."""
     if not settings.TELEGRAM_ENABLED:
@@ -146,6 +166,8 @@ def enqueue_activities(activities):
             ):
                 continue
             if kind == "comment" and TelegramMute.objects.filter(connection=connection, issue=issue).exists():
+                continue
+            if is_quiet_activity(activity, connection.user_id):
                 continue
             key = f"comment:{comment.id}" if comment else f"assignment:{issue.id}:{activity.actor_id}:{activity.epoch}"
             due_at = now + timedelta(seconds=600 if kind == "comment" else 60)
@@ -288,6 +310,8 @@ def refresh_delivery_keyboard(connection, message_id):
 
 def event_is_valid(event, now):
     c, issue, comment = event.connection, event.issue, event.comment
+    if is_quiet_activity(event.activity, c.user_id):
+        return False
     direct = event.kind in ("mention", "reply")
     if not accessible(c, issue, comment):
         return False

@@ -78,3 +78,21 @@ class TelegramBotState(models.Model):
     # A durable getUpdates cursor, scoped to the bot (never store its token).
     bot_id = models.BigIntegerField(primary_key=True)
     offset = models.BigIntegerField(default=0)
+
+
+class TelegramQuietPeriod(models.Model):
+    """Retained after stopping so late activity workers cannot replay quiet edits."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="telegram_quiet_edits")
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="telegram_quiet_receipts"
+    )
+    started_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    stopped_at = models.DateTimeField(null=True)
+
+    class Meta:
+        db_table = "telegram_quiet_periods"
+        indexes = [models.Index(fields=["workspace", "actor", "recipient"], name="telegram_quiet_scope_idx")]

@@ -28,6 +28,18 @@ export type TelegramSettings = TelegramPreferences & {
   mutes: { issue_id: string; name: string }[];
 };
 
+export type TelegramQuietPeriod = {
+  id: string;
+  recipient: string;
+  started_at: string;
+  expires_at: string;
+  stopped_at: string | null;
+};
+export type TelegramQuietSettings = {
+  periods: TelegramQuietPeriod[];
+  members: { id: string; name: string }[];
+};
+
 export class TelegramService extends APIService {
   constructor() {
     super(API_BASE_URL);
@@ -46,5 +58,14 @@ export class TelegramService extends APIService {
   }
   async disconnect(): Promise<void> {
     await this.delete("/api/users/me/telegram/");
+  }
+  async quietSettings(slug: string): Promise<TelegramQuietSettings> {
+    return (await this.get(`/api/workspaces/${slug}/telegram-quiet-periods/`)).data;
+  }
+  async startQuietPeriod(slug: string, recipient: string): Promise<TelegramQuietPeriod> {
+    return (await this.post(`/api/workspaces/${slug}/telegram-quiet-periods/`, { recipient })).data;
+  }
+  async stopQuietPeriod(slug: string, id: string): Promise<void> {
+    await this.delete(`/api/workspaces/${slug}/telegram-quiet-periods/${id}/`);
   }
 }
