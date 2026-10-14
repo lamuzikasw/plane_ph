@@ -19,6 +19,7 @@ import { useWorkspace } from "@/hooks/store/use-workspace";
 import { useUserPermissions } from "@/hooks/store/user";
 import { useWorkspaceIssueProperties } from "@/hooks/use-workspace-issue-properties";
 import { useNotificationPreview } from "@/hooks/use-notification-preview";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 // local imports
 import { InboxContentRoot } from "../inbox/content";
 
@@ -35,7 +36,14 @@ export const NotificationsRoot = observer(function NotificationsRoot({ workspace
     notificationLiteByNotificationId,
     notificationIdsByWorkspaceId,
     getNotifications,
+    refreshNotifications,
   } = useWorkspaceNotifications();
+  useLiveRefresh(
+    currentWorkspace ? `notifications:${currentWorkspace.slug}` : undefined,
+    (canApply) => refreshNotifications(currentWorkspace!.slug, currentWorkspace!.id, canApply),
+    true,
+    { protectEdits: false }
+  );
   const { fetchUserProjectInfo } = useUserPermissions();
   const { isWorkItem, PeekOverviewComponent, setPeekWorkItem } = useNotificationPreview();
   // derived values

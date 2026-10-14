@@ -19,6 +19,7 @@ import { useIssues } from "@/hooks/store/use-issues";
 import { useUserPermissions } from "@/hooks/store/user";
 import { useIssueStoreType } from "@/hooks/use-issue-layout-store";
 import { useIssuesActions } from "@/hooks/use-issues-actions";
+import { useLiveIssues } from "@/hooks/use-live-issues";
 // types
 import type { IQuickActionProps } from "../list/list-view-types";
 import { CalendarChart } from "./calendar";
@@ -58,6 +59,7 @@ export const BaseCalendarRoot = observer(function BaseCalendarRoot(props: IBaseC
   // hooks
   const fallbackStoreType = useIssueStoreType() as CalendarStoreType;
   const storeType = isEpic ? EIssuesStoreType.EPIC : fallbackStoreType;
+  useLiveIssues(storeType);
   const { allowPermissions } = useUserPermissions();
   const { issues, issuesFilter, issueMap } = useIssues(storeType);
   const {

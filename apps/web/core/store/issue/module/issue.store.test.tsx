@@ -87,6 +87,78 @@ const renderBoard = () =>
     </IssueLayoutHOC>
   );
 
+describe("live board refresh", () => {
+  const response = (ids: string[], next = false) =>
+    ({
+      results: ids.map((id) => ({ id, project_id: "project", state_id: "todo" })),
+      total_count: 4,
+      total_results: 4,
+      next_page_results: next,
+      prev_cursor: "2:0:0",
+      next_cursor: "2:2:0",
+    }) as TIssuesResponse;
+
+  it("retains loaded pages and cards until the full replacement succeeds", async () => {
+    const store = setup();
+    runInAction(() => {
+      store.paginationOptions = { perPageCount: 1, canGroup: false };
+    });
+    const get = vi
+      .spyOn(store.issueService, "getIssues")
+      .mockResolvedValueOnce(response(["new"], true))
+      .mockResolvedValueOnce(response(["selected"]));
+    const request = store.refreshIssues(
+      "workspace",
+      "project",
+      (_options, cursor) => ({ cursor }),
+      () => true
+    );
+    expect(store.groupedIssueIds?.todo).toEqual(["selected", "other"]);
+    expect(store.getIssueLoader()).toBeUndefined();
+    await request;
+    expect(get.mock.calls.map((call) => call[2]?.cursor)).toEqual(["1:0:0", "1:1:0"]);
+    expect(store.groupedIssueIds?.[ALL_ISSUES]).toEqual(["new", "selected"]);
+    expect(store.getGroupIssueCount(undefined, undefined, false)).toBe(4);
+  });
+
+  it("ignores stale responses when a mutation changes membership", async () => {
+    const store = setup();
+    runInAction(() => {
+      store.paginationOptions = { perPageCount: 30, canGroup: true };
+    });
+    vi.spyOn(store.issueService, "getIssues").mockResolvedValue(response(["new"]));
+    const request = store.refreshIssues(
+      "workspace",
+      "project",
+      () => ({}),
+      () => true
+    );
+    runInAction(() => {
+      store.groupedIssueIds = { done: ["selected"], todo: ["other"] };
+    });
+    await request;
+    expect(store.groupedIssueIds).toEqual({ done: ["selected"], todo: ["other"] });
+  });
+
+  it("keeps the old board after a failed background fetch", async () => {
+    const store = setup();
+    runInAction(() => {
+      store.paginationOptions = { perPageCount: 30, canGroup: true };
+    });
+    vi.spyOn(store.issueService, "getIssues").mockRejectedValue(new Error("network"));
+    await expect(
+      store.refreshIssues(
+        "workspace",
+        "project",
+        () => ({}),
+        () => true
+      )
+    ).rejects.toThrow("network");
+    expect(store.groupedIssueIds?.todo).toEqual(["selected", "other"]);
+    expect(renderBoard()).toContain("Board cards");
+  });
+});
+
 describe("module board visibility when counters lag behind cards", () => {
   it.each([false, true])("keeps the board after status changes and deletion (swimlanes: %s)", async (swimlanes) => {
     const store = setup(swimlanes);

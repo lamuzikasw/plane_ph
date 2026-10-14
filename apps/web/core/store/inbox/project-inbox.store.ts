@@ -73,6 +73,13 @@ export interface IProjectInboxStore {
     tab?: TInboxIssueCurrentTab
   ) => Promise<void>;
   fetchInboxPaginationIssues: (workspaceSlug: string, projectId: string) => Promise<void>;
+  refreshInboxIssues: (workspaceSlug: string, projectId: string, canApply: () => boolean) => Promise<void>;
+  refreshInboxIssue: (
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    canApply: () => boolean
+  ) => Promise<void>;
   fetchInboxIssueById: (workspaceSlug: string, projectId: string, inboxIssueId: string) => Promise<TInboxIssue>;
   createInboxIssue: (
     workspaceSlug: string,
@@ -184,7 +191,7 @@ export class ProjectInboxStore implements IProjectInboxStore {
 
   getIsIssueAvailable = computedFn((inboxIssueId: string) => {
     if (!this.inboxIssueIds) return true;
-    return this.inboxIssueIds.includes(inboxIssueId);
+    return this.inboxIssueIds.includes(inboxIssueId) || !!this.inboxIssuePaginationInfo?.next_page_results;
   });
 
   inboxIssueQueryParams = (
@@ -259,6 +266,53 @@ export class ProjectInboxStore implements IProjectInboxStore {
   };
 
   // actions
+  refreshInboxIssues = async (workspaceSlug: string, projectId: string, canApply: () => boolean) => {
+    if (this.loader || this.currentInboxProjectId !== projectId) return;
+    const snapshot = JSON.stringify([this.currentTab, this.inboxFilters, this.inboxSorting]);
+    const pageCount = Math.max(1, Math.ceil(this.inboxIssueIds.length / this.PER_PAGE_COUNT));
+    const issues: TInboxIssue[] = [];
+    let cursor = `${this.PER_PAGE_COUNT}:0:0`;
+    let paginationInfo: TInboxIssuePaginationInfo | undefined;
+    const isCurrent = () =>
+      canApply() &&
+      !this.loader &&
+      this.currentInboxProjectId === projectId &&
+      snapshot === JSON.stringify([this.currentTab, this.inboxFilters, this.inboxSorting]);
+    for (let page = 0; page < pageCount; page++) {
+      const response = await this.inboxIssueService.list(
+        workspaceSlug,
+        projectId,
+        this.inboxIssueQueryParams(this.inboxFilters, this.inboxSorting, this.PER_PAGE_COUNT, cursor)
+      );
+      if (!isCurrent()) return;
+      const { results, ...info } = response;
+      issues.push(...results);
+      paginationInfo = info;
+      if (!info.next_page_results || !info.next_cursor) break;
+      cursor = info.next_cursor;
+    }
+    runInAction(() => {
+      this.createOrUpdateInboxIssue(issues, workspaceSlug, projectId);
+      this.inboxIssueIds = uniq(issues.map((inbox) => inbox.issue.id));
+      this.inboxIssuePaginationInfo = paginationInfo;
+      this.error = undefined;
+    });
+  };
+
+  refreshInboxIssue = async (workspaceSlug: string, projectId: string, issueId: string, canApply: () => boolean) => {
+    const inboxIssue = await this.inboxIssueService.retrieve(workspaceSlug, projectId, issueId);
+    if (!canApply()) return;
+    runInAction(() => this.createOrUpdateInboxIssue([inboxIssue], workspaceSlug, projectId));
+    const detail = this.store.issue.issueDetail;
+    const results = await Promise.allSettled([
+      detail.reaction.fetchReactions(workspaceSlug, projectId, issueId, canApply),
+      detail.attachment.fetchAttachments(workspaceSlug, projectId, issueId, canApply),
+    ]);
+    for (const result of results)
+      if (result.status === "rejected")
+        console.error("Unable to refresh Intake attachments or reactions", result.reason);
+  };
+
   handleCurrentTab = (workspaceSlug: string, projectId: string, tab: TInboxIssueCurrentTab) => {
     if (workspaceSlug && projectId) {
       runInAction(() => {

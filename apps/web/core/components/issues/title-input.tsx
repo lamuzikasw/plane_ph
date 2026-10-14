@@ -48,19 +48,21 @@ export const IssueTitleInput = observer(function IssueTitleInput(props: IssueTit
   const [isLengthVisible, setIsLengthVisible] = useState(false);
   // ref to track if there are unsaved changes
   const hasUnsavedChanges = useRef(false);
+  const lastIssueId = useRef(issueId);
   // ref to store current title value for cleanup function
   const currentTitleRef = useRef(title);
   // hooks
   const debouncedValue = useDebounce(title, 1500);
 
   useEffect(() => {
-    if (value) {
+    if (value && (!hasUnsavedChanges.current || lastIssueId.current !== issueId)) {
+      lastIssueId.current = issueId;
       setTitle(value);
       currentTitleRef.current = value;
       // Reset unsaved changes flag when value is set from props
       hasUnsavedChanges.current = false;
     }
-  }, [value]);
+  }, [value, issueId]);
 
   useEffect(() => {
     const textarea = document.querySelector("#title-input");

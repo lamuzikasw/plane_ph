@@ -26,7 +26,12 @@ export type TAttachmentUploadStatus = {
 export interface IIssueAttachmentStoreActions {
   // actions
   addAttachments: (issueId: string, attachments: TIssueAttachment[]) => void;
-  fetchAttachments: (workspaceSlug: string, projectId: string, issueId: string) => Promise<TIssueAttachment[]>;
+  fetchAttachments: (
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    canApply?: () => boolean
+  ) => Promise<TIssueAttachment[]>;
   createAttachment: (
     workspaceSlug: string,
     projectId: string,
@@ -127,9 +132,18 @@ export class IssueAttachmentStore implements IIssueAttachmentStore {
     }
   };
 
-  fetchAttachments = async (workspaceSlug: string, projectId: string, issueId: string) => {
+  fetchAttachments = async (
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    canApply: () => boolean = () => true
+  ) => {
     const response = await this.issueAttachmentService.getIssueAttachments(workspaceSlug, projectId, issueId);
-    this.addAttachments(issueId, response);
+    if (canApply())
+      runInAction(() => {
+        this.attachments[issueId] = response.map((attachment) => attachment.id);
+        this.addAttachments(issueId, response);
+      });
     return response;
   };
 

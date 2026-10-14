@@ -32,7 +32,8 @@ export interface IIssueActivityStoreActions {
     workspaceSlug: string,
     projectId: string,
     issueId: string,
-    loaderType?: TActivityLoader
+    loaderType?: TActivityLoader,
+    canApply?: () => boolean
   ) => Promise<TIssueActivity[]>;
 }
 
@@ -143,7 +144,8 @@ export class IssueActivityStore implements IIssueActivityStore {
     workspaceSlug: string,
     projectId: string,
     issueId: string,
-    loaderType: TActivityLoader = "fetch"
+    loaderType: TActivityLoader = "fetch",
+    canApply: () => boolean = () => true
   ) {
     try {
       this.loader = loaderType;
@@ -156,6 +158,13 @@ export class IssueActivityStore implements IIssueActivityStore {
       }
 
       const activities = await this.issueActivityService.getIssueActivities(workspaceSlug, projectId, issueId, props);
+
+      if (!canApply()) {
+        runInAction(() => {
+          this.loader = undefined;
+        });
+        return activities;
+      }
 
       const activityIds = activities.map((activity) => activity.id);
 

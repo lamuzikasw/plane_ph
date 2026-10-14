@@ -27,6 +27,7 @@ import { IssueIdentifier } from "@/plane-web/components/issues/issue-details/iss
 // local components
 import { SubIssuesListItemProperties } from "./properties";
 import { SubIssuesListRoot } from "./root";
+import { SubIssueCycle } from "./cycle";
 
 type Props = {
   workspaceSlug: string;
@@ -85,7 +86,7 @@ export const SubIssuesListItem = observer(function SubIssuesListItem(props: Prop
 
   // derived values
   const subIssueFilters = getSubIssueFilters(parentIssueId);
-  const displayProperties = subIssueFilters?.displayProperties ?? {};
+  const displayProperties = { cycle: true, ...subIssueFilters?.displayProperties };
 
   //
   const handleIssuePeekOverview = (issue: TIssue) => handleRedirection(workspaceSlug, issue, isMobile);
@@ -150,7 +151,7 @@ export const SubIssuesListItem = observer(function SubIssuesListItem(props: Prop
               )}
             </div>
 
-            <div className="flex w-full cursor-pointer items-center gap-3 truncate">
+            <div className="@container/sub-issue flex min-w-0 flex-1 cursor-pointer items-center gap-3">
               <WithDisplayPropertiesHOC displayProperties={displayProperties || {}} displayPropertyKey="key">
                 <div className="flex-shrink-0">
                   {projectDetail && (
@@ -165,9 +166,22 @@ export const SubIssuesListItem = observer(function SubIssuesListItem(props: Prop
                   )}
                 </div>
               </WithDisplayPropertiesHOC>
-              <Tooltip tooltipContent={issue.name} isMobile={isMobile}>
-                <span className="w-0 flex-1 truncate text-13 text-primary">{issue.name}</span>
-              </Tooltip>
+              <div className="flex min-w-0 flex-1 flex-col gap-1 @min-[20rem]/sub-issue:flex-row @min-[20rem]/sub-issue:items-center @min-[20rem]/sub-issue:gap-3">
+                <Tooltip tooltipContent={issue.name} isMobile={isMobile}>
+                  <span className="w-full truncate text-13 text-primary @min-[20rem]/sub-issue:w-0 @min-[20rem]/sub-issue:flex-1">
+                    {issue.name}
+                  </span>
+                </Tooltip>
+                {issue.cycle_id && (
+                  <WithDisplayPropertiesHOC displayProperties={displayProperties} displayPropertyKey="cycle">
+                    <SubIssueCycle
+                      workspaceSlug={workspaceSlug}
+                      projectId={issue.project_id}
+                      cycleId={issue.cycle_id}
+                    />
+                  </WithDisplayPropertiesHOC>
+                )}
+              </div>
             </div>
 
             <div

@@ -16,6 +16,7 @@ import { EIssueServiceType, EIssuesStoreType } from "@plane/types";
 import { SectionEmptyState } from "@/components/empty-state/section-empty-state-root";
 import { getGroupByColumns, isWorkspaceLevel } from "@/components/issues/issue-layouts/utils";
 import { useIssueDetail } from "@/hooks/store/use-issue-detail";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
 import { SubIssuesListGroup } from "./list-group";
 type Props = {
@@ -53,9 +54,13 @@ export const SubIssuesListRoot = observer(function SubIssuesListRoot(props: Prop
   const {
     subIssues: {
       subIssuesByIssueId,
+      refreshSubIssues,
       filters: { getSubIssueFilters, getGroupedSubWorkItems, getFilteredSubWorkItems, resetFilters },
     },
   } = useIssueDetail(issueServiceType);
+  useLiveRefresh(`sub-issues:${workspaceSlug}:${projectId}:${parentIssueId}:${issueServiceType}`, (canApply) =>
+    refreshSubIssues(workspaceSlug, projectId, parentIssueId, canApply)
+  );
 
   // derived values
   const filters = getSubIssueFilters(rootIssueId);

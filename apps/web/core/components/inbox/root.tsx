@@ -19,6 +19,7 @@ import { InboxSidebar } from "@/components/inbox/sidebar";
 import { InboxLayoutLoader } from "@/components/ui/loader/layouts/project-inbox/inbox-layout-loader";
 // hooks
 import { useProjectInbox } from "@/hooks/store/use-project-inbox";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 
 type TInboxIssueRoot = {
   workspaceSlug: string;
@@ -35,7 +36,12 @@ export const InboxIssueRoot = observer(function InboxIssueRoot(props: TInboxIssu
   // plane hooks
   const { t } = useTranslation();
   // hooks
-  const { loader, error, currentTab, currentInboxProjectId, handleCurrentTab, fetchInboxIssues } = useProjectInbox();
+  const { loader, error, currentTab, currentInboxProjectId, handleCurrentTab, fetchInboxIssues, refreshInboxIssues } =
+    useProjectInbox();
+
+  useLiveRefresh(inboxAccessible ? `intake:${workspaceSlug}:${projectId}` : undefined, (canApply) =>
+    refreshInboxIssues(workspaceSlug, projectId, canApply)
+  );
 
   useEffect(() => {
     if (!inboxAccessible || !workspaceSlug || !projectId) return;

@@ -12,6 +12,7 @@ import { getNumberCount } from "@plane/utils";
 import { CountChip } from "@/components/common/count-chip";
 // hooks
 import { useWorkspaceNotifications } from "@/hooks/store/notifications";
+import { LIVE_REFRESH_INTERVAL } from "@/hooks/use-live-refresh";
 
 type TNotificationAppSidebarOption = {
   workspaceSlug: string;
@@ -25,8 +26,9 @@ export const NotificationAppSidebarOption = observer(function NotificationAppSid
   const { unreadNotificationsCount, getUnreadNotificationsCount } = useWorkspaceNotifications();
 
   useSWR(
-    workspaceSlug ? "WORKSPACE_UNREAD_NOTIFICATION_COUNT" : null,
-    workspaceSlug ? () => getUnreadNotificationsCount(workspaceSlug) : null
+    workspaceSlug ? `WORKSPACE_UNREAD_NOTIFICATION_COUNT_${workspaceSlug}` : null,
+    workspaceSlug ? () => getUnreadNotificationsCount(workspaceSlug) : null,
+    { refreshInterval: LIVE_REFRESH_INTERVAL }
   );
 
   // derived values

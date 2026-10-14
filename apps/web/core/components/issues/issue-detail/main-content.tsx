@@ -21,6 +21,7 @@ import { useProject } from "@/hooks/store/use-project";
 import { useUser } from "@/hooks/store/user";
 import useReloadConfirmations from "@/hooks/use-reload-confirmation";
 import useSize from "@/hooks/use-window-size";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 // plane web components
 import { DeDupeIssuePopoverRoot } from "@/plane-web/components/de-dupe/duplicate-popover";
 import { IssueTypeSwitcher } from "@/plane-web/components/issues/issue-details/issue-type-switcher";
@@ -61,12 +62,18 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
   const {
     issue: { getIssueById },
     peekIssue,
+    refreshIssue,
   } = useIssueDetail();
   const { getProjectById } = useProject();
   const { setShowAlert } = useReloadConfirmations(isSubmitting === "submitting");
   // derived values
   const projectDetails = getProjectById(projectId);
   const issue = issueId ? getIssueById(issueId) : undefined;
+  useLiveRefresh(
+    `issue:${workspaceSlug}:${projectId}:${issueId}`,
+    (canApply) => refreshIssue(workspaceSlug, projectId, issueId, canApply),
+    !!issue && isSubmitting !== "submitting"
+  );
   // debounced duplicate issues swr
   const { duplicateIssues } = useDebouncedDuplicateIssues(
     workspaceSlug,
@@ -94,7 +101,7 @@ export const IssueMainContent = observer(function IssueMainContent(props: Props)
 
   return (
     <>
-      <div className="space-y-4 rounded-lg">
+      <div className="space-y-4 rounded-lg" data-live-refresh-paused={isSubmitting === "submitting"}>
         {issue.parent_id && (
           <IssueParentDetail
             workspaceSlug={workspaceSlug}

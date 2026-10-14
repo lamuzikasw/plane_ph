@@ -58,6 +58,7 @@ export interface IProjectStore {
   fetchPartialProjects: (workspaceSlug: string) => Promise<TPartialProject[]>;
   fetchProjects: (workspaceSlug: string) => Promise<TProject[]>;
   fetchProjectDetails: (workspaceSlug: string, projectId: string) => Promise<TProject>;
+  refreshProjectDetails: (workspaceSlug: string, projectId: string, canApply: () => boolean) => Promise<void>;
   fetchProjectAnalyticsCount: (
     workspaceSlug: string,
     params?: TProjectAnalyticsCountParams
@@ -372,6 +373,14 @@ export class ProjectStore implements IProjectStore {
       console.log("Error while fetching project details", error);
       throw error;
     }
+  };
+
+  refreshProjectDetails = async (workspaceSlug: string, projectId: string, canApply: () => boolean) => {
+    const response = await this.projectService.getProject(workspaceSlug, projectId);
+    if (canApply())
+      runInAction(() => {
+        update(this.projectMap, [projectId], (project) => ({ ...project, ...response }));
+      });
   };
 
   /**
