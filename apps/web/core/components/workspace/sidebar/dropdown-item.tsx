@@ -10,11 +10,11 @@ import { useParams } from "next/navigation";
 import { Settings, UserPlus } from "lucide-react";
 import { Menu } from "@headlessui/react";
 // plane imports
-import { EUserPermissions } from "@plane/constants";
+import { EUserPermissions, ROLE_DETAILS } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { CheckIcon } from "@plane/propel/icons";
 import type { IWorkspace } from "@plane/types";
-import { cn, getFileURL, getUserRole } from "@plane/utils";
+import { cn, getFileURL } from "@plane/utils";
 // plane web imports
 import { SubscriptionPill } from "@/plane-web/components/common/subscription/subscription-pill";
 
@@ -31,6 +31,7 @@ const SidebarDropdownItem = observer(function SidebarDropdownItem(props: TProps)
   const { workspaceSlug } = useParams();
   // hooks
   const { t } = useTranslation();
+  const roleDetails = ROLE_DETAILS[workspace.role as keyof typeof ROLE_DETAILS] ?? ROLE_DETAILS[EUserPermissions.GUEST];
 
   return (
     <Link
@@ -74,7 +75,7 @@ const SidebarDropdownItem = observer(function SidebarDropdownItem(props: TProps)
                 {workspace.name}
               </div>
               <div className="flex w-fit gap-2 text-13 text-tertiary capitalize">
-                <span>{getUserRole(workspace.role)?.toLowerCase() || "guest"}</span>
+                <span>{t(roleDetails.i18n_title)}</span>
                 <div className="m-auto h-1 w-1 rounded-full bg-layer-1/50" />
                 <span className="capitalize">{t("member", { count: workspace.total_members || 0 })}</span>
               </div>
@@ -91,7 +92,9 @@ const SidebarDropdownItem = observer(function SidebarDropdownItem(props: TProps)
         {workspace.id === activeWorkspace?.id && (
           <>
             <div className="mt-2 mb-1 flex gap-2">
-              {[EUserPermissions.ADMIN, EUserPermissions.MEMBER].includes(workspace?.role) && (
+              {[EUserPermissions.SUPER_ADMIN, EUserPermissions.ADMIN, EUserPermissions.MEMBER].includes(
+                workspace.role
+              ) && (
                 <Link
                   href={`/${workspace.slug}/settings`}
                   onClick={(e) => {
@@ -104,7 +107,7 @@ const SidebarDropdownItem = observer(function SidebarDropdownItem(props: TProps)
                   <span className="my-auto text-13 font-medium whitespace-nowrap">{t("settings")}</span>
                 </Link>
               )}
-              {[EUserPermissions.ADMIN].includes(workspace?.role) && (
+              {[EUserPermissions.SUPER_ADMIN, EUserPermissions.ADMIN].includes(workspace.role) && (
                 <Link
                   href={`/${workspace.slug}/settings/members`}
                   onClick={(e) => {
