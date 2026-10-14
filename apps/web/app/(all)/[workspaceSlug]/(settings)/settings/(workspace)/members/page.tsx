@@ -20,6 +20,7 @@ import { CountChip } from "@/components/common/count-chip";
 import { PageHead } from "@/components/core/page-title";
 import { MemberListFiltersDropdown } from "@/components/project/dropdowns/filters/member-list";
 import { WorkspaceMembersList } from "@/components/workspace/settings/members-list";
+import { TelegramQuietSettings } from "@/components/workspace/settings/telegram-quiet-settings";
 // hooks
 import { useMember } from "@/hooks/store/use-member";
 import { useWorkspace } from "@/hooks/store/use-workspace";
@@ -146,6 +147,7 @@ const WorkspaceMembersSettingsPage = observer(function WorkspaceMembersSettingsP
             <BillingActionsButton canPerformWorkspaceAdminActions={canPerformWorkspaceAdminActions} />
           </div>
         </div>
+        {canPerformWorkspaceAdminActions && <TelegramQuietSettings workspaceSlug={workspaceSlug} />}
         <WorkspaceMembersList searchQuery={searchQuery} isAdmin={canPerformWorkspaceAdminActions} />
       </section>
     </SettingsContentWrapper>

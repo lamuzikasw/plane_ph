@@ -23,6 +23,37 @@ The management command polls Telegram locally and dispatches due events. It refu
 
 Open `/settings/profile/notifications/`, connect Telegram, press Start, and explicitly confirm the displayed Telegram account back in Plane. Links are random, hashed at rest, single-use and expire after 10 minutes. Reusing a Telegram identity already connected to another Plane account is rejected. Unlinking or disabling cancels pending events.
 
+## Administrator changes without Telegram
+
+In **Workspace settings → Members → Изменения без Telegram**, a workspace
+administrator or super administrator can select a member and start a one-hour
+quiet period. It suppresses Telegram events from **that administrator's own
+changes**, addressed to **that member**, in **that workspace**. Other colleagues,
+recipients and workspaces retain normal delivery. The member's personal
+preferences, in-app notifications, email policy and task activity history are
+unchanged. Starting/stopping the period does not contact the Telegram bot.
+
+The period ends automatically after one hour or with **Завершить**. Quiet events
+are discarded, not postponed. Closed periods remain in `telegram_quiet_periods`
+with the actor, recipient, start, expiry and stop times. Enqueue and delivery both
+check the original request's activity `epoch`, so a delayed worker cannot send
+quiet changes after the period ends. Legacy integer-second epochs are handled
+conservatively: the partial second containing activation/stop remains quiet.
+Earlier pending events are unaffected outside that boundary second.
+
+Authenticated workspace-admin endpoints (session authentication):
+
+- `GET /api/workspaces/{slug}/telegram-quiet-periods/`: own active periods and active workspace members.
+- `POST` to the same URL with `{"recipient":"<user UUID>"}`: start for one hour;
+  a repeated start returns the existing period without extending it.
+- `DELETE /api/workspaces/{slug}/telegram-quiet-periods/{id}/`: stop one's own
+  period, retaining its audit record. Other administrators cannot end it.
+
+Before automating changes, confirm the active recipient and workspace from the
+response, and ensure the task-editing account is the same administrator that
+started the period. Do not use personal pause controls for this: those retain
+events for later delivery.
+
 ## Local demonstration
 
 ```sh

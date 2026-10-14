@@ -4,6 +4,7 @@
 
 from django.urls import path
 from plane.app.views.notification.telegram import TelegramSettingsEndpoint
+from plane.app.views.notification.telegram_quiet import TelegramQuietPeriodsEndpoint, TelegramQuietPeriodDetailEndpoint
 
 
 from plane.app.views import (
@@ -15,6 +16,8 @@ from plane.app.views import (
 
 
 urlpatterns = [
+    path("workspaces/<str:slug>/telegram-quiet-periods/", TelegramQuietPeriodsEndpoint.as_view()),
+    path("workspaces/<str:slug>/telegram-quiet-periods/<uuid:pk>/", TelegramQuietPeriodDetailEndpoint.as_view()),
     path("users/me/telegram/", TelegramSettingsEndpoint.as_view(), name="telegram-settings"),
     path(
         "workspaces/<str:slug>/users/notifications/",
