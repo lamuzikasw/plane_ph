@@ -42,6 +42,12 @@ export interface IIssueRelationStore extends IIssueRelationStoreActions {
   // computed
   issueRelations: TIssueRelationIdMap | undefined;
   // helper methods
+  refreshRelations: (
+    workspaceSlug: string,
+    projectId: string,
+    issueId: string,
+    canApply: () => boolean
+  ) => Promise<void>;
   getRelationsByIssueId: (issueId: string) => TIssueRelationIdMap | undefined;
   getRelationCountByIssueId: (
     issueId: string,
@@ -110,9 +116,21 @@ export class IssueRelationStore implements IIssueRelationStore {
   };
 
   // actions
+  refreshRelations = async (workspaceSlug: string, projectId: string, issueId: string, canApply: () => boolean) => {
+    const snapshot = JSON.stringify(this.relationMap[issueId]);
+    const response = await this.issueRelationService.listIssueRelations(workspaceSlug, projectId, issueId);
+    // A background read must not undo a relation added or removed while it was in flight.
+    if (!canApply() || snapshot !== JSON.stringify(this.relationMap[issueId])) return;
+    this.applyRelations(issueId, response);
+  };
+
   fetchRelations = async (workspaceSlug: string, projectId: string, issueId: string) => {
     const response = await this.issueRelationService.listIssueRelations(workspaceSlug, projectId, issueId);
+    this.applyRelations(issueId, response);
+    return response;
+  };
 
+  private applyRelations = (issueId: string, response: TIssueRelation) => {
     runInAction(() => {
       Object.keys(response).forEach((key) => {
         const relation_key = key as TIssueRelationTypes;
@@ -126,8 +144,6 @@ export class IssueRelationStore implements IIssueRelationStore {
         );
       });
     });
-
-    return response;
   };
 
   createRelation = async (
@@ -326,6 +342,10 @@ export class IssueRelationStore implements IIssueRelationStore {
       runInAction(() => {
         for (const issue of issues) {
           const { issue_relation, issue_related, id: issueId } = issue;
+
+          // Ordinary list responses omit relation expansions. Only a complete
+          // pair of arrays is authoritative; omitted fields do not mean deleted relations.
+          if (!Array.isArray(issue_relation) || !Array.isArray(issue_related)) continue;
 
           const issueRelations: { [key in TIssueRelationTypes]?: string[] } = {};
 
