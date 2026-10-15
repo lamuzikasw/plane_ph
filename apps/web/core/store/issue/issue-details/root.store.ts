@@ -283,8 +283,15 @@ export abstract class IssueDetail implements IIssueDetail {
   // issue
   fetchIssue = async (workspaceSlug: string, projectId: string, issueId: string) =>
     this.issue.fetchIssue(workspaceSlug, projectId, issueId);
-  refreshIssue = async (workspaceSlug: string, projectId: string, issueId: string, canApply: () => boolean) =>
-    this.issue.refreshIssue(workspaceSlug, projectId, issueId, canApply);
+  refreshIssue = async (workspaceSlug: string, projectId: string, issueId: string, canApply: () => boolean) => {
+    const issue = this.issue.getIssueById(issueId);
+    await Promise.all([
+      this.issue.refreshIssue(workspaceSlug, projectId, issueId, canApply),
+      !issue?.canonical_issue_id || issue.canonical_issue_id === issueId
+        ? this.relation.refreshRelations(workspaceSlug, projectId, issueId, canApply)
+        : undefined,
+    ]);
+  };
   fetchIssueWithIdentifier = async (workspaceSlug: string, projectIdentifier: string, sequenceId: string) =>
     this.issue.fetchIssueWithIdentifier(workspaceSlug, projectIdentifier, sequenceId);
   updateIssue = async (workspaceSlug: string, projectId: string, issueId: string, data: Partial<TIssue>) =>
