@@ -102,10 +102,11 @@ class BaseFilterSet(FilterSet):
                     and isinstance(raw_value, str)
                     and all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", part) for part in raw_value.split(","))
                 ):
-                    field_name = f"{field_name}__date"
                     value = value.date() if f.lookup_expr == "exact" else [item.date() for item in value]
-                lookup = f"{field_name}__{f.lookup_expr}"
-                q_piece = Q(**{lookup: value})
+                    q_piece = self.build_calendar_date_q(field_name, f.lookup_expr, value)
+                else:
+                    lookup = f"{field_name}__{f.lookup_expr}"
+                    q_piece = Q(**{lookup: value})
 
             # Apply exclude/include logic
             if getattr(f, "exclude", False):
@@ -114,6 +115,9 @@ class BaseFilterSet(FilterSet):
                 combined_q &= q_piece
 
         return combined_q
+
+    def build_calendar_date_q(self, field_name, lookup, value):
+        return Q(**{f"{field_name}__date__{lookup}": value})
 
     def filter_queryset(self, queryset):
         """
@@ -184,6 +188,20 @@ class IssueFilterSet(BaseFilterSet):
             "is_draft": ["exact"],
             "priority": ["exact", "in"],
         }
+
+    def build_calendar_date_q(self, field_name, lookup, value):
+        if field_name != "target_date":
+            return super().build_calendar_date_q(field_name, lookup, value)
+
+        first_day, last_day = (value, value) if lookup == "exact" else value
+        if first_day > last_day:
+            return Q(pk__in=[])
+
+        # A task belongs to every calendar day of its execution period. Without
+        # a start date, it belongs only to its deadline day, not all earlier days.
+        return Q(target_date__date__gte=first_day) & (
+            Q(start_date__date__lte=last_day) | Q(start_date__isnull=True, target_date__date__lte=last_day)
+        )
 
     def filter_is_archived(self, queryset, name, value):
         """
